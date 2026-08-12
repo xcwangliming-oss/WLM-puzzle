@@ -14957,10 +14957,6 @@ function advanceContinuousScroll(deltaSec: number) {
 
 
 
-    || isPlayingStepTransition
-
-
-
   ) return;
 
 

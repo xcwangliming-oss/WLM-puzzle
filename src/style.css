@@ -57,6 +57,7 @@ html, body {
   background-position: center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
+  background-color: #2e3764;
   overflow: hidden;
 }
 
@@ -257,23 +258,44 @@ html, body {
 }
 
 #script-panel {
-  overflow-y: hidden;
+  overflow-y: auto;
 }
 
 #editor-panel {
-  width: 300px;
+  width: 280px;
 }
 
 #material-panel {
-  width: 300px;
+  width: 280px;
 }
 
 #script-panel {
-  width: 250px;
+  width: 232px;
 }
 
 #script-steps-panel {
-  width: 170px;
+  width: 158px;
+}
+
+body:not(.is-playable) #tab-level {
+  min-width: 1785px;
+}
+
+body:not(.is-playable) #game-ui {
+  flex: 0 0 755px;
+}
+
+body:not(.is-playable) #material-panel,
+body:not(.is-playable) #editor-panel {
+  flex: 0 0 280px;
+}
+
+body:not(.is-playable) #script-panel {
+  flex: 0 0 232px;
+}
+
+body:not(.is-playable) #script-steps-panel {
+  flex: 0 0 158px;
 }
 
 #script-step-list {
