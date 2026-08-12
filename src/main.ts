@@ -10109,7 +10109,7 @@ const BUILTIN_COLLECTIBLES: BuiltinCollectible[] = [
 
 
 
-    textureData: 'assets/coin.png'
+    textureData: 'assets/coin2/2_00.png'
 
 
 
