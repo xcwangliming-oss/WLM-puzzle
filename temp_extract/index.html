@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Block Puzzle Editor 2.0</title>
+    <script type="module" crossorigin src="./assets/index-DGo08aHS.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BVeqWdYy.css">
+  </head>
+  <body>
+    <!-- Editor Settings Panel (Left Side of Browser) -->
+    <div id="material-panel" style="display: flex; flex-direction: column; gap: 12px; max-height: 98vh; overflow-y: auto;">
+      <div style="display: flex; flex-direction: column;">
+        <h3 style="margin-top: 5px; margin-bottom: 8px;">🎨 材质包管理</h3>
+        <div id="material-list" class="material-slots-container">
+          <!-- Dynamic list will be rendered here -->
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; border-top: 1px solid #444; padding-top: 10px;">
+        <h3 style="margin-top: 5px; margin-bottom: 8px;">🎵 音效包管理</h3>
+        <div id="sound-list" class="material-slots-container">
+          <!-- Dynamic list will be rendered here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Game Phone UI -->
+    <div id="game-ui">
+      <!-- Main Content Area -->
+      <div id="main-layout">
+        <!-- Canvas Container -->
+        <div id="canvas-container">
+          <div id="board-wrapper">
+            <div id="game-header">
+              <div class="header-item">LEVEL: <span id="level-val">284</span></div>
+              <div class="header-item">SCORE: <span id="score-val">854,682</span></div>
+            </div>
+            <!-- Canvas is inserted here via JS -->
+            <div id="game-over-text" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:48px; font-weight:900; color:#ff3366; text-shadow:0 0 20px rgba(255, 51, 102, 0.5); display:none; z-index:10; pointer-events:none;">GAME OVER</div>
+          </div>
+        </div>
+
+        <!-- Side Menus (Game Controls) -->
+        <div id="bottom-menu" class="side-menu">
+          <button id="btn-random" class="menu-btn blue">
+            <span class="icon">↺</span>随机排面
+          </button>
+          <button id="btn-draw" class="menu-btn purple">
+            <span class="icon">✎</span>画排面
+          </button>
+          <button id="btn-manual" class="menu-btn pink">
+            <span class="icon">🧱</span>手动摆放
+          </button>
+          <button id="btn-play" class="menu-btn orange">
+            <span class="icon">▶</span>开始游戏
+          </button>
+          <button id="btn-record" class="menu-btn green">
+            <span class="icon">⏺</span>开始录制
+          </button>
+          <div id="time-display" style="color: #fff; font-size: 24px; font-weight: 700; text-align: center; font-family: 'PingFang SC', sans-serif; text-shadow: 0 0 10px rgba(255,255,255,0.3);">0.0s</div>
+          <button id="btn-normal-mode" class="menu-btn blue">
+            <span class="icon">🧱</span>普通模式
+          </button>
+          <button id="btn-color-mode" class="menu-btn gray">
+            <span class="icon">🎨</span>变色模式
+          </button>
+          <button id="btn-rainbow-mode" class="menu-btn gray">
+            <span class="icon">🌈</span>彩虹模式
+          </button>
+          <button id="btn-rainbow-fixed-mode" class="menu-btn gray">
+            <span class="icon">🎡</span>彩虹固定
+          </button>
+          <button id="btn-material-mode" class="menu-btn gray">
+            <span class="icon">💎</span>变材质模式
+          </button>
+          <button id="btn-nogravity-mode" class="menu-btn gray">
+            <span class="icon">🎈</span>无重力模式
+          </button>
+        </div>
+
+        <div id="draw-menu" class="side-menu hidden">
+          <button id="btn-generate" class="menu-btn green wide">✔ 完成画面</button>
+          <button id="btn-cancel" class="menu-btn gray wide">取消</button>
+        </div>
+
+        <div id="manual-menu" class="side-menu hidden" style="width: 190px;">
+          <div style="font-weight: bold; font-size: 16px; margin-bottom: 5px; text-align: center; color: #fff;">🧱 手动摆放</div>
+          <div style="font-size: 11px; color: #a0a0b5; text-align: center; margin-bottom: 12px; line-height: 1.4;">
+            在网格中点击进行摆放；点击已有方块可删除。
+          </div>
+          
+          <div id="manual-block-palette" style="display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; padding-right: 5px;">
+            <!-- Block palette rows will be generated via JavaScript -->
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+            <button id="btn-manual-clear" class="menu-btn gray" style="padding: 10px; font-size: 13px; width: 100%; flex-direction: row; gap: 5px;">
+              <span class="icon" style="margin-bottom:0;">🗑️</span>清空画布
+            </button>
+            <button id="btn-manual-generate" class="menu-btn green" style="padding: 12px; font-size: 14px; width: 100%; flex-direction: row; gap: 5px;">
+              ✔ 完成摆放
+            </button>
+            <button id="btn-manual-cancel" class="menu-btn gray" style="padding: 10px; font-size: 13px; width: 100%; flex-direction: row; gap: 5px;">
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Editor Settings Panel (Right Side of Browser) -->
+    <div id="editor-panel">
+
+      <div class="settings-section">
+        <h4>镜头与尺寸配置</h4>
+        <div class="config-row-pair">
+          <div class="prob-row compact"><label>列数:</label><input type="number" id="input-cols" min="4" max="20" value="10"></div>
+          <div class="prob-row compact"><label>行数:</label><input type="number" id="input-vprows" min="6" max="30" value="17"></div>
+        </div>
+        <div class="config-row-pair">
+          <div class="prob-row compact"><label>总行数:</label><input type="number" id="input-rows" min="10" max="200" value="50"></div>
+          <div class="prob-row compact"><label>格子高:</label><input type="number" id="input-cellsize" min="20" max="100" value="50"></div>
+        </div>
+        <div class="config-row-pair">
+          <div class="prob-row compact"><label>速度:</label><input type="number" id="input-speed" min="10" max="300" value="30"></div>
+          <div class="prob-row compact"><label>Level:</label><input type="number" id="input-level" min="1" max="999" value="284"></div>
+        </div>
+        <div class="config-row-pair">
+          <div class="prob-row compact"><label>分数:</label><input type="number" id="input-score" min="0" value="854682"></div>
+          <div class="prob-row compact" style="justify-content: flex-start; gap: 5px;"><label title="开启后录制的视频背景为纯绿，方便后期剪辑软件一键抠图">绿幕:</label><input type="checkbox" id="input-greenscreen" style="width:16px;height:16px; margin:0;"></div>
+        </div>
+        <div class="config-row-pair">
+          <div class="prob-row compact" style="justify-content: flex-start; gap: 5px;"><label title="开启后隐藏顶部的关卡与积分文案">隐藏文案:</label><input type="checkbox" id="input-hidetext" style="width:16px;height:16px; margin:0;"></div>
+          <div class="prob-row compact" style="justify-content: flex-start; gap: 5px;"><label title="开启后消除方块时不播放破碎动画">隐藏破碎:</label><input type="checkbox" id="input-hideshatter" style="width:16px;height:16px; margin:0;"></div>
+        </div>
+        <div class="config-row-pair" style="margin-top: 8px; margin-bottom: 0;">
+          <div class="prob-row compact" style="justify-content: flex-start; gap: 8px; align-items: center; width: 100%;">
+            <label style="font-size: 12px; color: #ddd; white-space: nowrap;">破碎方式:</label>
+            <div class="shatter-mode-group" style="display: flex; gap: 4px; background: #1a1a25; padding: 2px; border-radius: 6px; border: 1px solid #444; width: 100%; justify-content: space-around;">
+              <button type="button" class="shatter-mode-btn active" data-mode="1" title="中间向两边扩散" style="flex: 1; border: none; background: #3b6bdc; color: white; padding: 4px 0; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.1s;">↔️</button>
+              <button type="button" class="shatter-mode-btn" data-mode="2" title="同时消失" style="flex: 1; border: none; background: transparent; color: #aaa; padding: 4px 0; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.1s;">⚡</button>
+              <button type="button" class="shatter-mode-btn" data-mode="3" title="从左往右" style="flex: 1; border: none; background: transparent; color: #aaa; padding: 4px 0; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.1s;">➡️</button>
+              <button type="button" class="shatter-mode-btn" data-mode="4" title="从右往左" style="flex: 1; border: none; background: transparent; color: #aaa; padding: 4px 0; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.1s;">⬅️</button>
+            </div>
+          </div>
+        </div>
+        <!-- 可视化特效类型卡片管理 -->
+        <div style="display: flex; flex-direction: column; border-top: 1px solid #444; padding-top: 6px; margin-top: 6px;">
+          <h4 style="margin: 0 0 4px 0; color: #a0a0b5; font-size: 12px;">✨ 特效类型管理</h4>
+          <div class="material-slots-container" style="gap: 10px;">
+            <!-- 默认特效 -->
+            <div class="material-card effect-card active" data-type="default">
+              <div class="material-card-preview has-files" style="width: 40px; height: 40px;">
+                <div class="material-card-sound-icon" style="font-size: 14px;">💥</div>
+              </div>
+              <div class="material-card-label" style="font-size: 10px; margin-top: 2px;">默认</div>
+            </div>
+            <!-- 高光特效 -->
+            <div class="material-card effect-card" data-type="highlight">
+              <div class="material-card-preview has-files" style="width: 40px; height: 40px;">
+                <div class="material-card-sound-icon" style="font-size: 14px;">⚡</div>
+              </div>
+              <div class="material-card-label" style="font-size: 10px; margin-top: 2px;">高光</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top: 6px; border-top: 1px solid #444; padding-top: 8px;">
+          <button id="btn-shift-up" class="btn-apply" style="flex:1; padding: 5px 8px; font-size:11px; margin-top:0; background: #3b6bdc; font-weight: normal;">排面上移 ⬆️</button>
+          <button id="btn-shift-down" class="btn-apply" style="flex:1; padding: 5px 8px; font-size:11px; margin-top:0; background: #ff8c00; font-weight: normal;">排面下移 ⬇️</button>
+        </div>
+      </div>
+
+      <!-- 方块生成概率权重 -->
+      <div class="settings-section">
+        <div class="prob-row"><label>1格块权重:</label><input type="range" id="prob-1" min="0" max="100" value="20"><span id="val-1">20</span></div>
+        <div class="prob-row"><label>2格块权重:</label><input type="range" id="prob-2" min="0" max="100" value="40"><span id="val-2">40</span></div>
+        <div class="prob-row"><label>3格块权重:</label><input type="range" id="prob-3" min="0" max="100" value="30"><span id="val-3">30</span></div>
+        <div class="prob-row"><label>4格块权重:</label><input type="range" id="prob-4" min="0" max="100" value="10"><span id="val-4">10</span></div>
+      </div>
+
+      <div class="settings-section">
+        <h4>💾 排面存档管理</h4>
+        <div style="display:flex; gap:10px; margin-bottom: 10px;">
+          <input type="text" id="input-save-name" placeholder="输入存档名称..." style="flex:1; background: #1a1a25; border: 1px solid #444; color: white; padding: 8px; border-radius: 4px; font-weight: bold; font-size:12px;">
+          <button id="btn-save-slot" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0;">保存</button>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <select id="save-slot" style="flex:1; background: #1a1a25; border: 1px solid #444; color: white; padding: 8px; border-radius: 4px; font-weight: bold; font-size:12px;">
+            <option value="">-- 选择已有存档 --</option>
+          </select>
+          <button id="btn-load-slot" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0; background: #9d2cb3;">读取</button>
+          <button id="btn-delete-slot" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0; background: #d93838;">删除</button>
+        </div>
+        <div style="display:flex; gap:10px; margin-top: 10px;">
+          <button id="btn-export-layout" class="btn-apply" style="flex:1; padding: 8px; font-size:12px; margin-top:0; background: #00d25b;">导出到本地文件</button>
+          <button id="btn-import-layout" class="btn-apply" style="flex:1; padding: 8px; font-size:12px; margin-top:0; background: #3b6bdc;">从本地文件导入</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4>💾 固定排面存档管理</h4>
+        <div style="display:flex; gap:10px; margin-bottom: 10px;">
+          <input type="text" id="input-fixed-save-name" placeholder="输入固定排面名称..." style="flex:1; background: #1a1a25; border: 1px solid #444; color: white; padding: 8px; border-radius: 4px; font-weight: bold; font-size:12px;">
+          <button id="btn-fixed-save-slot" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0;">保存</button>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <select id="fixed-save-slot" style="flex:1; background: #1a1a25; border: 1px solid #444; color: white; padding: 8px; border-radius: 4px; font-weight: bold; font-size:12px;">
+            <option value="">-- 选择已有存档 --</option>
+          </select>
+          <button id="btn-fixed-load-slot" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0; background: #9d2cb3;">读取</button>
+          <button id="btn-fixed-delete-slot" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0; background: #d93838;">删除</button>
+        </div>
+        <div style="display:flex; gap:10px; margin-top: 10px;">
+          <button id="btn-fixed-export-layout" class="btn-apply" style="flex:1; padding: 8px; font-size:12px; margin-top:0; background: #00d25b;">导出到本地文件</button>
+          <button id="btn-fixed-import-layout" class="btn-apply" style="flex:1; padding: 8px; font-size:12px; margin-top:0; background: #3b6bdc;">从本地文件导入</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step Script Editor Panel -->
+    <div id="script-panel">
+      <h3>🎬 步骤演示编辑器</h3>
+      <div class="settings-section" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-script-record" class="btn-apply" style="flex: 1; background: #d93838; margin-top: 0; padding: 10px; font-size: 13px;">● 开始录制</button>
+          <button id="btn-script-play" class="btn-apply" style="flex: 1; background: #00d25b; margin-top: 0; padding: 10px; font-size: 13px;">▶ 自动播放</button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-script-play-scroll" class="btn-apply" style="flex: 1; background: #ff8c00; margin-top: 0; padding: 10px; font-size: 13px;">▶ 自动播放 (带上升)</button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-script-reset" class="btn-apply" style="flex: 1; background: #9d2cb3; margin-top: 0; padding: 10px; font-size: 13px;">↺ 重置起点</button>
+          <button id="btn-script-clear" class="btn-apply" style="flex: 1; background: #4a4a5e; margin-top: 0; padding: 10px; font-size: 13px;">🗑️ 清空步骤</button>
+        </div>
+        <div class="prob-row" style="margin-top: 5px; margin-bottom: 0;">
+          <label style="width: 120px;">单步滑行(s):</label>
+          <input type="number" id="input-script-duration" min="0.05" max="2.0" step="0.05" value="0.3">
+        </div>
+        <div class="prob-row" style="margin-top: 5px; margin-bottom: 0;">
+          <label style="width: 120px;">滑动后停顿(s):</label>
+          <input type="number" id="input-script-delay-slide" min="0.0" max="2.0" step="0.05" value="0.15">
+        </div>
+        <div class="prob-row" style="margin-top: 5px; margin-bottom: 0;">
+          <label style="width: 120px;">消除后停顿(s):</label>
+          <input type="number" id="input-script-delay-elim" min="0.0" max="2.0" step="0.05" value="0.1">
+        </div>
+        <div class="prob-row" style="margin-top: 5px; margin-bottom: 0;">
+          <label style="width: 120px;">步骤间隔(s):</label>
+          <input type="number" id="input-script-delay-step" min="0.0" max="2.0" step="0.05" value="0.5">
+        </div>
+        <div class="prob-row" style="margin-top: 5px; margin-bottom: 0;">
+          <label style="width: 120px;">上升速度(px/s):</label>
+          <input type="number" id="input-script-scroll-speed" min="0" max="300" step="5" value="30">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4 style="margin: 0 0 10px 0;">💾 演示剧本存档</h4>
+        <div style="display:flex; gap:8px; margin-bottom: 8px;">
+          <input type="text" id="input-script-save-name" placeholder="输入剧本名称..." style="flex:1; background: #1a1a25; border: 1px solid #444; color: white; padding: 8px; border-radius: 4px; font-weight: bold; font-size:12px;">
+          <button id="btn-script-save" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0; background: #00d25b;">保存</button>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <select id="select-script-save-slot" style="flex:1; background: #1a1a25; border: 1px solid #444; color: white; padding: 8px; border-radius: 4px; font-weight: bold; font-size:12px;">
+            <option value="">-- 选择已有剧本 --</option>
+          </select>
+          <button id="btn-script-load" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0; background: #9d2cb3;">读取</button>
+          <button id="btn-script-delete" class="btn-apply" style="padding: 10px; font-size:12px; margin-top:0; background: #d93838;">删除</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-top: 8px;">
+          <button id="btn-script-export" class="btn-apply" style="flex:1; padding: 8px; font-size:12px; margin-top:0; background: #3b6bdc;">导出到文件</button>
+          <button id="btn-script-import" class="btn-apply" style="flex:1; padding: 8px; font-size:12px; margin-top:0; background: #7c7c7c;">从文件导入</button>
+        </div>
+      </div>
+
+      <div class="settings-section" style="flex: 1; display: flex; flex-direction: column; min-height: 250px; margin-bottom: 0;">
+        <h4 style="margin: 0 0 10px 0;">步骤列表 (点击跳转/拖拽修改)</h4>
+        <div id="script-step-list" class="material-slots-container" style="max-height: calc(95vh - 280px);">
+          <!-- Dynamic steps list -->
+        </div>
+      </div>
+    </div>
+
+  </body>
+</html>

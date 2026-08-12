@@ -1,0 +1,59 @@
+Created At: 2026-08-12T15:54:32+08:00
+Completed At: 2026-08-12T15:54:32+08:00
+The following changes were made by the multi_replace_file_content tool to: e:\Gemini\Puzzle编辑器\src\main.ts. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -18606,24 +18606,34 @@
+ 
+ 
+     let texture = PIXI.Assets.get(`${color}-${length}`);
+-
+-
+-
+     if (color === 'collectible' && activeCollectibleTexture) {
+-
+-
+-
+-) {
+-
+-
+-
+-        texture = activeCollectibleTexture;
+-
+-
+-
+-    }
+-
+-
++      texture = activeCollectibleTexture;
++    }
++    if (texture) {
++      manualPreviewSprite.texture = texture;
++    }
++  }
++
++  manualPreviewSprite.width = length * PARAMS.cellSize;
++  manualPreviewSprite.height = PARAMS.cellSize;
++  manualPreviewSprite.x = col * PARAMS.cellSize;
++  manualPreviewSprite.y = row * PARAMS.cellSize;
++
++  if (canPlaceBlock(col, row, length)) {
++    manualPreviewSprite.tint = 0x00ff00;
++    manualPreviewSprite.alpha = 0.6;
++  } else {
++    const existing = blocks.find(b => b.row === row && col >= b.col && col < b.col + b.length);
++    if (existing) {
++      manualPreviewSprite.tint = 0xff3366;
++      manualPreviewSprite.alpha = 0.7;
++    } else {
++      manualPreviewSprite.tint = 0xff0000;
++      manualPreviewSprite.alpha = 0.4;
++    }
++  }
++  manualPreviewSprite.visible = true;
++}
+ 
+ // Custom prop texture state
+ let customPropMachineImg: HTMLImageElement | null = null;
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
