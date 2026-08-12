@@ -916,5 +916,259 @@
       <button id="btn-script-import"></button>
       <div id="script-step-list"></div>
     </div>
+    <script>
+      (() => {
+        const dummy = document.getElementById('dummy-removed-elements');
+        const editorPanel = document.getElementById('editor-panel');
+        if (!dummy || !editorPanel || document.getElementById('script-panel')) return;
+
+        const take = (id) => {
+          const el = document.getElementById(id);
+          if (!el) throw new Error(`Missing restored control: ${id}`);
+          return el;
+        };
+
+        const section = (title) => {
+          const wrap = document.createElement('div');
+          wrap.className = 'settings-section';
+          const heading = document.createElement('h4');
+          heading.textContent = title;
+          wrap.appendChild(heading);
+          return wrap;
+        };
+
+        const row = (...children) => {
+          const wrap = document.createElement('div');
+          wrap.style.display = 'flex';
+          wrap.style.gap = '10px';
+          wrap.style.marginBottom = '10px';
+          children.forEach(child => wrap.appendChild(child));
+          return wrap;
+        };
+
+        const applyInputStyle = (input, placeholder) => {
+          input.placeholder = placeholder;
+          input.style.flex = '1';
+          input.style.background = '#1a1a25';
+          input.style.border = '1px solid #444';
+          input.style.color = 'white';
+          input.style.padding = '8px';
+          input.style.borderRadius = '4px';
+          input.style.fontWeight = 'bold';
+          input.style.fontSize = '12px';
+        };
+
+        const applySelectStyle = (select) => {
+          select.style.flex = '1';
+          select.style.background = '#1a1a25';
+          select.style.border = '1px solid #444';
+          select.style.color = 'white';
+          select.style.padding = '8px';
+          select.style.borderRadius = '4px';
+          select.style.fontWeight = 'bold';
+          select.style.fontSize = '12px';
+        };
+
+        const applyButton = (button, text, bg = '') => {
+          button.textContent = text;
+          button.className = 'btn-apply';
+          button.style.padding = '10px';
+          button.style.fontSize = '12px';
+          button.style.marginTop = '0';
+          if (bg) button.style.background = bg;
+        };
+
+        const addOption = (select, text) => {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = text;
+          select.appendChild(opt);
+        };
+
+        const layoutSection = section('💾 排面存档管理');
+        const saveName = take('input-save-name');
+        const saveBtn = take('btn-save-slot');
+        const saveSlot = take('save-slot');
+        const loadBtn = take('btn-load-slot');
+        const deleteBtn = take('btn-delete-slot');
+        const exportBtn = take('btn-export-layout');
+        const importBtn = take('btn-import-layout');
+        applyInputStyle(saveName, '输入存档名称...');
+        applyButton(saveBtn, '保存');
+        applySelectStyle(saveSlot);
+        addOption(saveSlot, '-- 选择已有存档 --');
+        applyButton(loadBtn, '读取', '#9d2cb3');
+        applyButton(deleteBtn, '删除', '#d93838');
+        applyButton(exportBtn, '导出到本地文件', '#00d25b');
+        applyButton(importBtn, '从本地文件导入', '#3b6bdc');
+        layoutSection.append(row(saveName, saveBtn));
+        layoutSection.append(row(saveSlot, loadBtn, deleteBtn));
+        layoutSection.append(row(exportBtn, importBtn));
+        editorPanel.appendChild(layoutSection);
+
+        const fixedSection = section('💾 固定排面存档管理');
+        const fixedName = take('input-fixed-save-name');
+        const fixedSaveBtn = take('btn-fixed-save-slot');
+        const fixedSlot = take('fixed-save-slot');
+        const fixedLoadBtn = take('btn-fixed-load-slot');
+        const fixedDeleteBtn = take('btn-fixed-delete-slot');
+        const fixedExportBtn = take('btn-fixed-export-layout');
+        const fixedImportBtn = take('btn-fixed-import-layout');
+        applyInputStyle(fixedName, '输入固定排面名称...');
+        applyButton(fixedSaveBtn, '保存');
+        applySelectStyle(fixedSlot);
+        addOption(fixedSlot, '-- 选择已有存档 --');
+        applyButton(fixedLoadBtn, '读取', '#9d2cb3');
+        applyButton(fixedDeleteBtn, '删除', '#d93838');
+        applyButton(fixedExportBtn, '导出到本地文件', '#00d25b');
+        applyButton(fixedImportBtn, '从本地文件导入', '#3b6bdc');
+        fixedSection.append(row(fixedName, fixedSaveBtn));
+        fixedSection.append(row(fixedSlot, fixedLoadBtn, fixedDeleteBtn));
+        fixedSection.append(row(fixedExportBtn, fixedImportBtn));
+        editorPanel.appendChild(fixedSection);
+
+        const scriptPanel = document.createElement('div');
+        scriptPanel.id = 'script-panel';
+        scriptPanel.innerHTML = '<h3>🎬 步骤演示编辑器</h3>';
+        const scriptControls = section('');
+        scriptControls.style.display = 'flex';
+        scriptControls.style.flexDirection = 'column';
+        scriptControls.style.gap = '8px';
+
+        const scriptRecord = take('btn-script-record');
+        const scriptPlay = take('btn-script-play');
+        const scriptRisingPlay = take('btn-script-rising-play');
+        const scriptScrollPlay = take('btn-script-play-scroll');
+        const scriptPause = take('input-script-initial-pause');
+        const scriptReset = take('btn-script-reset');
+        const scriptClear = take('btn-script-clear');
+        applyButton(scriptRecord, '● 开始录制', '#d93838');
+        applyButton(scriptPlay, '▶ 自动播放', '#00d25b');
+        applyButton(scriptRisingPlay, '▶ 自动播放 (上升)', '#3b6bdc');
+        applyButton(scriptScrollPlay, '▶ 自动播放 (滚动)', '#ff8c00');
+        applyButton(scriptReset, '↺ 重置起点', '#9d2cb3');
+        applyButton(scriptClear, '🗑 清空步骤', '#4a4a5e');
+        ['无', '静止0.5s', '静止1s', '静止2s'].forEach((text, index) => {
+          const opt = document.createElement('option');
+          opt.value = ['0', '0.5', '1', '2'][index];
+          opt.textContent = text;
+          scriptPause.appendChild(opt);
+        });
+        scriptControls.append(row(scriptRecord));
+        scriptControls.append(row(scriptPlay, scriptRisingPlay));
+        scriptControls.append(row(scriptScrollPlay));
+        const pauseRow = row(document.createTextNode('开头静止'), scriptPause);
+        scriptControls.append(pauseRow);
+        scriptControls.append(row(scriptReset, scriptClear));
+
+        const numberFields = [
+          ['input-script-duration', '单步滑行(s):', '0.3'],
+          ['input-script-delay-slide', '滑动后停顿(s):', '0.15'],
+          ['input-script-delay-elim', '消除后停顿(s):', '0.1'],
+          ['input-script-delay-step', '步骤间隔(s):', '0.5'],
+          ['input-script-gravity-dur', '下落节奏(s):', '0.3'],
+          ['input-script-scroll-speed', '上升速度(px/s):', '30'],
+        ];
+        numberFields.forEach(([id, label, value]) => {
+          const input = take(id);
+          input.type = 'number';
+          input.value = input.value || value;
+          const labelEl = document.createElement('label');
+          labelEl.textContent = label;
+          labelEl.style.width = '120px';
+          scriptControls.append(row(labelEl, input));
+        });
+        scriptPanel.appendChild(scriptControls);
+
+        const autoSection = section('⚡ 自动演示生成器');
+        [
+          ['input-autoplay-target-duration', '目标演示时长(s):', '30'],
+          ['input-autoplay-timeout', '生成超时上限(s):', '30'],
+          ['input-autoplay-max-non-elim', '最多连续无消步:', '2'],
+          ['input-autoplay-min-combo', '最少连消要求:', '0'],
+        ].forEach(([id, label, value]) => {
+          const input = take(id);
+          input.type = 'number';
+          input.value = input.value || value;
+          const labelEl = document.createElement('label');
+          labelEl.textContent = label;
+          labelEl.style.width = '120px';
+          autoSection.append(row(labelEl, input));
+        });
+        const firstElim = take('input-autoplay-first-elim-step');
+        ['1 (首步必须消除)', '2', '3', '4', '5', '不限制'].forEach((text, index) => {
+          const opt = document.createElement('option');
+          opt.value = index === 5 ? '999' : String(index + 1);
+          opt.textContent = text;
+          if (index === 5) opt.selected = true;
+          firstElim.appendChild(opt);
+        });
+        const firstElimLabel = document.createElement('label');
+        firstElimLabel.textContent = '第一次消除步数:';
+        firstElimLabel.style.width = '120px';
+        autoSection.append(row(firstElimLabel, firstElim));
+        const requireMulti = take('input-autoplay-require-multi');
+        const requireLabel = document.createElement('label');
+        requireLabel.className = 'vc-toggle';
+        requireLabel.appendChild(requireMulti);
+        const requireText = document.createElement('span');
+        requireText.textContent = '需要多行消除';
+        requireLabel.appendChild(requireText);
+        autoSection.appendChild(requireLabel);
+        const autoGenerate = take('btn-autoplay-generate');
+        applyButton(autoGenerate, '⚡ 自动生成步骤演示', 'linear-gradient(135deg, #ff8c00, #d93838)');
+        autoGenerate.style.width = '100%';
+        autoSection.appendChild(autoGenerate);
+        const autoStatus = take('autoplay-status');
+        autoStatus.style.marginTop = '8px';
+        autoStatus.style.fontSize = '12px';
+        autoStatus.style.textAlign = 'center';
+        autoStatus.style.color = '#ffaa00';
+        autoStatus.style.display = 'none';
+        autoSection.appendChild(autoStatus);
+        const autogenButtons = take('autogen-play-buttons');
+        autogenButtons.style.display = 'none';
+        autogenButtons.style.flexDirection = 'column';
+        autogenButtons.style.gap = '6px';
+        ['btn-autogen-play', 'btn-autogen-play-rising', 'btn-autogen-play-scroll'].forEach((id) => {
+          const btn = take(id);
+          applyButton(btn, btn.textContent || '▶ 自动播放', '#3b6bdc');
+          autogenButtons.appendChild(btn);
+        });
+        autoSection.appendChild(autogenButtons);
+        scriptPanel.appendChild(autoSection);
+        editorPanel.insertAdjacentElement('afterend', scriptPanel);
+
+        const scriptStepsPanel = document.createElement('div');
+        scriptStepsPanel.id = 'script-steps-panel';
+        const scriptSaveSection = section('💾 演示剧本存档');
+        const scriptName = take('input-script-save-name');
+        const scriptSave = take('btn-script-save');
+        const scriptSlot = take('select-script-save-slot');
+        const scriptLoad = take('btn-script-load');
+        const scriptDelete = take('btn-script-delete');
+        const scriptExport = take('btn-script-export');
+        const scriptImport = take('btn-script-import');
+        applyInputStyle(scriptName, '输入名称...');
+        applyButton(scriptSave, '保存', '#00d25b');
+        applySelectStyle(scriptSlot);
+        addOption(scriptSlot, '-- 选择已有剧本 --');
+        applyButton(scriptLoad, '读取', '#9d2cb3');
+        applyButton(scriptDelete, '删除', '#d93838');
+        applyButton(scriptExport, '导出', '#3b6bdc');
+        applyButton(scriptImport, '导入', '#7c7c7c');
+        scriptSaveSection.append(row(scriptName, scriptSave));
+        scriptSaveSection.append(row(scriptSlot));
+        scriptSaveSection.append(row(scriptLoad, scriptDelete));
+        scriptSaveSection.append(row(scriptExport, scriptImport));
+        scriptStepsPanel.appendChild(scriptSaveSection);
+        const stepSection = section('步骤列表 (点击跳转/拖拽修改)');
+        const stepList = take('script-step-list');
+        stepList.className = 'material-slots-container';
+        stepSection.appendChild(stepList);
+        scriptStepsPanel.appendChild(stepSection);
+        scriptPanel.insertAdjacentElement('afterend', scriptStepsPanel);
+      })();
+    </script>
   </body>
 </html>
