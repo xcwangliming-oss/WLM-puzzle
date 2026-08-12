@@ -33,6 +33,7 @@ import {
 } from './boardMechanics.ts'
 import { getFailureOverlayMotion } from './failureOverlay.ts'
 import { getPlayableBlockLoadError } from './playableStateContract.ts'
+import { getNoGravityPlaybackMaxRow, releaseNoGravityBlocksInRange } from './noGravityRules.ts'
 
 function showFailureImpact() {
   const overlay = document.getElementById('game-failure-overlay');
@@ -4522,6 +4523,10 @@ function getRuntimeGravityMaxRow(worldY: number = worldContainer?.y || 0): numbe
 
 
 
+  if (isNoGravityMode) return getVisibleBottomRowForWorldY(worldY);
+
+
+
   if (isFallingMode) return PARAMS.totalRows - 1;
 
 
@@ -4586,15 +4591,11 @@ function getStepGravityMaxRow(step: ScriptStep): number {
 
 
 
-      if (savedMaxRow > recordedMaxRow + 1) {
-
-
-
-        return recordedMaxRow;
-
-
-
-      }
+      return getNoGravityPlaybackMaxRow(
+        scriptPlaybackAdvanceMode,
+        savedMaxRow,
+        getRuntimeGravityMaxRow()
+      );
 
 
 
@@ -5046,23 +5047,11 @@ function scriptNeedsPlaybackRepair(): boolean {
 
 
 
-    const recordedMaxRow = getRecordedStepPhysicsMaxRow(step);
-
-
-
     if (!Number.isFinite(step.gravityMaxRow)) return true;
 
 
 
-    const savedMaxRow = Math.min(PARAMS.totalRows - 1, Math.max(0, Math.floor(step.gravityMaxRow!)));
-
-
-
-    if (savedMaxRow < recordedMaxRow) return true;
-
-
-
-    return isNoGravityMode && savedMaxRow > recordedMaxRow + 1;
+    return false;
 
 
 
@@ -5944,7 +5933,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-      releaseVisibleNoGravityBlocks(stepWorldY, getStepGravityMaxRow(step));
+      releaseNoGravityBlocksInCurrentBoard(stepWorldY, getStepGravityMaxRow(step));
 
 
 
@@ -6208,7 +6197,7 @@ function jumpToStepState(stepIndex: number) {
 
 
 
-    releaseVisibleNoGravityBlocks(getStepScrollY(step), getStepGravityMaxRow(step));
+    releaseNoGravityBlocksInCurrentBoard(getStepScrollY(step), getStepGravityMaxRow(step));
 
 
 
@@ -7536,7 +7525,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    releaseVisibleNoGravityBlocks(recordedStepWorldY, getStepGravityMaxRow(step));
+    releaseNoGravityBlocksInCurrentBoard(recordedStepWorldY, getStepGravityMaxRow(step));
 
 
 
@@ -15559,6 +15548,10 @@ function registerGameLoop() {
 
 
 
+      && !isPlayingScript
+
+
+
       && !isPlayingAutoGenScript
 
 
@@ -20653,7 +20646,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
       playableSwipes++;
       if (typeof (window as any).checkPlayableLimits === 'function') (window as any).checkPlayableLimits();
 
-      releaseVisibleNoGravityBlocks();
+      releaseNoGravityBlocksInCurrentBoard();
 
       hasAnyEliminationThisStep = false;
 
@@ -21112,7 +21105,7 @@ function detectFloatingBlocks() {
 
 
 
-function resolveNoGravityStates() {
+function resolveNoGravityStates(maxGravityRow: number = getActivePhysicsMaxRow()) {
 
 
 
@@ -21172,7 +21165,7 @@ function resolveNoGravityStates() {
 
 
 
-      while (targetRow < PARAMS.totalRows - 1) {
+      while (targetRow < maxGravityRow) {
 
 
 
@@ -21304,7 +21297,7 @@ function resolveNoGravityStates() {
 
 
 
-function releaseVisibleNoGravityBlocks(viewportY: number = worldContainer.y, maxRowOverride?: number) {
+function releaseNoGravityBlocksInCurrentBoard(viewportY: number = worldContainer.y, maxRowOverride?: number) {
 
 
 
@@ -21367,27 +21360,14 @@ function releaseVisibleNoGravityBlocks(viewportY: number = worldContainer.y, max
 
 
 
-
-  blocks.forEach(b => {
-
-
-
-    if (b.row >= minVisibleRow && b.row <= maxVisibleRow) {
+  releaseNoGravityBlocksInRange(blocks, minVisibleRow, maxVisibleRow);
 
 
 
-      b.noGravity = false;
+}
 
-
-
-    }
-
-
-
-  });
-
-
-
+function releaseVisibleNoGravityBlocks(viewportY: number = worldContainer.y, maxRowOverride?: number) {
+  releaseNoGravityBlocksInCurrentBoard(viewportY, maxRowOverride);
 }
 
 
@@ -40101,12 +40081,11 @@ function getSimMoveBounds(simBlocks: SimBlock[], block: SimBlock): { minCol: num
 
 
 
-function applySimGravity(simBlocks: SimBlock[]) {
+function getSimGravityMaxRow(maxVisibleRow: number): number {
+  return isNoGravityMode ? maxVisibleRow : PARAMS.totalRows - 1;
+}
 
-
-
-  const maxGravityRow = PARAMS.totalRows - 1;
-
+function applySimGravity(simBlocks: SimBlock[], maxGravityRow: number = PARAMS.totalRows - 1) {
 
 
   simBlocks.sort((a, b) => b.row - a.row);
@@ -40300,7 +40279,13 @@ function checkSimEliminations(simBlocks: SimBlock[]): number[] {
 
 
 
-function simulateSimMove(simBlocks: SimBlock[], blockId: number, targetCol: number): {
+function simulateSimMove(
+  simBlocks: SimBlock[],
+  blockId: number,
+  targetCol: number,
+  minVisibleRow: number = 0,
+  maxGravityRow: number = PARAMS.totalRows - 1
+): {
 
 
 
@@ -40376,7 +40361,7 @@ function simulateSimMove(simBlocks: SimBlock[], blockId: number, targetCol: numb
 
 
 
-    applySimGravity(simBlocks);
+    applySimGravity(simBlocks, maxGravityRow);
 
 
 
@@ -40500,7 +40485,7 @@ function getSimPossibleMoves(simBlocks: SimBlock[], minRow?: number, maxRow?: nu
 
 
 
-      const simResult = simulateSimMove(cloneBlocks, b.id, toCol);
+      const simResult = simulateSimMove(cloneBlocks, b.id, toCol, minRow, getSimGravityMaxRow(maxRow ?? PARAMS.totalRows - 1));
 
 
 
@@ -41236,7 +41221,13 @@ function searchDemoScript(
 
 
 
-    const simResult = simulateSimMove(nextBlocks, move.blockId, move.toCol);
+    const simResult = simulateSimMove(
+      nextBlocks,
+      move.blockId,
+      move.toCol,
+      params.minVisibleRow,
+      getSimGravityMaxRow(params.maxVisibleRow)
+    );
 
 
 
@@ -41628,7 +41619,7 @@ function searchDemoScript(
 
 
 
-        gravityMaxRow: PARAMS.totalRows - 1,
+        gravityMaxRow: getSimGravityMaxRow(params.maxVisibleRow),
 
 
 
