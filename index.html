@@ -350,8 +350,11 @@
       <div class="record-bg-panel material-bg-panel">
         <div class="record-bg-controls" id="record-bg-controls">
           <div class="record-bg-manager-title">背景图管理</div>
+          <label class="record-bg-toggle"><input type="checkbox" id="input-record-bg"><span>启用录制背景</span></label>
+          <div id="record-bg-preview" class="record-bg-preview">未选择背景</div>
           <input type="file" id="input-record-bg-file" accept="image/*" class="record-bg-file-input">
           <div id="record-bg-list" class="record-bg-list"></div>
+          <button type="button" id="btn-record-bg-clear" class="menu-btn gray wide">清除录制背景</button>
           <div id="record-bg-status" class="record-bg-status">未启用背景图</div>
         </div>
       </div>
@@ -402,6 +405,12 @@
           <button id="btn-board-editor" class="menu-btn purple">
             <span class="icon">🏆</span>编辑棋盘
           </button>
+          <button id="btn-record" class="menu-btn green">
+            <span class="icon">⏺</span>录制视频
+          </button>
+          <div id="time-display" style="color: #fff; font-size: 18px; font-weight: 700; text-align: center; font-family: 'PingFang SC', sans-serif; text-shadow: 0 0 10px rgba(255,255,255,0.3);">
+            0.0s
+          </div>
           <div class="menu-section-title">玩法规则</div>
           <button id="btn-normal-mode" class="menu-btn blue">
             <span class="icon">🧱</span>普通玩法
@@ -538,6 +547,7 @@
         <input type="hidden" id="input-score" value="854682">
         <input type="hidden" id="input-collect" value="0">
         <div class="vc-toggles">
+          <label class="vc-toggle" title="开启后录制的视频背景为纯绿"><input type="checkbox" id="input-greenscreen"><span>绿幕</span></label>
           <label class="vc-toggle" title="开启后隐藏顶部的关卡与积分文案"><input type="checkbox" id="input-hidetext"><span>隐藏文案</span></label>
           <label class="vc-toggle" title="开启后消除方块时不播放破碎动画"><input type="checkbox" id="input-hideshatter"><span>隐藏破碎</span></label>
         </div>
