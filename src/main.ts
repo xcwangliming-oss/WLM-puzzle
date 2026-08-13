@@ -24798,6 +24798,8 @@ function checkEliminations() {
 
 // ---- Generators ----
 
+const RANDOM_LAYOUT_TOP_EMPTY_ROWS = 3;
+
 
 
 function generateRandomLayout() {
@@ -24848,23 +24850,7 @@ function generateRandomLayout() {
 
 
 
-  // Keep a larger top buffer in scrolling mode so a fresh random board does
-
-
-
-  // not immediately enter the danger line after the game starts.
-
-
-
-  const startRow = getActiveBoardAdvanceMode() === 'scroll'
-
-
-
-    ? Math.max(8, Math.ceil(PARAMS.viewportRows * 0.45))
-
-
-
-    : 5;
+  const startRow = Math.min(PARAMS.totalRows, RANDOM_LAYOUT_TOP_EMPTY_ROWS);
 
 
 
@@ -24881,6 +24867,20 @@ function generateRandomLayout() {
 
 
   for (let r = endRow; r >= startRow; r--) {
+
+    let validCellsInRow = 0;
+
+    for (let col = 0; col < PARAMS.gridCols; col++) {
+
+      if (!holeMask[r] || !holeMask[r][col]) validCellsInRow++;
+
+    }
+
+    const maxFilledCellsInRow = Math.max(0, validCellsInRow - 1);
+
+    let filledCellsInRow = 0;
+
+    if (maxFilledCellsInRow === 0) continue;
 
 
 
@@ -24902,6 +24902,10 @@ function generateRandomLayout() {
 
       const remaining = PARAMS.gridCols - c;
 
+      const remainingFillSlots = maxFilledCellsInRow - filledCellsInRow;
+
+      if (remainingFillSlots <= 0) break;
+
 
 
       if (Math.random() < 0.2) { c++; continue; }
@@ -24920,7 +24924,7 @@ function generateRandomLayout() {
 
 
 
-      const len = weightedRandomLength(Math.min(4, Math.min(maxLen, remaining)));
+      const len = weightedRandomLength(Math.min(4, Math.min(maxLen, remaining, remainingFillSlots)));
 
 
 
@@ -24989,6 +24993,8 @@ function generateRandomLayout() {
 
 
           spawnCount++;
+
+          filledCellsInRow += len;
 
 
 
