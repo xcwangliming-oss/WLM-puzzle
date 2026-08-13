@@ -503,6 +503,24 @@ body:not(.is-playable) #script-steps-panel {
   background: #2a2a35;
 }
 
+.effect-card {
+  width: 40px;
+}
+
+.effect-card .material-card-preview {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+.effect-card .material-card-label {
+  width: 100%;
+  font-size: 9px !important;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .material-card-empty {
   grid-column: span 2;
   display: flex;
@@ -880,6 +898,30 @@ body:not(.is-playable) #script-steps-panel {
 #editor-panel #btn-fixed-import-layout {
   height: 40px;
   min-height: 40px;
+}
+
+#editor-panel #save-slot,
+#editor-panel #fixed-save-slot {
+  min-width: 0;
+  flex: 1 1 auto !important;
+}
+
+#editor-panel #btn-load-slot,
+#editor-panel #btn-delete-slot,
+#editor-panel #btn-fixed-load-slot,
+#editor-panel #btn-fixed-delete-slot {
+  flex: 0 0 48px !important;
+  width: 48px !important;
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+
+#editor-panel #btn-export-layout,
+#editor-panel #btn-import-layout,
+#editor-panel #btn-fixed-export-layout,
+#editor-panel #btn-fixed-import-layout {
+  height: 42px;
+  min-height: 42px;
 }
 
 #script-panel input,

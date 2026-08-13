@@ -1047,8 +1047,7 @@
         applyButton(exportBtn, '导出到本地文件', '#00d25b');
         applyButton(importBtn, '从本地文件导入', '#3b6bdc');
         layoutSection.append(row(saveName, saveBtn));
-        layoutSection.append(row(saveSlot));
-        layoutSection.append(buttonRow(loadBtn, deleteBtn));
+        layoutSection.append(row(saveSlot, loadBtn, deleteBtn));
         layoutSection.append(buttonRow(exportBtn, importBtn));
         editorPanel.appendChild(layoutSection);
 
@@ -1069,8 +1068,7 @@
         applyButton(fixedExportBtn, '导出到本地文件', '#00d25b');
         applyButton(fixedImportBtn, '从本地文件导入', '#3b6bdc');
         fixedSection.append(row(fixedName, fixedSaveBtn));
-        fixedSection.append(row(fixedSlot));
-        fixedSection.append(buttonRow(fixedLoadBtn, fixedDeleteBtn));
+        fixedSection.append(row(fixedSlot, fixedLoadBtn, fixedDeleteBtn));
         fixedSection.append(buttonRow(fixedExportBtn, fixedImportBtn));
         editorPanel.appendChild(fixedSection);
 
