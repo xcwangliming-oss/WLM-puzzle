@@ -16537,8 +16537,9 @@ const MASTER_BACKGROUND_VERSION = 'master-bg-2026-07-23-v5';
 
 const MASTER_BACKGROUND_ID = 'master';
 
-// Keep the rendered board at the true game aspect ratio so blocks stay square.
-const BOARD_FRAME_VERTICAL_SCALE = 1;
+// The frame extends slightly below the playable grid in the phone-style background.
+// The canvas itself is fitted aspect-preserving so this does not stretch blocks.
+const BOARD_FRAME_VERTICAL_SCALE = 1.04;
 
 
 

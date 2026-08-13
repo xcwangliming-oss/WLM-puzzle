@@ -7,6 +7,12 @@ const body = fs.readFileSync(mainPath, 'utf8');
 
 assert.match(
   body,
+  /const BOARD_FRAME_VERTICAL_SCALE = 1\.04;/,
+  'phone-style board frame should keep its lower safe-area extension'
+);
+
+assert.match(
+  body,
   /let h = w \* \(contentH \/ contentW\);/,
   'preview canvas height should be derived from renderer aspect, not stretched to the clip height'
 );
