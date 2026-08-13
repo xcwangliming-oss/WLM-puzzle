@@ -1104,10 +1104,12 @@
         scriptControls.append(buttonRow(scriptRecord));
         scriptControls.append(buttonRow(scriptPlay, scriptRisingPlay));
         scriptControls.append(buttonRow(scriptScrollPlay, scriptFallingPlay));
+        Array.from(scriptControls.querySelectorAll('.panel-button-row')).forEach(row => row.classList.add('script-primary-button-row'));
         const pauseRow = row(document.createTextNode('开头静止'), scriptPause);
         pauseRow.className = 'script-compact-row script-pause-row';
         scriptControls.append(pauseRow);
         scriptControls.append(buttonRow(scriptReset, scriptClear));
+        scriptControls.lastElementChild?.classList.add('script-primary-button-row');
 
         const numberFields = [
           ['input-script-duration', '单步滑行(s):', '0.3'],

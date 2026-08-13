@@ -884,6 +884,39 @@ body:not(.is-playable) #script-steps-panel {
   min-height: 52px;
 }
 
+#script-panel .script-primary-button-row {
+  gap: 7px !important;
+  margin-bottom: 7px !important;
+}
+
+#script-panel .script-primary-button-row .btn-apply {
+  height: 38px;
+  min-height: 38px;
+  padding: 5px 7px !important;
+  border-radius: 7px;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.24);
+  font-size: 11px !important;
+  line-height: 1.15;
+}
+
+#script-panel .script-primary-button-row.single .btn-apply {
+  height: 38px;
+  min-height: 38px;
+}
+
+#script-panel #btn-script-record {
+  height: 38px;
+  min-height: 38px;
+}
+
+#script-panel #btn-script-play,
+#script-panel #btn-script-rising-play,
+#script-panel #btn-script-play-scroll,
+#script-panel #btn-script-falling-play {
+  height: 42px;
+  min-height: 42px;
+}
+
 #script-steps-panel #btn-script-load,
 #script-steps-panel #btn-script-delete,
 #script-steps-panel #btn-script-export,
