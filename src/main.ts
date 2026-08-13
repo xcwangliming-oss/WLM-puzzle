@@ -5080,6 +5080,66 @@ function getPlaybackAllowedRows(step: ScriptStep): number[] {
 
 
 
+function getFullRowsFromOccupancy(occ: number[][], minRow = 0, maxRow = PARAMS.totalRows - 1): number[] {
+
+  const fullRows: number[] = [];
+
+  const start = Math.max(0, minRow);
+
+  const end = Math.min(PARAMS.totalRows - 1, maxRow);
+
+  for (let r = start; r <= end; r++) {
+
+    let isFull = true;
+
+    for (let c = 0; c < PARAMS.gridCols; c++) {
+
+      if (occ[r][c] === 0) { isFull = false; break; }
+
+    }
+
+    if (isFull) fullRows.push(r);
+
+  }
+
+  return fullRows;
+
+}
+
+
+
+function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): number[] {
+
+  const actualFullRows = getFullRowsFromOccupancy(occ);
+
+  const allowed = getPlaybackAllowedRows(step);
+
+  if (allowed.length === 0) return actualFullRows;
+
+  const recordedRowsStillFull = actualFullRows.filter(r => allowed.includes(r));
+
+  if (recordedRowsStillFull.length > 0) return recordedRowsStillFull;
+
+  if (actualFullRows.length > 0) {
+
+    console.warn('[Playback] recorded elimination rows did not match current board; using actual full rows for this wave.', {
+
+      allowed,
+
+      actualFullRows,
+
+      activeEliminationWaveIndex
+
+    });
+
+  }
+
+  return actualFullRows;
+
+}
+
+
+
 function shouldAdvancePlaybackWave(step: ScriptStep): boolean {
 
 
@@ -5380,35 +5440,7 @@ function runPhysicsInstant() {
 
 
 
-      const allowed = getPlaybackAllowedRows(step);
-
-
-
-      for (let r = 0; r < PARAMS.totalRows; r++) {
-
-
-
-        let isFull = true;
-
-
-
-        for (let c = 0; c < PARAMS.gridCols; c++) {
-
-
-
-          if (occ[r][c] === 0) { isFull = false; break; }
-
-
-
-        }
-
-
-
-        if (isFull && allowed.includes(r)) fullRows.push(r);
-
-
-
-      }
+      fullRows.push(...getPlaybackFullRowsFromOccupancy(occ, step));
 
 
 
@@ -22063,47 +22095,7 @@ function applyGravity(checkElim: boolean = true) {
 
 
 
-    const allowed = getPlaybackAllowedRows(step);
-
-
-
-    for (let r = 0; r < PARAMS.totalRows; r++) {
-
-
-
-      let isFull = true;
-
-
-
-      for (let c = 0; c < PARAMS.gridCols; c++) {
-
-
-
-        if (simulatedOcc[r][c] === 0) { isFull = false; break; }
-
-
-
-      }
-
-
-
-      if (isFull && allowed.includes(r)) {
-
-
-
-        willEliminate = true;
-
-
-
-        break;
-
-
-
-      }
-
-
-
-    }
+    willEliminate = getPlaybackFullRowsFromOccupancy(simulatedOcc, step).length > 0;
 
 
 
@@ -23868,27 +23860,7 @@ function checkEliminations() {
 
 
 
-    const allowed = getPlaybackAllowedRows(step);
-
-
-
-    for (let r = 0; r < PARAMS.totalRows; r++) {
-
-
-
-      let isFull = true;
-
-
-
-      for (let c = 0; c < PARAMS.gridCols; c++) { if (occ[r][c] === 0) { isFull = false; break; } }
-
-
-
-      if (isFull && allowed.includes(r)) fullRows.push(r);
-
-
-
-    }
+    fullRows.push(...getPlaybackFullRowsFromOccupancy(occ, step));
 
 
 
