@@ -189,6 +189,47 @@ function getExportableShatterColor(): string {
     return selector?.value || 'default';
 }
 
+type CustomPropStylePayload = {
+    candy?: string;
+    machineFrames?: string[];
+    machineAttackFrames?: string[];
+};
+
+let pendingCustomPropStyle: CustomPropStylePayload | null = null;
+let customPropStyleSystemReady = false;
+
+function getExportableCustomPropStyle(): CustomPropStylePayload | undefined {
+    const style: CustomPropStylePayload = {};
+    if (customPropCandyImg?.src?.startsWith('data:')) {
+        style.candy = customPropCandyImg.src;
+    }
+    if (Array.isArray(customPropMachineFrames) && customPropMachineFrames.length > 0) {
+        style.machineFrames = customPropMachineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    if (Array.isArray(customPropMachineAttackFrames) && customPropMachineAttackFrames.length > 0) {
+        style.machineAttackFrames = customPropMachineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    return style.candy || style.machineFrames?.length || style.machineAttackFrames?.length ? style : undefined;
+}
+
+function queueCustomPropStyle(style: unknown): void {
+    if (!style || typeof style !== 'object') return;
+    const source = style as CustomPropStylePayload;
+    const normalized: CustomPropStylePayload = {};
+    if (typeof source.candy === 'string' && source.candy.startsWith('data:')) {
+        normalized.candy = source.candy;
+    }
+    if (Array.isArray(source.machineFrames)) {
+        normalized.machineFrames = source.machineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    if (Array.isArray(source.machineAttackFrames)) {
+        normalized.machineAttackFrames = source.machineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    if (!normalized.candy && !normalized.machineFrames?.length && !normalized.machineAttackFrames?.length) return;
+    pendingCustomPropStyle = normalized;
+    if (customPropStyleSystemReady) applyPendingCustomPropStyle();
+}
+
 (window as any).exportCurrentGameState = function() {
     const exportedBlocks = blocks.length > 0 ? blocks : initialBoardBlocks;
     const exportBoardMechanic = getActiveBoardMechanic();
@@ -258,6 +299,7 @@ function getExportableShatterColor(): string {
             muteVocals: (document.getElementById('input-mutevocals') as HTMLInputElement | null)?.checked === true,
             soundPack: getExportableCustomSoundPack(),
         },
+        customPropStyle: getExportableCustomPropStyle(),
         shatterColor: getExportableShatterColor(),
         tutorialMoveAvailable: Boolean(tutorialTarget),
         tutorialTarget: tutorialTarget ? {
@@ -342,6 +384,7 @@ function getExportableShatterColor(): string {
         : 'default';
     const shatterColorSelect = document.getElementById('select-shatter-color') as HTMLSelectElement | null;
     if (shatterColorSelect) shatterColorSelect.value = savedShatterColor;
+    queueCustomPropStyle(saveData.customPropStyle);
     
     const levelEl = document.getElementById('level-val');
     if (levelEl && saveData.currentLevel !== undefined) {
@@ -19470,6 +19513,43 @@ function loadCustomPropImages(): void {
   if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
     rebuildMachineTextures();
     invalidatePropCache();
+  }
+}
+
+function applyPendingCustomPropStyle(): void {
+  const style = pendingCustomPropStyle;
+  if (!style || !customPropStyleSystemReady) return;
+  pendingCustomPropStyle = null;
+
+  if (Array.isArray(style.machineFrames)) {
+    customPropMachineFrames = style.machineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    if (customPropMachineFrames.length > 0) {
+      localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(customPropMachineFrames));
+      localStorage.setItem(PROP_STORAGE_MACHINE, customPropMachineFrames[0]);
+    }
+  }
+  if (Array.isArray(style.machineAttackFrames)) {
+    customPropMachineAttackFrames = style.machineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    if (customPropMachineAttackFrames.length > 0) {
+      localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(customPropMachineAttackFrames));
+    }
+  }
+  if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
+    rebuildMachineTextures();
+  }
+
+  if (typeof style.candy === 'string' && style.candy.startsWith('data:')) {
+    const img = new Image();
+    img.onload = () => {
+      customPropCandyImg = img;
+      localStorage.setItem(PROP_STORAGE_CANDY, style.candy!);
+      invalidatePropCache();
+      refreshPropStylePanel();
+    };
+    img.src = style.candy;
+  } else {
+    invalidatePropCache();
+    refreshPropStylePanel();
   }
 }
 
@@ -39594,7 +39674,9 @@ function stopRecording() {
 
 
 
+customPropStyleSystemReady = true;
 loadCustomPropImages();
+applyPendingCustomPropStyle();
 setTimeout(() => { initPropStylePanel(); }, 600);
 (window as any).importPropImage      = (role: 'machine'|'candy') => importPropImage(role);
   (window as any).clearCustomPropImages = clearCustomPropImages;
