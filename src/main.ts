@@ -28818,7 +28818,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-    'top'
+    'bottom'
 
 
 

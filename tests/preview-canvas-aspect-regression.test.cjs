@@ -29,6 +29,12 @@ assert.match(
   'preview canvas should be centered after aspect-preserving scaling'
 );
 
+assert.match(
+  body,
+  /fitRectToWidthPreserveAspect\([\s\S]*?'bottom'[\s\S]*?\);/,
+  'preview canvas should be bottom-aligned inside the extended phone frame'
+);
+
 assert.doesNotMatch(
   body,
   /const h = target\.h;/,
