@@ -454,6 +454,7 @@ function getExportableShatterColor(): string {
 
 const DEFAULT_BOARD_COLS = 11;
 const DEFAULT_BOARD_ROWS = 18;
+const DEFAULT_TOTAL_ROWS = 60;
 
 const PARAMS = {
 
@@ -463,7 +464,7 @@ const PARAMS = {
 
 
 
-  totalRows: DEFAULT_BOARD_ROWS,
+  totalRows: DEFAULT_TOTAL_ROWS,
 
 
 
