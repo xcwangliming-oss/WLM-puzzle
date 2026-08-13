@@ -1197,19 +1197,16 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 .record-bg-list {
-  display: grid;
-  grid-template-columns: repeat(5, 48px);
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 6px;
-  max-height: 78px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   overflow-x: hidden;
-  padding-right: 2px;
+  padding-right: 0;
+  padding-bottom: 4px;
   align-items: start;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.record-bg-list::-webkit-scrollbar {
-  display: none;
 }
 
 .record-bg-card {
@@ -1220,7 +1217,7 @@ body:not(.is-playable) #script-steps-panel {
   color: #fff;
   cursor: pointer;
   width: 48px;
-  height: 68px;
+  height: 64px;
   min-width: 48px;
   padding: 0;
   overflow: hidden;
@@ -1296,7 +1293,7 @@ body:not(.is-playable) #script-steps-panel {
 
 .record-bg-preview {
   display: none;
-  height: 54px;
+  height: 46px;
   border: 1px dashed #555;
   border-radius: 6px;
   background: #11121a;
