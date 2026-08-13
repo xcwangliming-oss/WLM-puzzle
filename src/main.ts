@@ -28490,6 +28490,36 @@ function getMasterBoardContentRect(width: number, height: number) {
 
 
 
+function mapBoardWrapperRectToRecordingRect(
+
+  sourceRect: DOMRect,
+
+  boardRect: DOMRect,
+
+  targetBox: { x: number; y: number; w: number; h: number }
+
+) {
+
+  const scaleX = targetBox.w / Math.max(1, boardRect.width);
+
+  const scaleY = targetBox.h / Math.max(1, boardRect.height);
+
+  return {
+
+    x: targetBox.x + (sourceRect.left - boardRect.left) * scaleX,
+
+    y: targetBox.y + (sourceRect.top - boardRect.top) * scaleY,
+
+    w: sourceRect.width * scaleX,
+
+    h: sourceRect.height * scaleY
+
+  };
+
+}
+
+
+
 function getMasterBoardAspect(): number {
 
 
@@ -38696,25 +38726,25 @@ function startRecording(): Promise<boolean> {
 
           const iconRect = headerIconEl.getBoundingClientRect();
 
-
-
           const boardRect = boardWrapper.getBoundingClientRect();
 
+          const headerIconSize = useRecordingBackground ? 34 : iconRect.width * dpr;
 
+          const rx = useRecordingBackground
 
-          const rx = (iconRect.left - boardRect.left) * dpr;
+            ? headerBox.x + headerBox.w * 0.73
 
+            : (iconRect.left - boardRect.left) * dpr;
 
+          const ry = useRecordingBackground
 
-          const ry = (iconRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr;
+            ? headerBox.y + (headerBox.h - headerIconSize) / 2
 
+            : (iconRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr;
 
+          const rw = useRecordingBackground ? headerIconSize : iconRect.width * dpr;
 
-          const rw = iconRect.width * dpr;
-
-
-
-          const rh = iconRect.height * dpr;
+          const rh = useRecordingBackground ? headerIconSize : iconRect.height * dpr;
 
 
 
@@ -38746,7 +38776,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-          recordingCtx!.font = `900 ${26 * dpr}px 'Arial Black', 'Impact', sans-serif`;
+          recordingCtx!.font = `900 ${useRecordingBackground ? 28 : 26 * dpr}px 'Arial Black', 'Impact', sans-serif`;
 
 
 
@@ -38758,7 +38788,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-          recordingCtx!.lineWidth = 1.25 * dpr;
+          recordingCtx!.lineWidth = useRecordingBackground ? 0 : 1.25 * dpr;
 
 
 
@@ -38774,7 +38804,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-          const textX = rx + rw + 8 * dpr;
+          const textX = rx + rw + (useRecordingBackground ? 12 : 8 * dpr);
 
 
 
@@ -38992,6 +39022,8 @@ function startRecording(): Promise<boolean> {
 
       const boardRect = boardWrapper.getBoundingClientRect();
 
+      const recordingBoardBox = useRecordingBackground ? getMasterBoardContentRect(width, height) : null;
+
 
 
         flyImgs.forEach(imgEl => {
@@ -39006,19 +39038,29 @@ function startRecording(): Promise<boolean> {
 
 
 
-          const rx = (flyRect.left - boardRect.left) * dpr;
+          const mapped = useRecordingBackground && recordingBoardBox
 
+            ? mapBoardWrapperRectToRecordingRect(flyRect, boardRect, recordingBoardBox)
 
+            : {
 
-          const ry = (flyRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr;
+                x: (flyRect.left - boardRect.left) * dpr,
 
+                y: (flyRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr,
 
+                w: flyRect.width * dpr,
 
-          const rw = flyRect.width * dpr;
+                h: flyRect.height * dpr
 
+              };
 
+          const rx = mapped.x;
 
-          const rh = flyRect.height * dpr;
+          const ry = mapped.y;
+
+          const rw = mapped.w;
+
+          const rh = mapped.h;
 
 
 
