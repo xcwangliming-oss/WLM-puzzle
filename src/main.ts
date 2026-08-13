@@ -29025,19 +29025,26 @@ function setupDOMUI() {
     const sourceId = source instanceof HTMLElement ? source.id : '';
     let cols = parseInt(inputCols?.value || String(PARAMS.gridCols), 10) || PARAMS.gridCols;
     let rows = parseInt(inputVpRows?.value || String(PARAMS.viewportRows), 10) || PARAMS.viewportRows;
+    let totalRows = parseInt(inputRows?.value || String(PARAMS.totalRows), 10) || PARAMS.totalRows;
 
-    if (sourceId === 'input-vprows' || sourceId === 'slider-vprows' || sourceId === 'input-rows' || sourceId === 'slider-rows') {
+    if (sourceId === 'input-rows' || sourceId === 'slider-rows') {
+      cols = clamp(cols, 4, 30);
+      rows = clamp(rows, 6, 60);
+      totalRows = clamp(totalRows, rows, 200);
+    } else if (sourceId === 'input-vprows' || sourceId === 'slider-vprows') {
       rows = clamp(rows, 6, 60);
       cols = clamp(Math.round(rows / boardAspect), 4, 30);
       rows = clamp(Math.round(cols * boardAspect), 6, 60);
+      totalRows = Math.max(totalRows, rows);
     } else {
       cols = clamp(cols, 4, 30);
       rows = clamp(Math.round(cols * boardAspect), 6, 60);
+      totalRows = Math.max(totalRows, rows);
     }
 
     PARAMS.gridCols = cols;
     PARAMS.viewportRows = rows;
-    PARAMS.totalRows = rows;
+    PARAMS.totalRows = totalRows;
 
     setValue('input-cols', cols);
     setValue('slider-cols', cols);
@@ -29045,9 +29052,9 @@ function setupDOMUI() {
     setValue('input-vprows', rows);
     setValue('slider-vprows', rows);
     setText('val-vprows', rows);
-    setValue('input-rows', rows);
-    setValue('slider-rows', rows);
-    setText('val-rows', rows);
+    setValue('input-rows', totalRows);
+    setValue('slider-rows', totalRows);
+    setText('val-rows', totalRows);
   }
 
 
