@@ -29,4 +29,16 @@ assert.match(
   'embedded prop candy images must hydrate the same storage path as manual uploads',
 );
 
+assert.match(
+  mainSource,
+  /localStorage\.getItem\(PROP_STORAGE_MACHINE_FRAMES\)/,
+  'export must fall back to the original uploaded machine-head frame data',
+);
+
+assert.match(
+  mainSource,
+  /localStorage\.getItem\(PROP_STORAGE_MACHINE_ATTACK_FRAMES\)/,
+  'export must fall back to the original uploaded machine attack frame data',
+);
+
 console.log('custom prop style export regression checks passed');

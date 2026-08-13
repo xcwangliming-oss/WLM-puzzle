@@ -200,7 +200,12 @@ let customPropStyleSystemReady = false;
 
 function getExportableCustomPropStyle(): CustomPropStylePayload | undefined {
     const style: CustomPropStylePayload = {};
-    if (customPropCandyImg?.src?.startsWith('data:')) {
+    const storedCandy = (() => {
+        try { return localStorage.getItem(PROP_STORAGE_CANDY) || ''; } catch { return ''; }
+    })();
+    if (storedCandy.startsWith('data:')) {
+        style.candy = storedCandy;
+    } else if (customPropCandyImg?.src?.startsWith('data:')) {
         style.candy = customPropCandyImg.src;
     }
     if (Array.isArray(customPropMachineFrames) && customPropMachineFrames.length > 0) {
@@ -208,6 +213,22 @@ function getExportableCustomPropStyle(): CustomPropStylePayload | undefined {
     }
     if (Array.isArray(customPropMachineAttackFrames) && customPropMachineAttackFrames.length > 0) {
         style.machineAttackFrames = customPropMachineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    if (!style.machineFrames?.length) {
+        try {
+            const stored = JSON.parse(localStorage.getItem(PROP_STORAGE_MACHINE_FRAMES) || '[]');
+            if (Array.isArray(stored)) {
+                style.machineFrames = stored.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+            }
+        } catch {}
+    }
+    if (!style.machineAttackFrames?.length) {
+        try {
+            const stored = JSON.parse(localStorage.getItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES) || '[]');
+            if (Array.isArray(stored)) {
+                style.machineAttackFrames = stored.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+            }
+        } catch {}
     }
     return style.candy || style.machineFrames?.length || style.machineAttackFrames?.length ? style : undefined;
 }
