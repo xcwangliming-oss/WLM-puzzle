@@ -16043,6 +16043,14 @@ async function preloadStandaloneSelectedShatterEffects() {
 
 
 
+function getPreviewRendererGameHeight(): number {
+
+  return PARAMS.viewportRows * PARAMS.cellSize * BOARD_FRAME_VERTICAL_SCALE;
+
+}
+
+
+
 const blocksThatFell = new Set<number>();
 
 
@@ -28818,7 +28826,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-    'bottom'
+    'top'
 
 
 
@@ -29592,7 +29600,8 @@ function setupDOMUI() {
 
     const displayCellSize = Math.max(1, Math.round(PARAMS.cellSize * fitScale));
     const displayW = PARAMS.gridCols * displayCellSize + Math.round(PADDING * 2 * fitScale);
-    const displayH = PARAMS.viewportRows * displayCellSize + Math.round(PADDING * 2 * fitScale);
+    const previewGameHeight = getPreviewRendererGameHeight();
+    const displayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
     app.renderer.resize(displayW, displayH);
 
 

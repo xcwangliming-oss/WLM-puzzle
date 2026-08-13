@@ -13,6 +13,18 @@ assert.match(
 
 assert.match(
   body,
+  /function getPreviewRendererGameHeight\(\)[\s\S]*?PARAMS\.viewportRows \* PARAMS\.cellSize \* BOARD_FRAME_VERTICAL_SCALE/,
+  'preview renderer should include the phone-frame height extension without changing logical rows'
+);
+
+assert.match(
+  body,
+  /const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const displayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);/,
+  'renderer height should cover the extended frame instead of leaving a clipped blank band'
+);
+
+assert.match(
+  body,
   /let h = w \* \(contentH \/ contentW\);/,
   'preview canvas height should be derived from renderer aspect, not stretched to the clip height'
 );
@@ -31,8 +43,8 @@ assert.match(
 
 assert.match(
   body,
-  /fitRectToWidthPreserveAspect\([\s\S]*?'bottom'[\s\S]*?\);/,
-  'preview canvas should be bottom-aligned inside the extended phone frame'
+  /fitRectToWidthPreserveAspect\([\s\S]*?'top'[\s\S]*?\);/,
+  'preview canvas should start at the top after the renderer height covers the extended frame'
 );
 
 assert.doesNotMatch(
