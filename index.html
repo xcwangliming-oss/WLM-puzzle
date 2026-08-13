@@ -904,6 +904,7 @@
       <button id="btn-script-play"></button>
       <button id="btn-script-rising-play"></button>
       <button id="btn-script-play-scroll"></button>
+      <button id="btn-script-falling-play"></button>
       <select id="input-script-initial-pause"></select>
       <button id="btn-script-reset"></button>
       <button id="btn-script-clear"></button>
@@ -1075,6 +1076,7 @@
         const scriptPlay = take('btn-script-play');
         const scriptRisingPlay = take('btn-script-rising-play');
         const scriptScrollPlay = take('btn-script-play-scroll');
+        const scriptFallingPlay = take('btn-script-falling-play');
         const scriptPause = take('input-script-initial-pause');
         const scriptReset = take('btn-script-reset');
         const scriptClear = take('btn-script-clear');
@@ -1082,6 +1084,7 @@
         applyButton(scriptPlay, '▶ 自动播放', '#00d25b');
         applyButton(scriptRisingPlay, '▶ 自动播放 (上升)', '#3b6bdc');
         applyButton(scriptScrollPlay, '▶ 自动播放 (滚动)', '#ff8c00');
+        applyButton(scriptFallingPlay, '▶ 自动播放 (下落)', '#6d5dfc');
         applyButton(scriptReset, '↺ 重置起点', '#9d2cb3');
         applyButton(scriptClear, '🗑 清空步骤', '#4a4a5e');
         ['无', '静止0.5s', '静止1s', '静止2s'].forEach((text, index) => {
@@ -1092,7 +1095,7 @@
         });
         scriptControls.append(row(scriptRecord));
         scriptControls.append(row(scriptPlay, scriptRisingPlay));
-        scriptControls.append(row(scriptScrollPlay));
+        scriptControls.append(row(scriptScrollPlay, scriptFallingPlay));
         const pauseRow = row(document.createTextNode('开头静止'), scriptPause);
         scriptControls.append(pauseRow);
         scriptControls.append(row(scriptReset, scriptClear));

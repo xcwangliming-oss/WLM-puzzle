@@ -8,7 +8,7 @@ const match = source.match(/function getActiveBoardMechanic\(\): BoardMechanic \
 assert.ok(match, 'active board mechanic resolver should exist');
 
 const body = match[1];
-const playbackPriorityIndex = body.indexOf('if (scriptPlaybackAdvanceMode) return scriptPlaybackAdvanceMode;');
+const playbackPriorityIndex = body.indexOf('if (scriptPlaybackMechanic) return scriptPlaybackMechanic;');
 const fallingIndex = body.indexOf("if (isFallingMode) return 'falling';");
 
 assert.notEqual(playbackPriorityIndex, -1, 'script playback mode should explicitly override the editor mechanic');

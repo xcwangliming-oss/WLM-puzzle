@@ -624,6 +624,8 @@ isFixedBoardMode = boardMechanic === 'fixed';
 
 let scriptPlaybackAdvanceMode: BoardAdvanceMode | null = null;
 
+let scriptPlaybackMechanic: BoardMechanic | null = null;
+
 
 
 
@@ -967,6 +969,8 @@ interface PlayScriptOptions {
 
 
   resumeFromSelected?: boolean;
+
+  mechanic?: BoardMechanic;
 
 
 
@@ -6882,7 +6886,9 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-  scriptPlaybackAdvanceMode = autoScroll ? 'scroll' : (rising ? 'rising' : 'fixed');
+  scriptPlaybackMechanic = options.mechanic || (autoScroll ? 'scroll' : (rising ? 'rising' : 'fixed'));
+
+  scriptPlaybackAdvanceMode = scriptPlaybackMechanic === 'falling' ? 'fixed' : scriptPlaybackMechanic;
 
 
 
@@ -6903,6 +6909,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
   const btnPlayScroll = document.getElementById('btn-script-play-scroll');
+  const btnPlayFalling = document.getElementById('btn-script-falling-play');
 
 
 
@@ -6921,6 +6928,8 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
+
+  if (btnPlayFalling) btnPlayFalling.innerText = '暂停播放';
 
   const durInput = document.getElementById('input-script-duration') as HTMLInputElement;
 
@@ -7780,6 +7789,8 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
   scriptPlaybackAdvanceMode = null;
 
+  scriptPlaybackMechanic = null;
+
 
 
   scriptPlaybackStopRequested = false;
@@ -7806,6 +7817,8 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
+  if (btnPlayFalling) btnPlayFalling.innerText = '▶ 自动播放 (下落)';
+
   // Clear any leftover filters
 
 
@@ -7830,8 +7843,8 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-async function playScriptFromButton(autoScroll = false, rising = false) {
-  await playScript(autoScroll, rising);
+async function playScriptFromButton(autoScroll = false, rising = false, mechanic?: BoardMechanic) {
+  await playScript(autoScroll, rising, { mechanic });
 
 
 
@@ -25223,7 +25236,9 @@ function maybeRefillFallingTopArea(): boolean {
 
 
 
-  if (!isFallingMode || isPlayingScript || currentMode !== 'play' || isSpawningFallingPage) return false;
+  const isFallingScriptPlayback = isPlayingScript && getActiveBoardMechanic() === 'falling';
+
+  if (getActiveBoardMechanic() !== 'falling' || (!isFallingScriptPlayback && currentMode !== 'play') || isSpawningFallingPage) return false;
 
 
 
@@ -25899,7 +25914,9 @@ function maybeSpawnFallingTopPage(): boolean {
 
 
 
-  if (!isFallingMode || isPlayingScript || currentMode !== 'play') return false;
+  const isFallingScriptPlayback = isPlayingScript && getActiveBoardMechanic() === 'falling';
+
+  if (getActiveBoardMechanic() !== 'falling' || (!isFallingScriptPlayback && currentMode !== 'play')) return false;
 
 
 
@@ -31845,6 +31862,8 @@ function setupDOMUI() {
 
   const btnScriptPlayScroll = document.getElementById('btn-script-play-scroll');
 
+  const btnScriptPlayFalling = document.getElementById('btn-script-falling-play');
+
 
 
   const btnScriptReset = document.getElementById('btn-script-reset');
@@ -32072,6 +32091,46 @@ function setupDOMUI() {
 
 
 
+
+
+
+  if (btnScriptPlayFalling) {
+
+
+
+    btnScriptPlayFalling.onclick = () => {
+
+
+
+      if (isRecordingSteps) return;
+
+
+
+      if (isPlayingScript) {
+
+
+
+        scriptPlaybackStopRequested = true;
+
+
+
+      } else {
+
+
+
+        playScriptFromButton(false, false, 'falling');
+
+
+
+      }
+
+
+
+    };
+
+
+
+  }
 
 
 
@@ -42822,7 +42881,7 @@ function syncBoardFrameToGrid() {
 
 function getActiveBoardMechanic(): BoardMechanic {
 
-  if (scriptPlaybackAdvanceMode) return scriptPlaybackAdvanceMode;
+  if (scriptPlaybackMechanic) return scriptPlaybackMechanic;
 
 
 
