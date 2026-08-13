@@ -36,6 +36,11 @@ export function getPropOccupiedColumns(prop: PropGeometry): number[] {
   return columns;
 }
 
+export function getPropMachineHeadColumn(prop: PropGeometry): number {
+  const direction = prop.propDir || 'left';
+  return direction === 'left' ? prop.col + prop.length - 1 : prop.col;
+}
+
 export function damagePropForClearedRows(
   prop: PropState,
   clearedRows: number[],

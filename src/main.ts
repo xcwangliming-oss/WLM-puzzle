@@ -16,7 +16,7 @@ import soundPropElimUrl from '../assets/audio/prop_elim.ogg'
 const playableBlockAssetsMap = import.meta.glob('../assets/playable-blocks/*.webp', { eager: true, import: 'default' }) as Record<string, string>;
 const isStandalonePlayable = Boolean((window as any).PLAYABLE_CONFIG);
 
-import { damagePropForClearedRows, getPropOccupiedColumns, isValidPropLength } from './propRules.ts'
+import { damagePropForClearedRows, getPropMachineHeadColumn, getPropOccupiedColumns, isValidPropLength } from './propRules.ts'
 import {
   type BoardMechanic,
   createInitialPlayableBlocks,
@@ -19877,9 +19877,53 @@ function initPropStylePanel(): void {
 
 
 
+function playPropMachineHeadShatter(row: number, col: number) {
+  const isHideShatter = (document.getElementById('input-hideshatter') as HTMLInputElement)?.checked || false;
+  if (isHideShatter) return;
+
+  const propTestState = document.getElementById('prop-test-state');
+  if (propTestState) {
+    propTestState.dataset.lastMachineHeadShatter = JSON.stringify({
+      row,
+      col,
+      effectType: PARAMS.effectType || 'default',
+    });
+  }
+
+  if (PARAMS.effectType !== 'gem-shatter') {
+    playRowShatterEffect(row, 'pink', [], new Set(), new Set([col]));
+    return;
+  }
+
+  const texArray = gemShatterTextures.pink;
+  if (!texArray || texArray.length === 0) return;
+
+  const validTexArray = texArray.filter((texture: PIXI.Texture | undefined) => texture);
+  if (validTexArray.length === 0) return;
+
+  const cellSz = PARAMS.cellSize || 50;
+  const anim = new PIXI.AnimatedSprite(validTexArray);
+  anim.loop = false;
+  anim.animationSpeed = 0.5;
+  anim.anchor.set(0.5, 0.226);
+  anim.x = (col + 0.5) * cellSz;
+  anim.y = (row + 0.5) * cellSz;
+  anim.width = cellSz * 5.5;
+  anim.scale.y = anim.scale.x;
+  anim.blendMode = 'add';
+  anim.rotation = (Math.random() - 0.5) * 0.2;
+  anim.onComplete = () => {
+    if (anim.parent) anim.parent.removeChild(anim);
+    anim.destroy();
+  };
+  blocksContainer.addChild(anim);
+  anim.play();
+}
+
 function animatePropShrink(
   sprite: PIXI.Sprite,
   dir: 'left' | 'right',
+  row: number,
   oldCol: number,
   oldLen: number,
   newCol: number,
@@ -19887,6 +19931,10 @@ function animatePropShrink(
   onComplete?: () => void
 ) {
   if (!sprite || !sprite.parent) {
+    if (newLen <= 0) {
+      const machineCol = getPropMachineHeadColumn({ col: oldCol, length: oldLen, propDir: dir });
+      playPropMachineHeadShatter(row, machineCol);
+    }
     if (onComplete) onComplete();
     return;
   }
@@ -19980,31 +20028,8 @@ function animatePropShrink(
       
       if (!shattered) {
         shattered = true;
-        if (PARAMS.effectType === 'gem-shatter') {
-          const texArray = gemShatterTextures['pink'];
-          if (texArray && texArray.length > 0 && texArray[0]) {
-            const validTexArray = texArray.filter((t: any) => t);
-            const anim = new PIXI.AnimatedSprite(validTexArray);
-            anim.loop = false;
-            anim.animationSpeed = 0.5;
-            anim.anchor.set(0.5, 0.226);
-            anim.x = machineSprite.x + machineSprite.width / 2;
-            anim.y = machineSprite.y + machineSprite.height / 2;
-            anim.width = cellSz * 5.5;
-            anim.scale.y = anim.scale.x;
-            anim.blendMode = 'add';
-            anim.rotation = (Math.random() - 0.5) * 0.2;
-            anim.onComplete = () => {
-              if (anim.parent) anim.parent.removeChild(anim);
-              anim.destroy();
-            };
-            // Add to the same parent as sprite, which is likely blocksContainer
-            if (sprite.parent) {
-                sprite.parent.addChild(anim);
-                anim.play();
-            }
-          }
-        }
+        const machineCol = getPropMachineHeadColumn({ col: oldCol, length: oldLen, propDir: dir });
+        playPropMachineHeadShatter(row, machineCol);
       }
 
       requestAnimationFrame(stepLast);
@@ -21177,7 +21202,7 @@ if (new URLSearchParams(window.location.search).has('prop-test')) {
 
   stateNode.id = 'prop-test-state';
 
-  stateNode.style.display = 'none';
+  stateNode.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;';
 
   document.body.appendChild(stateNode);
 
@@ -21207,7 +21232,40 @@ if (new URLSearchParams(window.location.search).has('prop-test')) {
 
       })));
 
+    stateNode.dataset.blocks = JSON.stringify(blocks.map(block => ({
+      id: block.id,
+      col: block.col,
+      row: block.row,
+      length: block.length,
+      isProp: Boolean(block.isProp),
+    })));
+
   }, 50);
+
+  const seedButton = document.createElement('button');
+  seedButton.id = 'prop-test-seed-final-machine-head-row';
+  seedButton.style.cssText = 'position:fixed;left:0;top:0;width:16px;height:6px;padding:0;opacity:0.001;';
+  seedButton.addEventListener('click', () => {
+    const row = 9;
+    const propCol = 5;
+    clearAllBlocks();
+    spawnBlock(propCol, row, 2, 'red', undefined, undefined, false, true, 'peppermint', 'left');
+    for (let col = 0; col < PARAMS.gridCols; col++) {
+      if (col === propCol || col === propCol + 1) continue;
+      spawnBlock(col, row, 1, 'red');
+    }
+    stateNode.setAttribute('data-seed-clicked', 'true');
+  });
+  document.body.appendChild(seedButton);
+
+  const triggerButton = document.createElement('button');
+  triggerButton.id = 'prop-test-trigger-elimination';
+  triggerButton.style.cssText = 'position:fixed;left:20px;top:0;width:16px;height:6px;padding:0;opacity:0.001;';
+  triggerButton.addEventListener('click', () => {
+    stateNode.setAttribute('data-trigger-clicked', 'true');
+    checkEliminations();
+  });
+  document.body.appendChild(triggerButton);
 
 }
 
@@ -22441,7 +22499,13 @@ function applyGravity(checkElim: boolean = true) {
 
 
 
-function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [], skipCols: Set<number> = new Set()) {
+function playRowShatterEffect(
+  row: number,
+  color: string,
+  rowBlocks: Block[] = [],
+  skipCols: Set<number> = new Set(),
+  onlyCols: Set<number> | null = null
+) {
 
   // For continuous beam effects (mode 3 and 4), do not skip any columns so the beam passes over props
   if (PARAMS.shatterMode === 3 || PARAMS.shatterMode === 4) {
@@ -22651,6 +22715,9 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
   const boardRowCenterX = (minCol + maxCol + 1) * PARAMS.cellSize / 2;
 
+  const shouldRenderColumn = (col: number) => !onlyCols || onlyCols.has(col);
+  const isSingleCellEffect = Boolean(onlyCols && onlyCols.size > 0);
+
 
 
 
@@ -22658,6 +22725,7 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
 
   for (let col = minCol; col <= maxCol; col++) {
+    if (!shouldRenderColumn(col)) continue;
     if (skipCols.has(col)) continue; // skip prop columns
 
 
@@ -22703,6 +22771,7 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
 
     for (let col = minCol; col <= maxCol; col++) {
+      if (!shouldRenderColumn(col)) continue;
 
 
 
@@ -22742,7 +22811,9 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
 
 
-      if (mode === 3) {
+      if (isSingleCellEffect) {
+        delay = 0;
+      } else if (mode === 3) {
 
 
 
@@ -23110,7 +23181,12 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
 
 
-    if (useIndividualBlockColors && rowBlocks.length > 0) {
+    if (onlyCols && onlyCols.size > 0) {
+      onlyCols.forEach(col => {
+        if (col < minCol || col > maxCol) return;
+        playHighlightSegment(color, { col, length: 1 } as Block);
+      });
+    } else if (useIndividualBlockColors && rowBlocks.length > 0) {
 
 
 
@@ -23168,6 +23244,18 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
     anim.animationSpeed = 1.0;
 
+    let effectMask: PIXI.Graphics | null = null;
+    if (onlyCols && onlyCols.size > 0) {
+      effectMask = new PIXI.Graphics();
+      onlyCols.forEach(col => {
+        if (col < minCol || col > maxCol) return;
+        effectMask!.rect(col * PARAMS.cellSize, row * PARAMS.cellSize, PARAMS.cellSize, PARAMS.cellSize);
+      });
+      effectMask.fill({ color: 0xffffff });
+      worldContainer.addChild(effectMask);
+      anim.mask = effectMask;
+    }
+
 
 
     
@@ -23191,6 +23279,11 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
 
       anim.destroy();
+
+      if (effectMask) {
+        worldContainer.removeChild(effectMask);
+        effectMask.destroy();
+      }
 
 
 
@@ -23287,6 +23380,7 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
 
     for (let col = minCol; col <= maxCol; col++) {
+      if (!shouldRenderColumn(col)) continue;
 
 
 
@@ -23322,7 +23416,13 @@ function playRowShatterEffect(row: number, color: string, rowBlocks: Block[] = [
 
 
 
-      if (isCustomCell) {
+      if (isSingleCellEffect) {
+        textures = isCustomCell
+          ? activeEffectTextures
+          : (refCol < centerCol ? shatterLeftTextures.slice(3) : shatterRightTextures.slice(3));
+        isLeftTex = refCol < centerCol;
+        delay = 0;
+      } else if (isCustomCell) {
 
 
 
@@ -24034,7 +24134,7 @@ function checkEliminations() {
         setTimeout(() => {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
           
-          animatePropShrink(b.sprite, dir, oldCol, oldLen, b.col, b.length, () => {
+          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
               blocksContainer.removeChild(b.sprite);
             }
