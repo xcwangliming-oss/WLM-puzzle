@@ -13,8 +13,8 @@ assert.match(
 
 assert.match(
   body,
-  /function getPreviewRendererGameHeight\(\)[\s\S]*?PARAMS\.viewportRows \* PARAMS\.cellSize \* BOARD_FRAME_VERTICAL_SCALE/,
-  'preview renderer should include the phone-frame height extension without changing logical rows'
+  /function getPreviewRendererGameHeight\(\)[\s\S]*?return PARAMS\.viewportRows \* PARAMS\.cellSize;/,
+  'preview renderer should stay tied to the playable grid height so the bottom does not gain a blank band'
 );
 
 assert.match(
@@ -25,8 +25,8 @@ assert.match(
 
 assert.match(
   body,
-  /function getScrollViewportGameHeight\(\): number \{[\s\S]*?return getPreviewRendererGameHeight\(\);[\s\S]*?\}/,
-  'scroll boundary should use the extended preview height so the bottom frame is not left blank'
+  /function getScrollViewportGameHeight\(\): number \{[\s\S]*?return getViewportGameHeight\(\);[\s\S]*?\}/,
+  'scroll boundary should use the real playable viewport height'
 );
 
 assert.match(
@@ -44,7 +44,7 @@ assert.match(
 assert.match(
   body,
   /const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const displayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);/,
-  'renderer height should cover the extended frame instead of leaving a clipped blank band'
+  'renderer height should match the playable grid without stretching square blocks'
 );
 
 assert.match(

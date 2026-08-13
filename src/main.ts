@@ -15254,7 +15254,7 @@ function getViewportGameHeight(): number {
 
 function getScrollViewportGameHeight(): number {
 
-  return getPreviewRendererGameHeight();
+  return getViewportGameHeight();
 
 }
 
@@ -16026,7 +16026,7 @@ async function preloadStandaloneSelectedShatterEffects() {
 
 function getPreviewRendererGameHeight(): number {
 
-  return PARAMS.viewportRows * PARAMS.cellSize * BOARD_FRAME_VERTICAL_SCALE;
+  return PARAMS.viewportRows * PARAMS.cellSize;
 
 }
 
@@ -43155,7 +43155,7 @@ function syncBoardFrameToGrid() {
   const gameWidth = PARAMS.gridCols * PARAMS.cellSize + PADDING * 2;
   const gameHeight = PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2;
 
-  boardWrapper.style.setProperty('--board-grid-aspect', `${gameWidth} / ${gameHeight * BOARD_FRAME_VERTICAL_SCALE}`);
+  boardWrapper.style.setProperty('--board-grid-aspect', `${gameWidth} / ${gameHeight}`);
 
 }
 
