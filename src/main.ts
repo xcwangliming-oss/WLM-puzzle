@@ -42822,13 +42822,15 @@ function syncBoardFrameToGrid() {
 
 function getActiveBoardMechanic(): BoardMechanic {
 
+  if (scriptPlaybackAdvanceMode) return scriptPlaybackAdvanceMode;
+
 
 
   if (isFallingMode) return 'falling';
 
 
 
-  return scriptPlaybackAdvanceMode || boardMechanic;
+  return boardMechanic;
 
 
 
