@@ -7936,7 +7936,21 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 async function playScriptFromButton(autoScroll = false, rising = false, mechanic?: BoardMechanic) {
-  await playScript(autoScroll, rising, { mechanic });
+  // When the video button is armed while a script exists, the next autoplay
+  // action owns the recorder lifecycle. Manual recording remains unchanged.
+  let recordingStartedForPlayback = false;
+  if (isRecordingArmedForPlayback) {
+    recordingStartedForPlayback = await startRecording();
+    if (!recordingStartedForPlayback) return;
+  }
+
+  try {
+    await playScript(autoScroll, rising, { mechanic });
+  } finally {
+    if (recordingStartedForPlayback && isRecording) {
+      stopRecording();
+    }
+  }
 
 
 
