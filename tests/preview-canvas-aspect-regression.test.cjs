@@ -20,8 +20,14 @@ assert.match(
 
 assert.match(
   body,
-  /function getPreviewRendererGameHeight\(\)[\s\S]*?return PARAMS\.viewportRows \* PARAMS\.cellSize;/,
-  'preview renderer should stay tied to the playable grid height so the bottom does not gain a blank band'
+  /function getPreviewRendererGameHeight\(\)[\s\S]*?return PARAMS\.viewportRows \* PARAMS\.cellSize \* BOARD_FRAME_VERTICAL_SCALE;/,
+  'preview renderer should fill the phone frame with fractional vertical overscan'
+);
+
+assert.match(
+  body,
+  /function syncBoardFrameToGrid\(\)[\s\S]*?const gameHeight = getPreviewRendererGameHeight\(\) \+ PADDING \* 2;[\s\S]*?--board-grid-aspect/,
+  'board clip aspect should use the same fractional preview height as the renderer'
 );
 
 assert.match(
@@ -32,8 +38,14 @@ assert.match(
 
 assert.match(
   body,
-  /function getScrollViewportGameHeight\(\): number \{[\s\S]*?return getViewportGameHeight\(\);[\s\S]*?\}/,
-  'scroll boundary should use the real playable viewport height'
+  /function getScrollViewportGameHeight\(\): number \{[\s\S]*?return getPreviewRendererGameHeight\(\);[\s\S]*?\}/,
+  'scroll boundary should use the full visible preview height'
+);
+
+assert.match(
+  body,
+  /function updateBoardViewportMask\(\)[\s\S]*?\.rect\(PADDING, PADDING, PARAMS\.gridCols \* PARAMS\.cellSize, getPreviewRendererGameHeight\(\)\)/,
+  'board viewport mask should expose the fractional bottom area instead of covering it'
 );
 
 assert.match(
@@ -51,7 +63,7 @@ assert.match(
 assert.match(
   body,
   /const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const displayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);/,
-  'renderer height should match the playable grid without stretching square blocks'
+  'renderer height should include frame overscan without stretching square blocks'
 );
 
 assert.match(

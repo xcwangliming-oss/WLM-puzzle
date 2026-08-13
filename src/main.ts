@@ -15268,7 +15268,7 @@ function getViewportGameHeight(): number {
 
 function getScrollViewportGameHeight(): number {
 
-  return getViewportGameHeight();
+  return getPreviewRendererGameHeight();
 
 }
 
@@ -15294,7 +15294,7 @@ function updateBoardViewportMask() {
 
 
 
-    .rect(PADDING, PADDING, PARAMS.gridCols * PARAMS.cellSize, getViewportGameHeight())
+    .rect(PADDING, PADDING, PARAMS.gridCols * PARAMS.cellSize, getPreviewRendererGameHeight())
 
 
 
@@ -16040,7 +16040,10 @@ async function preloadStandaloneSelectedShatterEffects() {
 
 function getPreviewRendererGameHeight(): number {
 
-  return PARAMS.viewportRows * PARAMS.cellSize;
+  // The phone frame is slightly taller than an exact viewport-row multiple.
+  // Render that fractional overscan so the board reaches the lower inner edge
+  // without changing the logical scroll viewport or stretching block cells.
+  return PARAMS.viewportRows * PARAMS.cellSize * BOARD_FRAME_VERTICAL_SCALE;
 
 }
 
@@ -43167,7 +43170,7 @@ function syncBoardFrameToGrid() {
 
 
   const gameWidth = PARAMS.gridCols * PARAMS.cellSize + PADDING * 2;
-  const gameHeight = PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2;
+  const gameHeight = getPreviewRendererGameHeight() + PADDING * 2;
 
   boardWrapper.style.setProperty('--board-grid-aspect', `${gameWidth} / ${gameHeight}`);
 
