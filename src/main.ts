@@ -19496,23 +19496,36 @@ function invalidatePropCache(): void {
 }
 
 function loadCustomPropImages(): void {
-  const cb = localStorage.getItem(PROP_STORAGE_CANDY);
-  if (cb) { const i = new Image(); i.onload = () => { customPropCandyImg = i; invalidatePropCache(); }; i.src = cb; }
+  try {
+    const cb = localStorage.getItem(PROP_STORAGE_CANDY);
+    if (cb) {
+      const i = new Image();
+      i.onload = () => { customPropCandyImg = i; invalidatePropCache(); refreshPropStylePanel(); };
+      i.onerror = () => { customPropCandyImg = null; localStorage.removeItem(PROP_STORAGE_CANDY); refreshPropStylePanel(); };
+      i.src = cb;
+    }
 
-  const mf = localStorage.getItem(PROP_STORAGE_MACHINE_FRAMES);
-  if (mf) { try { customPropMachineFrames = JSON.parse(mf); } catch(e){} }
-  
-  const maf = localStorage.getItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
-  if (maf) { try { customPropMachineAttackFrames = JSON.parse(maf); } catch(e){} }
+    const mf = localStorage.getItem(PROP_STORAGE_MACHINE_FRAMES);
+    if (mf) { try { customPropMachineFrames = JSON.parse(mf); } catch(e){ customPropMachineFrames = []; } }
+    
+    const maf = localStorage.getItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+    if (maf) { try { customPropMachineAttackFrames = JSON.parse(maf); } catch(e){ customPropMachineAttackFrames = []; } }
 
-  const mb = localStorage.getItem(PROP_STORAGE_MACHINE); // Legacy fallback
-  if (mb && customPropMachineFrames.length === 0) {
-    customPropMachineFrames = [mb];
-  }
+    const mb = localStorage.getItem(PROP_STORAGE_MACHINE); // Legacy fallback
+    if (mb && customPropMachineFrames.length === 0) {
+      customPropMachineFrames = [mb];
+    }
 
-  if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
-    rebuildMachineTextures();
-    invalidatePropCache();
+    if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
+      rebuildMachineTextures();
+      invalidatePropCache();
+    }
+  } catch (error) {
+    console.warn('Failed to load custom prop images; falling back to default prop style.', error);
+    customPropMachineImg = null;
+    customPropCandyImg = null;
+    customPropMachineFrames = [];
+    customPropMachineAttackFrames = [];
   }
 }
 
@@ -19554,11 +19567,20 @@ function applyPendingCustomPropStyle(): void {
 }
 
 function rebuildMachineTextures(): void {
-  machineIdleTextures.forEach(t => t.destroy(true));
-  machineAttackTextures.forEach(t => t.destroy(true));
-  machineIdleTextures = customPropMachineFrames.map(b64 => PIXI.Texture.from(b64));
-  machineAttackTextures = customPropMachineAttackFrames.map(b64 => PIXI.Texture.from(b64));
-  customPropMachineImg = machineIdleTextures.length > 0 ? (machineIdleTextures[0].baseTexture.resource as any).source as HTMLImageElement : null;
+  try {
+    machineIdleTextures.forEach(t => t.destroy(true));
+    machineAttackTextures.forEach(t => t.destroy(true));
+    machineIdleTextures = customPropMachineFrames.map(b64 => PIXI.Texture.from(b64));
+    machineAttackTextures = customPropMachineAttackFrames.map(b64 => PIXI.Texture.from(b64));
+    customPropMachineImg = machineIdleTextures.length > 0 ? (machineIdleTextures[0].baseTexture.resource as any).source as HTMLImageElement : null;
+  } catch (error) {
+    console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
+    customPropMachineImg = null;
+    customPropMachineFrames = [];
+    customPropMachineAttackFrames = [];
+    machineIdleTextures = [];
+    machineAttackTextures = [];
+  }
 }
 
 function triggerMachineHeadAttack(): void {
