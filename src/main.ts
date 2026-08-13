@@ -17947,9 +17947,9 @@ function drawGrid() {
     recordingBackgroundActiveId !== MASTER_BACKGROUND_ID &&
     recordingBackgroundActiveId !== NO_BACKGROUND_ID;
 
-  const gridStart = useGeneratedBackgroundUI ? 1 : 0;
-  const gridColEnd = useGeneratedBackgroundUI ? PARAMS.gridCols - 1 : PARAMS.gridCols;
-  const gridRowEnd = useGeneratedBackgroundUI ? PARAMS.totalRows - 1 : PARAMS.totalRows;
+  const gridStart = 0;
+  const gridColEnd = PARAMS.gridCols;
+  const gridRowEnd = PARAMS.totalRows;
 
 
 

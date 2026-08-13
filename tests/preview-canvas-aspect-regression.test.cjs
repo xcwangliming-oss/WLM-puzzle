@@ -31,6 +31,12 @@ assert.match(
 
 assert.match(
   body,
+  /const gridStart = 0;[\s\S]*?const gridColEnd = PARAMS\.gridCols;[\s\S]*?const gridRowEnd = PARAMS\.totalRows;/,
+  'generated background mode should not clip away the first or last grid line'
+);
+
+assert.match(
+  body,
   /function getBottomWorldY\(\): number \{[\s\S]*?PARAMS\.totalRows \* PARAMS\.cellSize - getScrollViewportGameHeight\(\)/,
   'bottom scroll clamp should account for the extended preview frame separately from game logic'
 );
