@@ -118,7 +118,9 @@ html, body {
   left: 5.4167%;
   top: 12.5%;
   width: 89.1667%;
-  height: 85%;
+  height: auto;
+  aspect-ratio: var(--board-grid-aspect, 11 / 18);
+  box-sizing: border-box;
   overflow: hidden;
   z-index: 1;
 }

@@ -4,11 +4,18 @@ const assert = require('assert');
 
 const mainPath = path.join(__dirname, '..', 'src', 'main.ts');
 const body = fs.readFileSync(mainPath, 'utf8');
+const style = fs.readFileSync(path.join(__dirname, '..', 'src', 'style.css'), 'utf8');
 
 assert.match(
   body,
   /const BOARD_FRAME_VERTICAL_SCALE = 1\.04;/,
   'phone-style board frame should keep its lower safe-area extension'
+);
+
+assert.match(
+  style,
+  /#board-clip\s*\{[\s\S]*?height:\s*auto;[\s\S]*?aspect-ratio:\s*var\(--board-grid-aspect,\s*11\s*\/\s*18\);[\s\S]*?overflow:\s*hidden;/,
+  'board clip should use the playable grid aspect so the frame cannot show a bottom band'
 );
 
 assert.match(
