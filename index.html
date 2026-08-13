@@ -974,8 +974,8 @@
           const wrap = document.createElement('div');
           wrap.style.display = 'flex';
           wrap.style.alignItems = 'center';
-          wrap.style.gap = '10px';
-          wrap.style.marginBottom = '10px';
+          wrap.style.gap = '7px';
+          wrap.style.marginBottom = '7px';
           children.forEach(child => wrap.appendChild(child));
           return wrap;
         };
@@ -991,7 +991,7 @@
           input.style.fontWeight = 'bold';
           input.style.fontSize = '12px';
           input.style.minWidth = '0';
-          input.style.height = '32px';
+          input.style.height = '30px';
           input.style.boxSizing = 'border-box';
         };
 
@@ -1115,7 +1115,7 @@
           applyInputStyle(input, '');
           const labelEl = document.createElement('label');
           labelEl.textContent = label;
-          labelEl.style.width = '120px';
+          labelEl.style.width = '112px';
           labelEl.style.flexShrink = '0';
           scriptControls.append(row(labelEl, input));
         });
@@ -1134,7 +1134,7 @@
           applyInputStyle(input, '');
           const labelEl = document.createElement('label');
           labelEl.textContent = label;
-          labelEl.style.width = '120px';
+          labelEl.style.width = '112px';
           labelEl.style.flexShrink = '0';
           autoSection.append(row(labelEl, input));
         });
@@ -1149,7 +1149,7 @@
         });
         const firstElimLabel = document.createElement('label');
         firstElimLabel.textContent = '第一次消除步数:';
-        firstElimLabel.style.width = '120px';
+        firstElimLabel.style.width = '112px';
         autoSection.append(row(firstElimLabel, firstElim));
         const requireMulti = take('input-autoplay-require-multi');
         const requireLabel = document.createElement('label');
