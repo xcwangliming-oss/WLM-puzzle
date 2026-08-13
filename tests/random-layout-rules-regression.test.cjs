@@ -6,6 +6,9 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.ts'), 'ut
 const start = source.indexOf('function generateRandomLayout() {');
 const end = source.indexOf('function pickColorForCurrentMode', start);
 const generatorSource = source.slice(start, end);
+const generateFromHolesStart = source.indexOf('function generateFromHoles() {');
+const generateFromHolesEnd = source.indexOf('function preventFullRows()', generateFromHolesStart);
+const generateFromHolesSource = source.slice(generateFromHolesStart, generateFromHolesEnd);
 
 assert.notEqual(start, -1, 'random layout generator should exist');
 assert.notEqual(end, -1, 'next generator helper should exist');
@@ -38,6 +41,46 @@ assert.match(
   generatorSource,
   /filledCellsInRow \+= len;/,
   'random layout should update row fill count only after spawning a block'
+);
+assert.match(
+  source,
+  /btnRandom\.onclick = \(\) => \{[\s\S]*?generateRandomLayout\(\);[\s\S]*?settleLayoutWithoutEliminations\(\);/,
+  'random layout button should settle and break full rows after generation'
+);
+assert.match(
+  source,
+  /function buildGeneratedLayoutMaskFromTemplate\(mask: boolean\[\]\[\]\)/,
+  'drawn layout template expansion helper should exist'
+);
+assert.match(
+  source,
+  /function getPaintedLayoutTemplateRows\(mask: boolean\[\]\[\]\): \{ rowIndex: number; cells: boolean\[\] \}\[\]/,
+  'drawn layout template rows should be extracted from painted rows'
+);
+assert.match(
+  source,
+  /for \(let r = lastTemplateRow \+ 1; r < PARAMS\.totalRows; r\+\+\)/,
+  'drawn layout template should only repeat below the painted rows'
+);
+assert.match(
+  generateFromHolesSource,
+  /const generatedLayoutMask = buildGeneratedLayoutMaskFromTemplate\(layoutDrawMask\);/,
+  'generate-from-drawing should expand the painted template before spawning'
+);
+assert.match(
+  generateFromHolesSource,
+  /getValidPartitions\(remaining, c, r, generatedLayoutMask\)/,
+  'generate-from-drawing should use the expanded mask for support-aware partitions'
+);
+assert.doesNotMatch(
+  generateFromHolesSource,
+  /Fallback for floating\/unsupported shapes/,
+  'generate-from-drawing should not create unsupported fallback blocks'
+);
+assert.match(
+  generateFromHolesSource,
+  /c = endCol \+ 1;[\s\S]*?continue;/,
+  'generate-from-drawing should skip unsupported segments instead of making floating blocks'
 );
 
 console.log('random layout rules regression checks passed');

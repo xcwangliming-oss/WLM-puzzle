@@ -16584,6 +16584,60 @@ if (localStorage.getItem('recordingBackgroundMasterVersion') !== MASTER_BACKGROU
 
 
 
+function getPaintedLayoutTemplateRows(mask: boolean[][]): { rowIndex: number; cells: boolean[] }[] {
+
+  const rows: { rowIndex: number; cells: boolean[] }[] = [];
+
+  for (let r = 0; r < Math.min(PARAMS.totalRows, mask.length); r++) {
+
+    const row = mask[r] || [];
+
+    if (row.some(Boolean)) {
+
+      rows.push({ rowIndex: r, cells: Array.from({ length: PARAMS.gridCols }, (_, c) => row[c] === true) });
+
+    }
+
+  }
+
+  return rows;
+
+}
+
+
+
+function buildGeneratedLayoutMaskFromTemplate(mask: boolean[][]): boolean[][] {
+
+  const normalized = normalizeBooleanMask(mask);
+
+  const templateRows = getPaintedLayoutTemplateRows(normalized);
+
+  if (templateRows.length === 0) return normalized;
+
+  const generated = normalized.map(row => [...row]);
+
+  const firstTemplateRow = templateRows[0].rowIndex;
+
+  const lastTemplateRow = templateRows[templateRows.length - 1].rowIndex;
+
+  const templateCells = templateRows.map(row => row.cells);
+
+  for (let r = lastTemplateRow + 1; r < PARAMS.totalRows; r++) {
+
+    if (generated[r].some(Boolean)) continue;
+
+    const templateOffset = (r - firstTemplateRow) % templateCells.length;
+
+    generated[r] = [...templateCells[templateOffset]];
+
+  }
+
+  return generated;
+
+}
+
+
+
 let recordingBackgroundEnabled = localStorage.getItem('recordingBackgroundEnabled') === 'true';
 
 
@@ -26089,7 +26143,7 @@ function maybeSpawnFallingTopPage(): boolean {
 
 
 
-function isBlockSupported(c: number, len: number, row: number): boolean {
+function isBlockSupported(c: number, len: number, row: number, activeLayoutMask: boolean[][] = layoutDrawMask): boolean {
 
 
 
@@ -26117,7 +26171,7 @@ function isBlockSupported(c: number, len: number, row: number): boolean {
 
 
 
-    if (layoutDrawMask && layoutDrawMask[row + 1] && layoutDrawMask[row + 1][i]) continue;
+    if (activeLayoutMask && activeLayoutMask[row + 1] && activeLayoutMask[row + 1][i]) continue;
 
 
 
@@ -26153,7 +26207,7 @@ function isBlockSupported(c: number, len: number, row: number): boolean {
 
 
 
-function getValidPartitions(remainingLen: number, c: number, r: number): number[][] {
+function getValidPartitions(remainingLen: number, c: number, r: number, activeLayoutMask: boolean[][] = layoutDrawMask): number[][] {
 
 
 
@@ -26173,11 +26227,11 @@ function getValidPartitions(remainingLen: number, c: number, r: number): number[
 
 
 
-    if (isBlockSupported(c, len, r)) {
+    if (isBlockSupported(c, len, r, activeLayoutMask)) {
 
 
 
-      const subPartitions = getValidPartitions(remainingLen - len, c + len, r);
+      const subPartitions = getValidPartitions(remainingLen - len, c + len, r, activeLayoutMask);
 
 
 
@@ -26303,6 +26357,8 @@ function generateFromHoles() {
 
   if (isSingleColorMode) singleColorIndex = 0;
 
+  const generatedLayoutMask = buildGeneratedLayoutMaskFromTemplate(layoutDrawMask);
+
 
 
   for (let r = PARAMS.totalRows - 1; r >= 0; r--) {
@@ -26317,7 +26373,7 @@ function generateFromHoles() {
 
 
 
-      if ((holeMask[r] && holeMask[r][c]) || (layoutDrawMask[r] && layoutDrawMask[r][c])) { c++; continue; }
+      if ((holeMask[r] && holeMask[r][c]) || (generatedLayoutMask[r] && generatedLayoutMask[r][c])) { c++; continue; }
 
 
 
@@ -26333,7 +26389,7 @@ function generateFromHoles() {
 
 
 
-      while (endCol + 1 < PARAMS.gridCols && (!holeMask[r] || !holeMask[r][endCol + 1]) && (!layoutDrawMask[r] || !layoutDrawMask[r][endCol + 1])) endCol++;
+      while (endCol + 1 < PARAMS.gridCols && (!holeMask[r] || !holeMask[r][endCol + 1]) && (!generatedLayoutMask[r] || !generatedLayoutMask[r][endCol + 1])) endCol++;
 
 
 
@@ -26345,7 +26401,7 @@ function generateFromHoles() {
 
 
 
-      const validPartitions = getValidPartitions(remaining, c, r);
+      const validPartitions = getValidPartitions(remaining, c, r, generatedLayoutMask);
 
 
 
@@ -26369,39 +26425,9 @@ function generateFromHoles() {
 
 
 
-        // Fallback for floating/unsupported shapes
+        c = endCol + 1;
 
-
-
-        chosenPartition = [];
-
-
-
-        let rem = remaining;
-
-
-
-        while (rem > 0) {
-
-
-
-          let l = weightedRandomLength(Math.min(4, rem));
-
-
-
-          if (l <= 0) l = 1; // Fallback to 1 if weights resolve to 0 to prevent infinite loop
-
-
-
-          chosenPartition.push(l);
-
-
-
-          rem -= l;
-
-
-
-        }
+        continue;
 
 
 
@@ -31352,7 +31378,17 @@ function setupDOMUI() {
 
 
 
-    runPhysicsInstant();
+    if (isNoGravityMode) {
+
+      preventFullRows();
+
+      detectFloatingBlocks();
+
+    } else {
+
+      settleLayoutWithoutEliminations();
+
+    }
 
 
 
@@ -31360,7 +31396,7 @@ function setupDOMUI() {
 
 
 
-    console.log('After runPhysicsInstant, blocks count:', blocks.length);
+    console.log('After layout settling, blocks count:', blocks.length);
 
 
 
