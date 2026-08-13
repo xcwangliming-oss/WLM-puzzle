@@ -19775,54 +19775,80 @@ function revertMachineHeadIdle(): void {
   }
 }
 
-async function importPropImage(role: 'machine' | 'machine_attack' | 'candy'): Promise<void> {
-  return new Promise(resolve => {
-    const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
-    if (role === 'machine' || role === 'machine_attack') input.multiple = true;
-    input.onchange = async () => {
-      const files = Array.from(input.files || []); if (files.length === 0) return resolve();
-      // Sort files by name to ensure sequence is in order
-      files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-      
-      if (role === 'candy') {
-        const file = files[0];
-        const reader = new FileReader();
-        reader.onload = e => {
-          const b64 = e.target!.result as string;
-          const img = new Image();
-          img.onload = () => {
-            customPropCandyImg = img; localStorage.setItem(PROP_STORAGE_CANDY, b64);
-            invalidatePropCache(); refreshPropStylePanel(); resolve();
-          }; img.src = b64;
-        }; reader.readAsDataURL(file);
-      } else {
-        const b64Array: string[] = [];
-        for (const file of files) {
-          const b64 = await new Promise<string>((res) => {
-            const reader = new FileReader();
-            reader.onload = e => res(e.target!.result as string);
-            reader.readAsDataURL(file);
-          });
-          b64Array.push(b64);
-        }
-        
-        if (role === 'machine') {
-          customPropMachineFrames = b64Array;
-          localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(b64Array));
-          // For legacy compatibility, save the first frame
-          localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]); 
-        } else if (role === 'machine_attack') {
-          customPropMachineAttackFrames = b64Array;
-          localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(b64Array));
-        }
-        
-        rebuildMachineTextures();
-        invalidatePropCache();
-        refreshPropStylePanel();
-        resolve();
-      }
-    }; input.click();
+type PropImageRole = 'machine' | 'machine_attack' | 'candy';
+
+function readPropImageFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = event => resolve(event.target!.result as string);
+    reader.onerror = () => reject(reader.error || new Error(`Failed to read ${file.name}`));
+    reader.readAsDataURL(file);
   });
+}
+
+function loadPropImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Failed to load the selected prop image'));
+    image.src = dataUrl;
+  });
+}
+
+async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): Promise<void> {
+  const files = [...selectedFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  if (files.length === 0) return;
+
+  if (role === 'candy') {
+    const b64 = await readPropImageFile(files[0]);
+    customPropCandyImg = await loadPropImage(b64);
+    localStorage.setItem(PROP_STORAGE_CANDY, b64);
+  } else {
+    const b64Array = await Promise.all(files.map(readPropImageFile));
+    if (role === 'machine') {
+      customPropMachineFrames = b64Array;
+      localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(b64Array));
+      localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]);
+    } else {
+      customPropMachineAttackFrames = b64Array;
+      localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(b64Array));
+    }
+    rebuildMachineTextures();
+  }
+
+  invalidatePropCache();
+  refreshPropStylePanel();
+}
+
+function importPropImage(role: PropImageRole): void {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.multiple = role === 'machine' || role === 'machine_attack';
+  input.style.display = 'none';
+  input.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(input);
+
+  const cleanup = () => {
+    input.value = '';
+    input.remove();
+  };
+
+  input.addEventListener('change', () => {
+    const files = Array.from(input.files || []);
+    if (files.length === 0) {
+      cleanup();
+      return;
+    }
+    void applyPropImageFiles(role, files)
+      .catch(error => console.error('Failed to import custom prop image.', error))
+      .finally(cleanup);
+  }, { once: true });
+  input.addEventListener('cancel', cleanup, { once: true });
+
+  // A cleared value guarantees that selecting the same file again emits change.
+  input.value = '';
+  input.click();
 }
 
 function clearCustomPropImages(): void {
@@ -19870,9 +19896,20 @@ function initPropStylePanel(): void {
   const lbl_machine = '⚙️ 机器头';
   const lbl_clear   = '✕ 恢复默认样式';
   const lbl_hint    = '糖果体图片将<b style="color:#aaa">平铺重复</b>填充；机器头图片固定在右侧 1 格。';
-  sec.innerHTML = `<h3 style='margin-top:2px;margin-bottom:4px;display:flex;align-items:center;gap:6px;font-size:14px;'>${lbl_title}<span id='prop-custom-badge' style='display:none;font-size:9px;background:#7c3aed;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;'>${lbl_badge}</span></h3><div style='display:flex;flex-direction:column;gap:4px;'><div style='display:flex;gap:4px;align-items:center;'><div id='prop-candy-slot' style='flex:1;background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:4px;text-align:center;cursor:pointer;transition:border-color 0.2s;' onclick='importPropImage("candy")'><div style='font-size:9px;color:#aaa;margin-bottom:2px;'>${lbl_candy}</div><img id='prop-candy-thumb' style='display:none;max-width:100%;max-height:24px;object-fit:contain;border-radius:4px;'/></div><div style='font-size:14px;color:#555;'>→</div><div id='prop-machine-slot' style='flex:1;background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:4px;text-align:center;cursor:pointer;transition:border-color 0.2s;' onclick='importPropImage("machine")'><div style='font-size:9px;color:#aaa;margin-bottom:2px;'>${lbl_machine}</div><img id='prop-machine-thumb' style='display:none;max-width:100%;max-height:24px;object-fit:contain;border-radius:4px;'/></div></div><button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>${lbl_clear}</button><div style='font-size:9px;color:#666;line-height:1.2;'>${lbl_hint}</div></div>`;
+  sec.innerHTML = `<h3 style='margin-top:2px;margin-bottom:4px;display:flex;align-items:center;gap:6px;font-size:14px;'>${lbl_title}<span id='prop-custom-badge' style='display:none;font-size:9px;background:#7c3aed;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;'>${lbl_badge}</span></h3><div style='display:flex;flex-direction:column;gap:4px;'><div style='display:flex;gap:4px;align-items:center;'><div id='prop-candy-slot' style='flex:1;background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:4px;text-align:center;cursor:pointer;transition:border-color 0.2s;'><div style='font-size:9px;color:#aaa;margin-bottom:2px;'>${lbl_candy}</div><img id='prop-candy-thumb' style='display:none;max-width:100%;max-height:24px;object-fit:contain;border-radius:4px;'/></div><div style='font-size:14px;color:#555;'>→</div><div id='prop-machine-slot' style='flex:1;background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:4px;text-align:center;cursor:pointer;transition:border-color 0.2s;'><div style='font-size:9px;color:#aaa;margin-bottom:2px;'>${lbl_machine}</div><img id='prop-machine-thumb' style='display:none;max-width:100%;max-height:24px;object-fit:contain;border-radius:4px;'/></div></div><button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>${lbl_clear}</button><div style='font-size:9px;color:#666;line-height:1.2;'>${lbl_hint}</div></div>`;
   panel.appendChild(sec);
-  ['prop-candy-slot','prop-machine-slot'].forEach(id => { const el = document.getElementById(id) as HTMLElement|null; if(!el)return; el.addEventListener('mouseenter',()=>el.style.borderColor='#7c3aed'); el.addEventListener('mouseleave',()=>el.style.borderColor='#555'); });
+  ([['prop-candy-slot', 'candy'], ['prop-machine-slot', 'machine']] as const).forEach(([id, role]) => {
+    const el = document.getElementById(id) as HTMLElement | null;
+    if (!el) return;
+    el.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      importPropImage(role);
+    };
+    el.addEventListener('pointerdown', event => event.stopPropagation());
+    el.addEventListener('mouseenter', () => el.style.borderColor = '#7c3aed');
+    el.addEventListener('mouseleave', () => el.style.borderColor = '#555');
+  });
   refreshPropStylePanel();
 }
 
