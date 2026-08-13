@@ -19587,13 +19587,36 @@ function applyPendingCustomPropStyle(): void {
   }
 }
 
+function loadCustomPropMachineImageFromFirstFrame(): void {
+  const firstFrame = customPropMachineFrames[0];
+  if (!firstFrame || !firstFrame.startsWith('data:')) {
+    customPropMachineImg = null;
+    invalidatePropCache();
+    refreshPropStylePanel();
+    return;
+  }
+  const img = new Image();
+  img.onload = () => {
+    customPropMachineImg = img;
+    invalidatePropCache();
+    refreshPropStylePanel();
+  };
+  img.onerror = () => {
+    customPropMachineImg = null;
+    console.warn('Failed to load custom prop machine head image; keeping default machine head.');
+    invalidatePropCache();
+    refreshPropStylePanel();
+  };
+  img.src = firstFrame;
+}
+
 function rebuildMachineTextures(): void {
   try {
     machineIdleTextures.forEach(t => t.destroy(true));
     machineAttackTextures.forEach(t => t.destroy(true));
     machineIdleTextures = customPropMachineFrames.map(b64 => PIXI.Texture.from(b64));
     machineAttackTextures = customPropMachineAttackFrames.map(b64 => PIXI.Texture.from(b64));
-    customPropMachineImg = machineIdleTextures.length > 0 ? (machineIdleTextures[0].baseTexture.resource as any).source as HTMLImageElement : null;
+    loadCustomPropMachineImageFromFirstFrame();
   } catch (error) {
     console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
     customPropMachineImg = null;
@@ -19900,59 +19923,9 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
 
 
 
-  const useCustom = !!(customPropMachineImg && customPropCandyImg);
-  const key = `peppermint_${length}_${dir}_${cellSize}_${useCustom ? 'c' : 'd'}`;
+  const customParts = `${customPropCandyImg ? 'candy' : ''}_${customPropMachineImg ? 'machine' : ''}`;
+  const key = `peppermint_${length}_${dir}_${cellSize}_${customParts || 'default'}`;
   if (propTextureCache[key]) return propTextureCache[key];
-
-  if (useCustom) {
-    const w2 = length * cellSize, h2 = cellSize;
-    const cv = document.createElement('canvas'); cv.width = w2; cv.height = h2;
-    const cx = cv.getContext('2d')!;
-    const machineW = cellSize, candyW = Math.max(0, w2 - machineW);
-    if (candyW > 0 && customPropCandyImg) {
-      const sc = cellSize / customPropCandyImg.naturalHeight;
-      const tw = Math.max(1, Math.ceil(customPropCandyImg.naturalWidth * sc));
-      // Scale tile
-      const tc = document.createElement('canvas'); tc.width = tw; tc.height = cellSize;
-      tc.getContext('2d')!.drawImage(customPropCandyImg, 0, 0, tw, cellSize);
-      // Draw all tiles into a full-width candy strip canvas
-      const strip = document.createElement('canvas');
-      strip.width = candyW; strip.height = cellSize;
-      const sCtx = strip.getContext('2d')!;
-      for (let dx = 0; dx < candyW; dx += tw) {
-        sCtx.drawImage(tc, dx, 0, tw, cellSize);
-      }
-      // For 'right' dir: flip the ENTIRE strip horizontally so spiral direction reverses
-      const candyStartX = dir === 'left' ? 0 : machineW;
-      cx.save();
-      if (dir === 'right') {
-        // translate to where the strip ends, then scale -1 to draw it mirrored
-        cx.translate(candyStartX + candyW, 0);
-        cx.scale(-1, 1);
-        cx.drawImage(strip, 0, 0, candyW, cellSize);
-      } else {
-        cx.drawImage(strip, candyStartX, 0, candyW, cellSize);
-      }
-      cx.restore();
-    }
-    if (customPropMachineImg) {
-      const msc = Math.min(machineW / customPropMachineImg.naturalWidth, cellSize / customPropMachineImg.naturalHeight);
-      const mW = customPropMachineImg.naturalWidth * msc, mH = customPropMachineImg.naturalHeight * msc;
-      const mX = dir === 'left' ? w2 - machineW + (machineW - mW) / 2 : (machineW - mW) / 2;
-      const mY = (cellSize - mH) / 2;
-      cx.save();
-      if (dir === 'right') {
-        // Mirror horizontally so the machine head faces the correct direction
-        cx.translate(mX + mW, mY);
-        cx.scale(-1, 1);
-        cx.drawImage(customPropMachineImg, 0, 0, mW, mH);
-      } else {
-        cx.drawImage(customPropMachineImg, mX, mY, mW, mH);
-      }
-      cx.restore();
-    }
-    const t2 = PIXI.Texture.from(cv); propTextureCache[key] = t2; return t2;
-  }
 
   const w = length * cellSize;
 
@@ -20421,6 +20394,58 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
 
 
 
+
+  if (customPropCandyImg) {
+    const candyW = Math.max(0, w - cellSize);
+    const candyStartX = dir === 'left' ? 0 : cellSize;
+    if (candyW > 0 && customPropCandyImg.naturalWidth > 0 && customPropCandyImg.naturalHeight > 0) {
+      const tileW = Math.max(1, Math.ceil(customPropCandyImg.naturalWidth * (h / customPropCandyImg.naturalHeight)));
+      const tileCanvas = document.createElement('canvas');
+      tileCanvas.width = tileW;
+      tileCanvas.height = h;
+      tileCanvas.getContext('2d')!.drawImage(customPropCandyImg, 0, 0, tileW, h);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(stickStartX, stickY, stickW, stickH, cornerRadius);
+      ctx.clip();
+      if (dir === 'right') {
+        ctx.translate(candyStartX + candyW, 0);
+        ctx.scale(-1, 1);
+        for (let dx = 0; dx < candyW; dx += tileW) {
+          ctx.drawImage(tileCanvas, dx, 0, tileW, h);
+        }
+      } else {
+        for (let dx = candyStartX; dx < candyStartX + candyW; dx += tileW) {
+          ctx.drawImage(tileCanvas, dx, 0, tileW, h);
+        }
+      }
+      ctx.restore();
+      ctx.beginPath();
+      ctx.roundRect(stickStartX, stickY, stickW, stickH, cornerRadius);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(140, 0, 25, 0.7)';
+      ctx.stroke();
+    }
+  }
+
+  if (customPropMachineImg && customPropMachineImg.naturalWidth > 0 && customPropMachineImg.naturalHeight > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(machineCenterX, machineCenterY, machineRadius + 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.clearRect(machineCenterX - machineRadius - 3, machineCenterY - machineRadius - 3, (machineRadius + 3) * 2, (machineRadius + 3) * 2);
+    const scale = Math.min((machineRadius * 2) / customPropMachineImg.naturalWidth, (machineRadius * 2) / customPropMachineImg.naturalHeight);
+    const imgW = customPropMachineImg.naturalWidth * scale;
+    const imgH = customPropMachineImg.naturalHeight * scale;
+    if (dir === 'right') {
+      ctx.translate(machineCenterX, machineCenterY);
+      ctx.scale(-1, 1);
+      ctx.drawImage(customPropMachineImg, -imgW / 2, -imgH / 2, imgW, imgH);
+    } else {
+      ctx.drawImage(customPropMachineImg, machineCenterX - imgW / 2, machineCenterY - imgH / 2, imgW, imgH);
+    }
+    ctx.restore();
+  }
 
   const tex = PIXI.Texture.from(canvas);
 
