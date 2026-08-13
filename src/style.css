@@ -155,8 +155,7 @@ html, body {
 }
 
 #bottom-menu #time-display,
-#bottom-menu #advance-mode-group,
-#bottom-menu #color-pair-selectors {
+#bottom-menu #advance-mode-group {
   grid-column: 1 / -1;
 }
 
@@ -274,6 +273,26 @@ html, body {
 #bottom-menu #btn-nogravity-mode,
 #bottom-menu #btn-custom-twocolor-mode {
   min-height: 48px;
+}
+
+.custom-two-color-row {
+  display: contents;
+}
+
+#bottom-menu #btn-custom-twocolor-mode,
+#bottom-menu #color-pair-selectors {
+  order: 1;
+}
+
+#bottom-menu .custom-two-color-row .menu-section-title {
+  order: 2;
+}
+
+#bottom-menu #btn-fixed-mechanic,
+#bottom-menu #btn-rising-mechanic,
+#bottom-menu #btn-scroll-mechanic,
+#bottom-menu #btn-falling-mode {
+  order: 3;
 }
 
 /* Editor Settings Panel & Material Panel & Script Panel & Script Steps Panel */
@@ -913,18 +932,18 @@ body:not(.is-playable) #script-steps-panel {
 /* Two-color Mode Selectors Panel Styling */
 .color-selectors-panel {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   justify-content: center;
-  gap: 12px;
+  gap: 5px;
   background: rgba(30, 30, 46, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  padding: 6px 8px;
-  margin-top: -4px;
-  margin-bottom: 4px;
+  padding: 5px 4px;
+  margin: 0;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: inset 0 2px 5px rgba(0,0,0,0.3);
   width: 100%;
+  min-height: 48px;
   box-sizing: border-box;
 }
 .color-selectors-panel.hidden {
@@ -932,16 +951,17 @@ body:not(.is-playable) #script-steps-panel {
 }
 .color-dots-column {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  justify-content: center;
+  gap: 4px;
   align-items: center;
 }
 .color-dot {
-  width: 13px;
-  height: 13px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   cursor: pointer;
-  border: 1.5px solid transparent;
+  border: 1px solid transparent;
   transition: all 0.2s ease;
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.4);
 }
