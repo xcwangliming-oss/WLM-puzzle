@@ -25,6 +25,18 @@ assert.match(
 
 assert.match(
   body,
+  /function getScrollViewportGameHeight\(\): number \{[\s\S]*?return getPreviewRendererGameHeight\(\);[\s\S]*?\}/,
+  'scroll boundary should use the extended preview height so the bottom frame is not left blank'
+);
+
+assert.match(
+  body,
+  /function getBottomWorldY\(\): number \{[\s\S]*?PARAMS\.totalRows \* PARAMS\.cellSize - getScrollViewportGameHeight\(\)/,
+  'bottom scroll clamp should account for the extended preview frame separately from game logic'
+);
+
+assert.match(
+  body,
   /const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const displayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);/,
   'renderer height should cover the extended frame instead of leaving a clipped blank band'
 );

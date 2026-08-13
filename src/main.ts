@@ -15252,6 +15252,14 @@ function getViewportGameHeight(): number {
 
 
 
+function getScrollViewportGameHeight(): number {
+
+  return getPreviewRendererGameHeight();
+
+}
+
+
+
 
 
 
@@ -15704,7 +15712,7 @@ function getBottomWorldY(): number {
 
 
 
-  return -Math.max(0, PARAMS.totalRows * PARAMS.cellSize - getViewportGameHeight());
+  return -Math.max(0, PARAMS.totalRows * PARAMS.cellSize - getScrollViewportGameHeight());
 
 
 
