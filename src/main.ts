@@ -12247,9 +12247,24 @@ function playCollectibleFlyAnimation(b: Block) {
 
   let targetTop = 15;
 
+  let targetSize = 36;
 
+  if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
 
-  if (targetEl) {
+    const recordingBoardBox = getMasterBoardContentRect(MASTER_UI.width, MASTER_UI.height);
+
+    const recordingIconBox = getRecordingCollectIconRect(MASTER_UI.width, MASTER_UI.height);
+
+    const mappedTarget = mapRecordingRectToBoardWrapperRect(recordingIconBox, boardRect, recordingBoardBox);
+
+    targetLeft = mappedTarget.x;
+
+    targetTop = mappedTarget.y;
+
+    targetSize = Math.max(36, mappedTarget.w);
+
+  } else if (targetEl) {
+
 
 
 
@@ -12262,6 +12277,8 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
     targetTop = targetRect.top - boardRect.top;
+
+    targetSize = Math.max(36, targetRect.width);
 
 
 
@@ -12537,11 +12554,11 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-    width: 36,
+    width: targetSize,
 
 
 
-    height: 36,
+    height: targetSize,
 
 
 
@@ -16540,6 +16557,10 @@ const MASTER_UI = {
 
 
 };
+
+const RECORDING_COLLECT_ICON_SIZE = 44;
+
+const RECORDING_COLLECT_ICON_X_RATIO = 0.71;
 
 
 
@@ -28520,6 +28541,68 @@ function mapBoardWrapperRectToRecordingRect(
 
 
 
+function getRecordingCollectIconRect(width: number, height: number) {
+
+  const headerBox = {
+
+    x: MASTER_UI.header.x * width,
+
+    y: MASTER_UI.header.y * height,
+
+    w: MASTER_UI.header.w * width,
+
+    h: MASTER_UI.header.h * height
+
+  };
+
+  const size = RECORDING_COLLECT_ICON_SIZE;
+
+  return {
+
+    x: headerBox.x + headerBox.w * RECORDING_COLLECT_ICON_X_RATIO,
+
+    y: headerBox.y + (headerBox.h - size) / 2,
+
+    w: size,
+
+    h: size
+
+  };
+
+}
+
+
+
+function mapRecordingRectToBoardWrapperRect(
+
+  recordingRect: { x: number; y: number; w: number; h: number },
+
+  boardRect: DOMRect,
+
+  targetBox: { x: number; y: number; w: number; h: number }
+
+) {
+
+  const scaleX = boardRect.width / Math.max(1, targetBox.w);
+
+  const scaleY = boardRect.height / Math.max(1, targetBox.h);
+
+  return {
+
+    x: (recordingRect.x - targetBox.x) * scaleX,
+
+    y: (recordingRect.y - targetBox.y) * scaleY,
+
+    w: recordingRect.w * scaleX,
+
+    h: recordingRect.h * scaleY
+
+  };
+
+}
+
+
+
 function getMasterBoardAspect(): number {
 
 
@@ -38728,17 +38811,19 @@ function startRecording(): Promise<boolean> {
 
           const boardRect = boardWrapper.getBoundingClientRect();
 
-          const headerIconSize = useRecordingBackground ? 34 : iconRect.width * dpr;
+          const recordingIconBox = useRecordingBackground ? getRecordingCollectIconRect(width, height) : null;
+
+          const headerIconSize = useRecordingBackground && recordingIconBox ? recordingIconBox.w : iconRect.width * dpr;
 
           const rx = useRecordingBackground
 
-            ? headerBox.x + headerBox.w * 0.73
+            ? recordingIconBox!.x
 
             : (iconRect.left - boardRect.left) * dpr;
 
           const ry = useRecordingBackground
 
-            ? headerBox.y + (headerBox.h - headerIconSize) / 2
+            ? recordingIconBox!.y
 
             : (iconRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr;
 
@@ -38776,7 +38861,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-          recordingCtx!.font = `900 ${useRecordingBackground ? 28 : 26 * dpr}px 'Arial Black', 'Impact', sans-serif`;
+          recordingCtx!.font = `900 ${useRecordingBackground ? 34 : 26 * dpr}px 'Arial Black', 'Impact', sans-serif`;
 
 
 

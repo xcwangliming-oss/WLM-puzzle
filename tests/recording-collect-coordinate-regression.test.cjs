@@ -21,12 +21,27 @@ assert.match(
 );
 assert.match(
   source,
-  /const headerIconSize = useRecordingBackground \? 34 : iconRect\.width \* dpr;/,
+  /const RECORDING_COLLECT_ICON_SIZE = 44;/,
+  'collect mode recording HUD icon should be large enough for 720x1280 output'
+);
+assert.match(
+  source,
+  /function getRecordingCollectIconRect\(width: number, height: number\)/,
   'collect mode recording HUD should use deterministic template coordinates in background mode'
 );
 assert.match(
   source,
-  /headerBox\.x \+ headerBox\.w \* 0\.73/,
+  /const mappedTarget = mapRecordingRectToBoardWrapperRect\(recordingIconBox, boardRect, recordingBoardBox\);/,
+  'collectible DOM flight target should be derived from the same template HUD icon position used by recording'
+);
+assert.match(
+  source,
+  /targetSize = Math\.max\(36, mappedTarget\.w\);/,
+  'collectible DOM flight should end at the recorded HUD icon size instead of shrinking too small'
+);
+assert.match(
+  source,
+  /const recordingIconBox = useRecordingBackground \? getRecordingCollectIconRect\(width, height\) : null;/,
   'collect mode recording HUD icon should stay in the right side of the master header'
 );
 
