@@ -24,6 +24,11 @@ assert.match(
   /const shouldAlignEachStepScroll = isResuming && !useRecordedScrollTrack;/,
   'normal playback should not realign the camera at every scripted step'
 );
+assert.match(
+  body,
+  /restoreBoardState\(\{ preserveWorldY: !autoScroll && !rising && !options\.mechanic \}\);/,
+  'normal playback should restore blocks without forcing the camera back to the saved start scroll'
+);
 assert.doesNotMatch(
   body,
   /const shouldAlignToStepScroll = useRecordedScrollTrack \|\| \(!autoScroll && !rising\);/,

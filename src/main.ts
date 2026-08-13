@@ -4400,7 +4400,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-function restoreBoardState() {
+function restoreBoardState(options: { preserveWorldY?: boolean } = {}) {
 
 
 
@@ -4464,7 +4464,11 @@ function restoreBoardState() {
 
 
 
-  setWorldY(initialScrollY);
+  if (!options.preserveWorldY) {
+
+    setWorldY(initialScrollY);
+
+  }
 
 
 
@@ -7167,7 +7171,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    restoreBoardState();
+    restoreBoardState({ preserveWorldY: !autoScroll && !rising && !options.mechanic });
 
 
 
@@ -16533,8 +16537,8 @@ const MASTER_BACKGROUND_VERSION = 'master-bg-2026-07-23-v5';
 
 const MASTER_BACKGROUND_ID = 'master';
 
-// Keeps the board frame aligned with the phone background's lower safe area.
-const BOARD_FRAME_VERTICAL_SCALE = 1.04;
+// Keep the rendered board at the true game aspect ratio so blocks stay square.
+const BOARD_FRAME_VERTICAL_SCALE = 1;
 
 
 
@@ -28665,11 +28669,19 @@ function fitRectToWidthPreserveAspect(
 
 
 
-  const w = target.w;
+  let w = target.w;
 
 
 
-  const h = target.h;
+  let h = w * (contentH / contentW);
+
+  if (h > target.h) {
+
+    h = target.h;
+
+    w = h * (contentW / contentH);
+
+  }
 
 
 
@@ -28677,7 +28689,7 @@ function fitRectToWidthPreserveAspect(
 
 
 
-    x: target.x,
+    x: target.x + (target.w - w) / 2,
 
 
 
