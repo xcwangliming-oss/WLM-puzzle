@@ -20406,8 +20406,9 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
       tileCanvas.getContext('2d')!.drawImage(customPropCandyImg, 0, 0, tileW, h);
       ctx.save();
       ctx.beginPath();
-      ctx.roundRect(stickStartX, stickY, stickW, stickH, cornerRadius);
+      ctx.roundRect(stickStartX - 2, stickY - 2, stickW + 4, stickH + 4, cornerRadius + 2);
       ctx.clip();
+      ctx.clearRect(stickStartX - 3, stickY - 3, stickW + 6, stickH + 6);
       if (dir === 'right') {
         ctx.translate(candyStartX + candyW, 0);
         ctx.scale(-1, 1);
@@ -20420,11 +20421,6 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
         }
       }
       ctx.restore();
-      ctx.beginPath();
-      ctx.roundRect(stickStartX, stickY, stickW, stickH, cornerRadius);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(140, 0, 25, 0.7)';
-      ctx.stroke();
     }
   }
 
