@@ -19,6 +19,12 @@ assert.match(
 
 assert.match(
   body,
+  /function getViewportGameHeight\(\): number \{[\s\S]*?return PARAMS\.viewportRows \* PARAMS\.cellSize;[\s\S]*?\}/,
+  'logical viewport height should stay tied to saved viewportRows for old script compatibility'
+);
+
+assert.match(
+  body,
   /const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const displayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);/,
   'renderer height should cover the extended frame instead of leaving a clipped blank band'
 );

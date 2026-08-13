@@ -12199,11 +12199,11 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-  const globalX = canvasRect.left + (cellCanvasX * (canvasRect.width / (PARAMS.gridCols * PARAMS.cellSize)));
+  const globalX = canvasRect.left + ((cellCanvasX + PADDING) * (canvasRect.width / app.renderer.screen.width));
 
 
 
-  const globalY = canvasRect.top + (cellCanvasY * (canvasRect.height / getViewportGameHeight()));
+  const globalY = canvasRect.top + ((cellCanvasY + PADDING) * (canvasRect.height / app.renderer.screen.height));
 
 
 
@@ -12255,22 +12255,7 @@ function playCollectibleFlyAnimation(b: Block) {
 
   let targetSize = 36;
 
-  if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
-
-    const recordingBoardBox = getMasterBoardContentRect(MASTER_UI.width, MASTER_UI.height);
-
-    const recordingIconBox = getRecordingCollectIconRect(MASTER_UI.width, MASTER_UI.height);
-
-    const mappedTarget = mapRecordingRectToBoardWrapperRect(recordingIconBox, boardRect, recordingBoardBox);
-
-    targetLeft = mappedTarget.x;
-
-    targetTop = mappedTarget.y;
-
-    targetSize = Math.max(36, mappedTarget.w);
-
-  } else if (targetEl) {
-
+  if (targetEl) {
 
 
 
@@ -12287,6 +12272,20 @@ function playCollectibleFlyAnimation(b: Block) {
     targetSize = Math.max(36, targetRect.width);
 
 
+
+  } else if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
+
+    const recordingBoardBox = getMasterBoardContentRect(MASTER_UI.width, MASTER_UI.height);
+
+    const recordingIconBox = getRecordingCollectIconRect(MASTER_UI.width, MASTER_UI.height);
+
+    const mappedTarget = mapRecordingRectToBoardWrapperRect(recordingIconBox, boardRect, recordingBoardBox);
+
+    targetLeft = mappedTarget.x;
+
+    targetTop = mappedTarget.y;
+
+    targetSize = Math.max(36, mappedTarget.w);
 
   }
 
@@ -15245,33 +15244,7 @@ function setWorldY(val: number) {
 
 function getViewportGameHeight(): number {
 
-
-
-  const fallback = PARAMS.viewportRows * PARAMS.cellSize;
-
-
-
-  const scale = app?.stage?.scale?.y || 1;
-
-
-
-  const screenHeight = app?.renderer?.screen?.height || 0;
-
-
-
-  if (!Number.isFinite(screenHeight) || screenHeight <= 0 || !Number.isFinite(scale) || scale <= 0) {
-
-
-
-    return fallback;
-
-
-
-  }
-
-
-
-  return Math.max(PARAMS.cellSize, screenHeight / scale - PADDING * 2);
+  return PARAMS.viewportRows * PARAMS.cellSize;
 
 
 
