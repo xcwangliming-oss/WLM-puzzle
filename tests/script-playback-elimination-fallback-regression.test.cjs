@@ -11,6 +11,16 @@ assert.match(
 );
 assert.match(
   source,
+  /const playbackMaxRow = getRecordedStepPhysicsMaxRow\(step\);/,
+  'script playback fallback should use the recorded step boundary'
+);
+assert.match(
+  source,
+  /const actualFullRows = getFullRowsFromOccupancy\(occ, 0, playbackMaxRow\);/,
+  'script playback fallback must not clear rows outside the recorded playback viewport'
+);
+assert.match(
+  source,
   /const recordedRowsStillFull = actualFullRows\.filter\(r => allowed\.includes\(r\)\);/,
   'script playback should still prefer recorded elimination rows when they match'
 );

@@ -5110,7 +5110,9 @@ function getFullRowsFromOccupancy(occ: number[][], minRow = 0, maxRow = PARAMS.t
 
 function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): number[] {
 
-  const actualFullRows = getFullRowsFromOccupancy(occ);
+  const playbackMaxRow = getRecordedStepPhysicsMaxRow(step);
+
+  const actualFullRows = getFullRowsFromOccupancy(occ, 0, playbackMaxRow);
 
   const allowed = getPlaybackAllowedRows(step);
 
