@@ -823,6 +823,65 @@ body:not(.is-playable) #script-steps-panel {
   border-radius: 7px;
 }
 
+#script-panel .panel-button-row,
+#script-steps-panel .panel-button-row,
+#editor-panel .panel-button-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px !important;
+  width: 100%;
+  margin-bottom: 8px !important;
+  align-items: stretch !important;
+}
+
+#script-panel .panel-button-row.single,
+#script-steps-panel .panel-button-row.single,
+#editor-panel .panel-button-row.single {
+  grid-template-columns: 1fr;
+}
+
+#script-panel .panel-button-row .btn-apply,
+#script-steps-panel .panel-button-row .btn-apply,
+#editor-panel .panel-button-row .btn-apply {
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  margin: 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+#script-panel #btn-script-record {
+  height: 44px;
+}
+
+#script-panel #btn-script-play,
+#script-panel #btn-script-rising-play,
+#script-panel #btn-script-play-scroll,
+#script-panel #btn-script-falling-play {
+  height: 52px;
+  min-height: 52px;
+}
+
+#script-steps-panel #btn-script-load,
+#script-steps-panel #btn-script-delete,
+#script-steps-panel #btn-script-export,
+#script-steps-panel #btn-script-import,
+#editor-panel #btn-load-slot,
+#editor-panel #btn-delete-slot,
+#editor-panel #btn-export-layout,
+#editor-panel #btn-import-layout,
+#editor-panel #btn-fixed-load-slot,
+#editor-panel #btn-fixed-delete-slot,
+#editor-panel #btn-fixed-export-layout,
+#editor-panel #btn-fixed-import-layout {
+  height: 40px;
+  min-height: 40px;
+}
+
 #script-panel input,
 #script-panel select {
   min-height: 30px;

@@ -982,6 +982,12 @@
           return wrap;
         };
 
+        const buttonRow = (...children) => {
+          const wrap = row(...children);
+          wrap.className = children.length === 1 ? 'panel-button-row single' : 'panel-button-row';
+          return wrap;
+        };
+
         const applyInputStyle = (input, placeholder) => {
           input.placeholder = placeholder;
           input.style.flex = '1';
@@ -1041,8 +1047,9 @@
         applyButton(exportBtn, '导出到本地文件', '#00d25b');
         applyButton(importBtn, '从本地文件导入', '#3b6bdc');
         layoutSection.append(row(saveName, saveBtn));
-        layoutSection.append(row(saveSlot, loadBtn, deleteBtn));
-        layoutSection.append(row(exportBtn, importBtn));
+        layoutSection.append(row(saveSlot));
+        layoutSection.append(buttonRow(loadBtn, deleteBtn));
+        layoutSection.append(buttonRow(exportBtn, importBtn));
         editorPanel.appendChild(layoutSection);
 
         const fixedSection = section('💾 固定排面存档管理');
@@ -1062,8 +1069,9 @@
         applyButton(fixedExportBtn, '导出到本地文件', '#00d25b');
         applyButton(fixedImportBtn, '从本地文件导入', '#3b6bdc');
         fixedSection.append(row(fixedName, fixedSaveBtn));
-        fixedSection.append(row(fixedSlot, fixedLoadBtn, fixedDeleteBtn));
-        fixedSection.append(row(fixedExportBtn, fixedImportBtn));
+        fixedSection.append(row(fixedSlot));
+        fixedSection.append(buttonRow(fixedLoadBtn, fixedDeleteBtn));
+        fixedSection.append(buttonRow(fixedExportBtn, fixedImportBtn));
         editorPanel.appendChild(fixedSection);
 
         const scriptPanel = document.createElement('div');
@@ -1095,12 +1103,12 @@
           opt.textContent = text;
           scriptPause.appendChild(opt);
         });
-        scriptControls.append(row(scriptRecord));
-        scriptControls.append(row(scriptPlay, scriptRisingPlay));
-        scriptControls.append(row(scriptScrollPlay, scriptFallingPlay));
+        scriptControls.append(buttonRow(scriptRecord));
+        scriptControls.append(buttonRow(scriptPlay, scriptRisingPlay));
+        scriptControls.append(buttonRow(scriptScrollPlay, scriptFallingPlay));
         const pauseRow = row(document.createTextNode('开头静止'), scriptPause);
         scriptControls.append(pauseRow);
-        scriptControls.append(row(scriptReset, scriptClear));
+        scriptControls.append(buttonRow(scriptReset, scriptClear));
 
         const numberFields = [
           ['input-script-duration', '单步滑行(s):', '0.3'],
@@ -1205,8 +1213,8 @@
         applyButton(scriptImport, '导入', '#7c7c7c');
         scriptSaveSection.append(row(scriptName, scriptSave));
         scriptSaveSection.append(row(scriptSlot));
-        scriptSaveSection.append(row(scriptLoad, scriptDelete));
-        scriptSaveSection.append(row(scriptExport, scriptImport));
+        scriptSaveSection.append(buttonRow(scriptLoad, scriptDelete));
+        scriptSaveSection.append(buttonRow(scriptExport, scriptImport));
         scriptStepsPanel.appendChild(scriptSaveSection);
         const stepSection = section('步骤列表 (点击跳转/拖拽修改)');
         const stepList = take('script-step-list');
