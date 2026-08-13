@@ -7059,22 +7059,6 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-  const useRecordedScrollTrack = !autoScroll && !rising && hasMeaningfulRecordedScrollTrack();
-
-
-
-  const shouldAlignToStepScroll = useRecordedScrollTrack || (!autoScroll && !rising);
-
-
-
-  const shouldAlignEachStepScroll = shouldAlignToStepScroll && !(autoScroll && useRecordedScrollTrack);
-
-
-
-
-
-
-
   // A recording can be stopped while its final gravity chain is still running.
 
 
@@ -7148,6 +7132,12 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
     && selectedStepIndex < scriptSteps.length;
+
+  const useRecordedScrollTrack = autoScroll && hasMeaningfulRecordedScrollTrack();
+
+  const shouldAlignToStepScroll = isResuming || useRecordedScrollTrack;
+
+  const shouldAlignEachStepScroll = isResuming && !useRecordedScrollTrack;
 
 
 
