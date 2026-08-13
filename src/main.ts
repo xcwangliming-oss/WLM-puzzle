@@ -7197,6 +7197,14 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
   }
 
+  if (scriptPlaybackMechanic === 'scroll') {
+
+    // Reset/replay must start the continuous-scroll ticker from the restored camera.
+
+    continuousScrollOffset = Math.max(0, -(worldContainer ? worldContainer.y : virtualScrollY));
+
+  }
+
 
 
   
@@ -32534,6 +32542,10 @@ function setupDOMUI() {
 
 
       cancelArmedRecording();
+
+
+
+      stopWorldAdvanceTweens(true);
 
 
 
