@@ -887,6 +887,47 @@ body:not(.is-playable) #script-steps-panel {
   min-height: 30px;
 }
 
+#script-panel .script-compact-row {
+  min-height: 29px;
+  gap: 8px !important;
+  margin-bottom: 5px !important;
+}
+
+#script-panel .script-pause-row {
+  min-height: 26px;
+  margin: -2px 0 5px !important;
+  font-size: 12px;
+}
+
+#script-panel .script-pause-row select {
+  width: 84px;
+  flex: 0 0 84px !important;
+  height: 26px;
+  min-height: 26px;
+  padding: 2px 7px !important;
+}
+
+#script-panel .script-number-row label {
+  width: 104px !important;
+  font-size: 12px;
+  line-height: 1.15;
+}
+
+#script-panel .script-number-row input,
+#script-panel .script-number-row select {
+  height: 27px;
+  min-height: 27px;
+  padding: 3px 8px !important;
+}
+
+#script-panel .settings-section:has(#input-autoplay-target-duration) {
+  padding-top: 6px;
+}
+
+#script-panel .settings-section:has(#input-autoplay-target-duration) .script-compact-row {
+  margin-bottom: 4px !important;
+}
+
 #script-panel label {
   font-size: 12px;
 }

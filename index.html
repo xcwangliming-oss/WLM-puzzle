@@ -1107,6 +1107,7 @@
         scriptControls.append(buttonRow(scriptPlay, scriptRisingPlay));
         scriptControls.append(buttonRow(scriptScrollPlay, scriptFallingPlay));
         const pauseRow = row(document.createTextNode('开头静止'), scriptPause);
+        pauseRow.className = 'script-compact-row script-pause-row';
         scriptControls.append(pauseRow);
         scriptControls.append(buttonRow(scriptReset, scriptClear));
 
@@ -1127,7 +1128,9 @@
           labelEl.textContent = label;
           labelEl.style.width = '112px';
           labelEl.style.flexShrink = '0';
-          scriptControls.append(row(labelEl, input));
+          const fieldRow = row(labelEl, input);
+          fieldRow.className = 'script-compact-row script-number-row';
+          scriptControls.append(fieldRow);
         });
         scriptPanel.appendChild(scriptControls);
 
@@ -1146,7 +1149,9 @@
           labelEl.textContent = label;
           labelEl.style.width = '112px';
           labelEl.style.flexShrink = '0';
-          autoSection.append(row(labelEl, input));
+          const fieldRow = row(labelEl, input);
+          fieldRow.className = 'script-compact-row script-number-row';
+          autoSection.append(fieldRow);
         });
         const firstElim = take('input-autoplay-first-elim-step');
         applySelectStyle(firstElim);
@@ -1160,7 +1165,9 @@
         const firstElimLabel = document.createElement('label');
         firstElimLabel.textContent = '第一次消除步数:';
         firstElimLabel.style.width = '112px';
-        autoSection.append(row(firstElimLabel, firstElim));
+        const firstElimRow = row(firstElimLabel, firstElim);
+        firstElimRow.className = 'script-compact-row script-number-row';
+        autoSection.append(firstElimRow);
         const requireMulti = take('input-autoplay-require-multi');
         const requireLabel = document.createElement('label');
         requireLabel.className = 'vc-toggle';
