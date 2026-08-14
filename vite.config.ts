@@ -12,7 +12,7 @@ const progressMap = new Map<string, number>();
 export default defineConfig({
   base: './',
   build: {
-    outDir: process.env.VERCEL ? 'dist' : '../个人Blog/public/playables/block-puzzle',
+    outDir: 'dist',
     emptyOutDir: true,
   },
   plugins: [
