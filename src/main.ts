@@ -39421,7 +39421,10 @@ function startRecording(): Promise<boolean> {
             ? mapBoardWrapperRectToRecordingRect(
                 avatarRect,
                 boardRect,
-                getMasterBoardContentRect(width, height)
+                // The avatar lives in the phone wrapper header, not inside the
+                // playable board. Map it against the full recording canvas so
+                // the exported video keeps the same header position as the editor.
+                { x: 0, y: 0, w: width, h: height }
               )
             : {
                 x: (avatarRect.left - boardRect.left) * dpr,

@@ -117,6 +117,11 @@ assert.match(
 );
 assert.match(
   source,
+  /const avatarBox = useRecordingBackground\s*\?\s*mapBoardWrapperRectToRecordingRect\([\s\S]*?\{ x: 0, y: 0, w: width, h: height \}/,
+  'recorded avatar must map against the full phone canvas instead of the board-only region',
+);
+assert.match(
+  source,
   /const scale = Math\.min\(box\.w \/ sourceWidth,\s*box\.h \/ sourceHeight\)/,
   'recorded avatar frames must preserve aspect ratio',
 );
