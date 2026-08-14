@@ -20003,8 +20003,11 @@ let customPropMachineImg: HTMLImageElement | null = null;
 let customPropCandyImg: HTMLImageElement | null = null;
 let customPropMachineFrames: string[] = [];
 let customPropMachineAttackFrames: string[] = [];
+let customPropMachineFrameImages: HTMLImageElement[] = [];
+let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
 let machineIdleTextures: PIXI.Texture[] = [];
 let machineAttackTextures: PIXI.Texture[] = [];
+const propAnimationTextureCache: Record<string, PIXI.Texture[]> = {};
 
 const PROP_STORAGE_MACHINE = 'custom_prop_machine_b64';
 const PROP_STORAGE_CANDY   = 'custom_prop_candy_b64';
@@ -20013,7 +20016,19 @@ const PROP_STORAGE_MACHINE_ATTACK_FRAMES = 'custom_prop_machine_attack_frames';
 
 function invalidatePropCache(): void {
   Object.keys(propTextureCache).forEach(k => { propTextureCache[k].destroy(true); delete propTextureCache[k]; });
-  blocks.forEach(b => { if (b.isProp) { const tex = getPropTexture(b.length, b.propDir || 'left'); b.sprite.texture = tex; b.sprite.width = b.length * PARAMS.cellSize; b.sprite.height = PARAMS.cellSize; } });
+  Object.keys(propAnimationTextureCache).forEach(k => { propAnimationTextureCache[k].forEach(t => t.destroy(true)); delete propAnimationTextureCache[k]; });
+  blocks.forEach(b => {
+    if (!b.isProp) return;
+    const anim = b.sprite instanceof PIXI.AnimatedSprite ? b.sprite : null;
+    if (anim && customPropMachineFrameImages.length > 0) {
+      anim.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
+      anim.gotoAndPlay(0);
+    } else {
+      b.sprite.texture = getPropTexture(b.length, b.propDir || 'left');
+    }
+    b.sprite.width = b.length * PARAMS.cellSize;
+    b.sprite.height = PARAMS.cellSize;
+  });
 }
 
 function loadCustomPropImages(): void {
@@ -20116,42 +20131,58 @@ function rebuildMachineTextures(): void {
     machineAttackTextures.forEach(t => t.destroy(true));
     machineIdleTextures = customPropMachineFrames.map(b64 => PIXI.Texture.from(b64));
     machineAttackTextures = customPropMachineAttackFrames.map(b64 => PIXI.Texture.from(b64));
+    customPropMachineFrameImages = [];
+    customPropMachineAttackFrameImages = [];
+    void Promise.all(customPropMachineFrames.map(loadPropImage)).then(images => {
+      customPropMachineFrameImages = images;
+      invalidatePropCache();
+    }).catch(() => { customPropMachineFrameImages = []; });
+    void Promise.all(customPropMachineAttackFrames.map(loadPropImage)).then(images => {
+      customPropMachineAttackFrameImages = images;
+      invalidatePropCache();
+    }).catch(() => { customPropMachineAttackFrameImages = []; });
     loadCustomPropMachineImageFromFirstFrame();
   } catch (error) {
     console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
     customPropMachineImg = null;
     customPropMachineFrames = [];
     customPropMachineAttackFrames = [];
+    customPropMachineFrameImages = [];
+    customPropMachineAttackFrameImages = [];
     machineIdleTextures = [];
     machineAttackTextures = [];
   }
 }
 
+function getPropAnimationTextures(length: number, dir: 'left' | 'right', state: 'idle' | 'attack'): PIXI.Texture[] {
+  const images = state === 'attack' ? customPropMachineAttackFrameImages : customPropMachineFrameImages;
+  if (images.length === 0) return [getPropTexture(length, dir)];
+  const key = `peppermint_anim_${state}_${length}_${dir}_${PARAMS.cellSize}_${images.length}`;
+  if (!propAnimationTextureCache[key]) {
+    propAnimationTextureCache[key] = images.map((image, index) => getPropTexture(length, dir, image, `${state}-${index}`));
+  }
+  return propAnimationTextureCache[key];
+}
+
 function triggerMachineHeadAttack(): void {
-  if (machineAttackTextures.length > 0 && machineIdleTextures.length > 0) {
+  if (customPropMachineAttackFrameImages.length > 0) {
     blocks.forEach(b => {
-      if (b.isProp && b.sprite && (b.sprite as any).children && (b.sprite as any).children.length > 1) {
-        const head = (b.sprite as any).children[1] as PIXI.AnimatedSprite;
-        if (head && (head instanceof PIXI.AnimatedSprite) && head.textures !== machineAttackTextures) {
-          head.textures = machineAttackTextures;
-          head.animationSpeed = 0.2;
-          head.gotoAndPlay(0);
-        }
+      if (b.isProp && b.sprite instanceof PIXI.AnimatedSprite) {
+        b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'attack');
+        b.sprite.animationSpeed = 0.2;
+        b.sprite.gotoAndPlay(0);
       }
     });
   }
 }
 
 function revertMachineHeadIdle(): void {
-  if (machineAttackTextures.length > 0 && machineIdleTextures.length > 0) {
+  if (customPropMachineFrameImages.length > 0) {
     blocks.forEach(b => {
-      if (b.isProp && b.sprite && (b.sprite as any).children && (b.sprite as any).children.length > 1) {
-        const head = (b.sprite as any).children[1] as PIXI.AnimatedSprite;
-        if (head && (head instanceof PIXI.AnimatedSprite) && head.textures === machineAttackTextures) {
-          head.textures = machineIdleTextures;
-          head.animationSpeed = 0.2;
-          head.gotoAndPlay(0);
-        }
+      if (b.isProp && b.sprite instanceof PIXI.AnimatedSprite) {
+        b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
+        b.sprite.animationSpeed = 0.2;
+        b.sprite.gotoAndPlay(0);
       }
     });
   }
@@ -20256,6 +20287,10 @@ function refreshPropStylePanel(): void {
   if (mt) { mt.src = customPropMachineFrames[0] || ''; mt.style.display = customPropMachineFrames.length > 0 ? 'block' : 'none'; }
   if (cma) { cma.src = customPropMachineAttackFrames[0] || ''; cma.style.display = customPropMachineAttackFrames.length > 0 ? 'block' : 'none'; }
   if (ct) { ct.src = customPropCandyImg?.src   || ''; ct.style.display = customPropCandyImg   ? 'block' : 'none'; }
+  const idleCount = document.getElementById('prop-machine-count');
+  const collectCount = document.getElementById('prop-machine-attack-count');
+  if (idleCount) idleCount.textContent = customPropMachineFrames.length ? `${customPropMachineFrames.length} 帧` : '点击上传';
+  if (collectCount) collectCount.textContent = customPropMachineAttackFrames.length ? `${customPropMachineAttackFrames.length} 帧` : '点击上传';
   
   if (mp) mp.style.display = customPropMachineFrames.length > 0 ? 'none' : 'block';
   if (cmap) cmap.style.display = customPropMachineAttackFrames.length > 0 ? 'none' : 'block';
@@ -20267,6 +20302,42 @@ function refreshPropStylePanel(): void {
 }
 
 function initPropStylePanel(): void {
+  const panel = document.getElementById('material-panel');
+  if (!panel || document.getElementById('prop-style-section')) return;
+  const sec = document.createElement('div');
+  sec.id = 'prop-style-section';
+  sec.style.cssText = 'display:flex;flex-direction:column;border-top:1px solid #444;padding-top:8px;margin-top:4px;';
+  sec.innerHTML = `<h3 style='margin:2px 0 6px;display:flex;align-items:center;gap:6px;font-size:14px;'>🎨 障碍道具样式<span id='prop-custom-badge' style='display:none;font-size:9px;background:#7c3aed;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;'>自定义</span></h3>
+    <div style='display:flex;flex-direction:column;gap:6px;'>
+      <div style='font-size:10px;color:#aaa;'>障碍体</div>
+      <div id='prop-candy-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:6px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+        <img id='prop-candy-thumb' style='display:none;width:100%;height:30px;object-fit:contain;border-radius:4px;'/><div id='prop-candy-placeholder' style='font-size:10px;color:#aaa;'>点击上传单张图片</div>
+      </div>
+      <div style='font-size:10px;color:#aaa;margin-top:2px;'>障碍头 <span style='color:#666;'>待机 / 收集</span></div>
+      <div style='display:grid;grid-template-columns:1fr 1fr;gap:5px;'>
+        <div id='prop-machine-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>待机</div><img id='prop-machine-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-machine-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div id='prop-machine-count' style='font-size:9px;color:#777;'>点击上传</div>
+        </div>
+        <div id='prop-machine-attack-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>收集</div><img id='prop-machine-attack-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-machine-attack-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div id='prop-machine-attack-count' style='font-size:9px;color:#777;'>点击上传</div>
+        </div>
+      </div>
+      <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
+      <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会平铺重复；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
+    </div>`;
+  panel.appendChild(sec);
+  ([['prop-candy-slot', 'candy'], ['prop-machine-slot', 'machine'], ['prop-machine-attack-slot', 'machine_attack']] as const).forEach(([id, role]) => {
+    const el = document.getElementById(id) as HTMLElement | null;
+    if (!el) return;
+    el.onclick = event => { event.preventDefault(); event.stopPropagation(); importPropImage(role); };
+    el.addEventListener('pointerdown', event => event.stopPropagation());
+    el.addEventListener('mouseenter', () => el.style.borderColor = '#7c3aed');
+    el.addEventListener('mouseleave', () => el.style.borderColor = '#555');
+  });
+  refreshPropStylePanel();
+}
+
+function initPropStylePanelLegacy(): void {
   const panel = document.getElementById('material-panel');
   if (!panel || document.getElementById('prop-style-section')) return;
   const sec = document.createElement('div');
@@ -20477,7 +20548,7 @@ function animatePropShrink(
 
 
 
-function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Texture {
+function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineImgOverride: HTMLImageElement | null = null, cacheTag = ''): PIXI.Texture {
 
 
 
@@ -20485,8 +20556,9 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
 
 
 
-  const customParts = `${customPropCandyImg ? 'candy' : ''}_${customPropMachineImg ? 'machine' : ''}`;
-  const key = `peppermint_${length}_${dir}_${cellSize}_${customParts || 'default'}`;
+  const machineImg = machineImgOverride || customPropMachineImg;
+  const customParts = `${customPropCandyImg ? 'candy' : ''}_${machineImg ? 'machine' : ''}`;
+  const key = `peppermint_${length}_${dir}_${cellSize}_${customParts || 'default'}_${cacheTag}`;
   if (propTextureCache[key]) return propTextureCache[key];
 
   const w = length * cellSize;
@@ -20986,21 +21058,21 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
     }
   }
 
-  if (customPropMachineImg && customPropMachineImg.naturalWidth > 0 && customPropMachineImg.naturalHeight > 0) {
+  if (machineImg && machineImg.naturalWidth > 0 && machineImg.naturalHeight > 0) {
     ctx.save();
     ctx.beginPath();
     ctx.arc(machineCenterX, machineCenterY, machineRadius + 2, 0, Math.PI * 2);
     ctx.clip();
     ctx.clearRect(machineCenterX - machineRadius - 3, machineCenterY - machineRadius - 3, (machineRadius + 3) * 2, (machineRadius + 3) * 2);
-    const scale = Math.min((machineRadius * 2) / customPropMachineImg.naturalWidth, (machineRadius * 2) / customPropMachineImg.naturalHeight);
-    const imgW = customPropMachineImg.naturalWidth * scale;
-    const imgH = customPropMachineImg.naturalHeight * scale;
+    const scale = Math.min((machineRadius * 2) / machineImg.naturalWidth, (machineRadius * 2) / machineImg.naturalHeight);
+    const imgW = machineImg.naturalWidth * scale;
+    const imgH = machineImg.naturalHeight * scale;
     if (dir === 'right') {
       ctx.translate(machineCenterX, machineCenterY);
       ctx.scale(-1, 1);
-      ctx.drawImage(customPropMachineImg, -imgW / 2, -imgH / 2, imgW, imgH);
+      ctx.drawImage(machineImg, -imgW / 2, -imgH / 2, imgW, imgH);
     } else {
-      ctx.drawImage(customPropMachineImg, machineCenterX - imgW / 2, machineCenterY - imgH / 2, imgW, imgH);
+      ctx.drawImage(machineImg, machineCenterX - imgW / 2, machineCenterY - imgH / 2, imgW, imgH);
     }
     ctx.restore();
   }
@@ -21038,18 +21110,15 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
   if (isProp) {
-
-
-
-    // Prop blocks use a dynamically generated texture
-
-
-
-    const texture = getPropTexture(length, propDir);
-
-
-
-    sprite = new PIXI.Sprite(texture);
+    const propTextures = getPropAnimationTextures(length, propDir, 'idle');
+    if (customPropMachineFrameImages.length > 0) {
+      const animSprite = new PIXI.AnimatedSprite(propTextures);
+      animSprite.animationSpeed = 0.2;
+      animSprite.play();
+      sprite = animSprite;
+    } else {
+      sprite = new PIXI.Sprite(propTextures[0]);
+    }
 
 
 
@@ -24522,6 +24591,7 @@ function checkEliminations() {
 
 
   if (fullRows.length > 0) {
+    triggerMachineHeadAttack();
     // TRACK ELIMINATIONS FOR PLAYABLE
     playableCombos++;
     playableRows += fullRows.length;
