@@ -828,14 +828,21 @@ interface CollectionAvatarStylePayload {
 const COLLECTION_AVATAR_DB_NAME = 'BlockPuzzleCollectionAvatarDB';
 const COLLECTION_AVATAR_DB_STORE = 'avatarStyles';
 const COLLECTION_AVATAR_DB_KEY = 'active';
-const COLLECTION_AVATAR_FRAME_MS = 100;
+const COLLECTION_AVATAR_FPS = 30;
+const COLLECTION_AVATAR_FRAME_MS = 1000 / COLLECTION_AVATAR_FPS;
 const COLLECTION_AVATAR_SINGLE_COLLECT_MS = 500;
 
 let collectionAvatarIdleFrames: string[] = [];
 let collectionAvatarCollectFrames: string[] = [];
 let collectionAvatarState: CollectionAvatarState = 'idle';
-let collectionAvatarTimer: number | null = null;
+let collectionAvatarRafId: number | null = null;
+let collectionAvatarResumeTimer: number | null = null;
 let collectionAvatarAnimationToken = 0;
+let collectionAvatarPreloadToken = 0;
+const collectionAvatarFrameCache = new Map<string, {
+  image: HTMLImageElement;
+  ready: Promise<void>;
+}>();
 
 
 
@@ -10376,9 +10383,13 @@ function getCollectionAvatarTargetElement(): HTMLElement | null {
 
 function stopCollectionAvatarAnimation(): void {
   collectionAvatarAnimationToken++;
-  if (collectionAvatarTimer !== null) {
-    window.clearTimeout(collectionAvatarTimer);
-    collectionAvatarTimer = null;
+  if (collectionAvatarRafId !== null) {
+    window.cancelAnimationFrame(collectionAvatarRafId);
+    collectionAvatarRafId = null;
+  }
+  if (collectionAvatarResumeTimer !== null) {
+    window.clearTimeout(collectionAvatarResumeTimer);
+    collectionAvatarResumeTimer = null;
   }
 }
 
@@ -10388,7 +10399,7 @@ function setCollectionAvatarFrame(src: string, state: CollectionAvatarState): vo
   const image = document.getElementById('collection-avatar-image') as HTMLImageElement | null;
   if (!hud || !image) return;
   hud.dataset.state = state;
-  image.src = src;
+  if (image.getAttribute('src') !== src) image.src = src;
 }
 
 function syncCollectionAvatarHUD(): void {
@@ -10405,6 +10416,72 @@ function syncCollectionAvatarHUD(): void {
   }
 }
 
+function pruneCollectionAvatarFrameCache(): void {
+  const activeFrames = new Set([...collectionAvatarIdleFrames, ...collectionAvatarCollectFrames]);
+  for (const src of collectionAvatarFrameCache.keys()) {
+    if (!activeFrames.has(src)) collectionAvatarFrameCache.delete(src);
+  }
+}
+
+function preloadCollectionAvatarFrame(src: string): Promise<void> {
+  const cached = collectionAvatarFrameCache.get(src);
+  if (cached) return cached.ready;
+
+  const image = new Image();
+  image.decoding = 'async';
+  const ready = new Promise<void>((resolve) => {
+    image.onload = () => {
+      image.decode().catch(() => undefined).finally(resolve);
+    };
+    image.onerror = () => resolve();
+  });
+  collectionAvatarFrameCache.set(src, { image, ready });
+  image.src = src;
+  return ready;
+}
+
+async function preloadCollectionAvatarFrames(frames: string[]): Promise<void> {
+  await Promise.all(frames.map(preloadCollectionAvatarFrame));
+}
+
+function playCollectionAvatarFrameSequence(
+  frames: string[],
+  state: CollectionAvatarState,
+  loop: boolean,
+  onComplete?: () => void
+): void {
+  if (frames.length === 0) {
+    onComplete?.();
+    return;
+  }
+
+  const token = collectionAvatarAnimationToken;
+  const startedAt = performance.now();
+  let lastFrameIndex = -1;
+  const renderFrame = (now: number) => {
+    if (token !== collectionAvatarAnimationToken || !isCollectMode) return;
+
+    const elapsed = Math.max(0, now - startedAt);
+    const timelineFrame = Math.floor(elapsed / COLLECTION_AVATAR_FRAME_MS);
+    if (!loop && timelineFrame >= frames.length) {
+      collectionAvatarRafId = null;
+      onComplete?.();
+      return;
+    }
+
+    const frameIndex = loop
+      ? timelineFrame % frames.length
+      : Math.min(timelineFrame, frames.length - 1);
+    if (frameIndex !== lastFrameIndex) {
+      setCollectionAvatarFrame(frames[frameIndex], state);
+      lastFrameIndex = frameIndex;
+    }
+    collectionAvatarRafId = window.requestAnimationFrame(renderFrame);
+  };
+
+  renderFrame(startedAt);
+}
+
 function startCollectionAvatarIdleAnimation(): void {
   stopCollectionAvatarAnimation();
   const frames = collectionAvatarIdleFrames.length
@@ -10415,17 +10492,8 @@ function startCollectionAvatarIdleAnimation(): void {
     return;
   }
 
-  const token = collectionAvatarAnimationToken;
-  let frameIndex = 0;
-  const renderNext = () => {
-    if (token !== collectionAvatarAnimationToken || !isCollectMode || frames.length === 0) return;
-    setCollectionAvatarFrame(frames[frameIndex], 'idle');
-    if (frames.length > 1) {
-      frameIndex = (frameIndex + 1) % frames.length;
-      collectionAvatarTimer = window.setTimeout(renderNext, COLLECTION_AVATAR_FRAME_MS);
-    }
-  };
-  renderNext();
+  if (frames.length === 1) setCollectionAvatarFrame(frames[0], 'idle');
+  else playCollectionAvatarFrameSequence(frames, 'idle', true);
   syncCollectionAvatarHUD();
 }
 
@@ -10436,21 +10504,27 @@ function triggerCollectionAvatarCollectState(): void {
 
   stopCollectionAvatarAnimation();
   const token = collectionAvatarAnimationToken;
-  let frameIndex = 0;
-  const renderNext = () => {
-    if (token !== collectionAvatarAnimationToken || !isCollectMode) return;
-    setCollectionAvatarFrame(frames[Math.min(frameIndex, frames.length - 1)], 'collect');
-    frameIndex++;
-    if (frameIndex < frames.length) {
-      collectionAvatarTimer = window.setTimeout(renderNext, COLLECTION_AVATAR_FRAME_MS);
-    } else {
-      collectionAvatarTimer = window.setTimeout(
-        startCollectionAvatarIdleAnimation,
-        frames.length === 1 ? COLLECTION_AVATAR_SINGLE_COLLECT_MS : COLLECTION_AVATAR_FRAME_MS
-      );
-    }
-  };
-  renderNext();
+  if (frames.length === 1) {
+    setCollectionAvatarFrame(frames[0], 'collect');
+    collectionAvatarResumeTimer = window.setTimeout(() => {
+      if (token === collectionAvatarAnimationToken) startCollectionAvatarIdleAnimation();
+    }, COLLECTION_AVATAR_SINGLE_COLLECT_MS);
+    return;
+  }
+  playCollectionAvatarFrameSequence(frames, 'collect', false, startCollectionAvatarIdleAnimation);
+}
+
+function prepareCollectionAvatarAnimation(): void {
+  const token = ++collectionAvatarPreloadToken;
+  stopCollectionAvatarAnimation();
+  pruneCollectionAvatarFrameCache();
+  const frames = [...collectionAvatarIdleFrames, ...collectionAvatarCollectFrames];
+  const firstFrame = collectionAvatarIdleFrames[0] || collectionAvatarCollectFrames[0];
+  if (isCollectMode && firstFrame) setCollectionAvatarFrame(firstFrame, 'idle');
+  syncCollectionAvatarHUD();
+  void preloadCollectionAvatarFrames(frames).then(() => {
+    if (token === collectionAvatarPreloadToken) startCollectionAvatarIdleAnimation();
+  });
 }
 
 function refreshCollectionAvatarManager(): void {
@@ -10508,7 +10582,7 @@ function applyCollectionAvatarStylePayload(payload: unknown): void {
   collectionAvatarIdleFrames = normalizeCollectionAvatarFrames(source.idleFrames);
   collectionAvatarCollectFrames = normalizeCollectionAvatarFrames(source.collectFrames);
   refreshCollectionAvatarManager();
-  startCollectionAvatarIdleAnimation();
+  prepareCollectionAvatarAnimation();
 }
 
 async function loadCollectionAvatarStyle(): Promise<void> {
@@ -10555,7 +10629,7 @@ function bindCollectionAvatarManager(): void {
         else collectionAvatarCollectFrames = frames;
         await persistCollectionAvatarStyle();
         refreshCollectionAvatarManager();
-        startCollectionAvatarIdleAnimation();
+        prepareCollectionAvatarAnimation();
         updateHeaderUI();
       } catch (error) {
         console.error('Failed to import collection avatar frames:', error);
@@ -10573,9 +10647,11 @@ function bindCollectionAvatarManager(): void {
     clearButton.onclick = async () => {
       collectionAvatarIdleFrames = [];
       collectionAvatarCollectFrames = [];
+      collectionAvatarPreloadToken++;
       await persistCollectionAvatarStyle();
       refreshCollectionAvatarManager();
       stopCollectionAvatarAnimation();
+      collectionAvatarFrameCache.clear();
       syncCollectionAvatarHUD();
     };
   }
@@ -17689,10 +17765,6 @@ async function init() {
 
 
     await renderCollectibleList();
-
-
-
-    startCollectionAvatarIdleAnimation();
 
 
 

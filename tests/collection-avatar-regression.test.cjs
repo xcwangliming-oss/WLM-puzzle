@@ -63,6 +63,21 @@ assert.match(
   /if \(avatarTargetEl\) triggerCollectionAvatarCollectState\(\);/,
   'arrival at the avatar must play the collect state',
 );
+assert.match(
+  source,
+  /const COLLECTION_AVATAR_FPS = 30;[\s\S]*?const COLLECTION_AVATAR_FRAME_MS = 1000 \/ COLLECTION_AVATAR_FPS;/,
+  'avatar sequences must play at a smooth 30 FPS cadence',
+);
+assert.match(
+  source,
+  /function playCollectionAvatarFrameSequence\([\s\S]*?performance\.now\(\)[\s\S]*?Math\.floor\(elapsed \/ COLLECTION_AVATAR_FRAME_MS\)[\s\S]*?requestAnimationFrame\(renderFrame\)/,
+  'avatar sequence playback must use a time-based animation frame loop without timer drift',
+);
+assert.match(
+  source,
+  /function preloadCollectionAvatarFrame\([\s\S]*?image\.decoding = 'async';[\s\S]*?image\.decode\(\)/,
+  'avatar frames must be decoded before smooth playback starts',
+);
 
 assert.match(
   source,
