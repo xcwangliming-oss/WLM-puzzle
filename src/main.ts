@@ -558,6 +558,9 @@ const PARAMS = {
 
   effectType: 'default',
 
+  // Multi-row elimination playback order. Keep the legacy simultaneous behavior by default.
+  rowClearOrder: 'simultaneous',
+
 
 
 }
@@ -24966,9 +24969,16 @@ function checkEliminations() {
 
     lastShatterCellColors = [];
 
+    // In sequential mode, the bottom-most cleared row owns the first timeline slot.
+    const rowsForPlayback = PARAMS.rowClearOrder === 'bottom-up'
+      ? [...fullRows].sort((a, b) => b - a)
+      : fullRows;
+    const rowPlaybackGap = PARAMS.rowClearOrder === 'bottom-up' && rowsForPlayback.length > 1
+      ? 0.8
+      : 0;
 
-
-    fullRows.forEach(r => {
+    rowsForPlayback.forEach((r, rowPlaybackIndex) => {
+      const rowPlaybackOffset = rowPlaybackIndex * rowPlaybackGap;
 
 
 
@@ -25027,7 +25037,7 @@ function checkEliminations() {
 
 
 
-      }, [], 0);
+      }, [], rowPlaybackOffset);
 
 
 
@@ -25131,7 +25141,7 @@ function checkEliminations() {
 
 
 
-          }, [], delay);
+          }, [], rowPlaybackOffset + delay);
 
 
 
@@ -25139,8 +25149,8 @@ function checkEliminations() {
 
 
 
-        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, delay);
-        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, delay);
+        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, rowPlaybackOffset + delay);
+        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, rowPlaybackOffset + delay);
 
         if (PARAMS.effectType === 'gem-shatter') {
           tl.call(() => {
@@ -25182,7 +25192,7 @@ function checkEliminations() {
                 anim.play();
               }
             }
-          }, [], delay);
+          }, [], rowPlaybackOffset + delay);
         }
 
 
@@ -29436,6 +29446,14 @@ function setupDOMUI() {
 
 
   setupShatterModeButtons();
+
+  const sequentialRowClearCheckbox = document.getElementById('input-sequential-row-clear') as HTMLInputElement | null;
+  if (sequentialRowClearCheckbox) {
+    sequentialRowClearCheckbox.checked = PARAMS.rowClearOrder === 'bottom-up';
+    sequentialRowClearCheckbox.addEventListener('change', () => {
+      PARAMS.rowClearOrder = sequentialRowClearCheckbox.checked ? 'bottom-up' : 'simultaneous';
+    });
+  }
 
 
 
