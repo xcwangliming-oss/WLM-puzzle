@@ -108,9 +108,151 @@ html, body {
   text-align: right;
 }
 
+.collect-score-hud {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  line-height: 1;
+}
+
+.collect-score-label {
+  margin-bottom: 4px;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.collect-score-value {
+  font-size: 27px;
+  font-weight: 900;
+}
+
 #collectible-header-icon {
   transform: none;
   transform-origin: center;
+}
+
+#collection-avatar-hud {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 104px;
+  height: 104px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 3;
+}
+
+#collection-avatar-hud.visible {
+  display: flex;
+}
+
+#collection-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.42));
+}
+
+#collection-avatar-hud[data-state="collect"] #collection-avatar-image {
+  filter: drop-shadow(0 0 8px rgba(255, 218, 92, 0.9));
+}
+
+.collection-avatar-manager {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.collection-avatar-manager-title {
+  margin-bottom: 6px;
+  color: #d7d7e5;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.collection-avatar-slots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.collection-avatar-slot {
+  min-width: 0;
+  height: 54px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-rows: 1fr 1fr;
+  column-gap: 6px;
+  align-items: center;
+  padding: 5px;
+  border: 1px dashed #58586d;
+  border-radius: 6px;
+  background: #1e1e2e;
+  color: #fff;
+  cursor: pointer;
+}
+
+.collection-avatar-slot:hover {
+  border-color: #06d6a0;
+  background: #25253a;
+}
+
+.collection-avatar-slot img {
+  grid-row: 1 / 3;
+  width: 40px;
+  height: 40px;
+  display: none;
+  object-fit: contain;
+}
+
+.collection-avatar-slot.has-frames img {
+  display: block;
+}
+
+.collection-avatar-slot-name,
+.collection-avatar-slot-count {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-avatar-slot-name {
+  align-self: end;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.collection-avatar-slot-count {
+  align-self: start;
+  color: #8f8fa8;
+  font-size: 9px;
+}
+
+.collection-avatar-manager-footer {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 5px;
+  color: #77778f;
+  font-size: 9px;
+}
+
+#btn-collection-avatar-clear {
+  display: none;
+  padding: 3px 8px;
+  border: 1px solid #7c2d2d;
+  border-radius: 4px;
+  background: #3d1a1a;
+  color: #fca5a5;
+  font-size: 9px;
+  cursor: pointer;
 }
 
 #board-clip {

@@ -321,6 +321,7 @@ function queueCustomPropStyle(style: unknown): void {
             soundPack: getExportableCustomSoundPack(),
         },
         customPropStyle: getExportableCustomPropStyle(),
+        collectionAvatarStyle: getExportableCollectionAvatarStyle(),
         shatterColor: getExportableShatterColor(),
         tutorialMoveAvailable: Boolean(tutorialTarget),
         tutorialTarget: tutorialTarget ? {
@@ -406,6 +407,9 @@ function queueCustomPropStyle(style: unknown): void {
     const shatterColorSelect = document.getElementById('select-shatter-color') as HTMLSelectElement | null;
     if (shatterColorSelect) shatterColorSelect.value = savedShatterColor;
     queueCustomPropStyle(saveData.customPropStyle);
+    if (saveData.collectionAvatarStyle) {
+        applyCollectionAvatarStylePayload(saveData.collectionAvatarStyle);
+    }
     
     const levelEl = document.getElementById('level-val');
     if (levelEl && saveData.currentLevel !== undefined) {
@@ -813,6 +817,32 @@ let activeCollectibleTextures: PIXI.Texture[] | null = null;
 
 
 let customCollectibles: { id: number; name: string; texture: string }[] = [];
+
+type CollectionAvatarState = 'idle' | 'collect';
+
+interface CollectionAvatarStylePayload {
+  idleFrames?: string[];
+  collectFrames?: string[];
+}
+
+const COLLECTION_AVATAR_DB_NAME = 'BlockPuzzleCollectionAvatarDB';
+const COLLECTION_AVATAR_DB_STORE = 'avatarStyles';
+const COLLECTION_AVATAR_DB_KEY = 'active';
+const COLLECTION_AVATAR_FPS = 30;
+const COLLECTION_AVATAR_FRAME_MS = 1000 / COLLECTION_AVATAR_FPS;
+const COLLECTION_AVATAR_SINGLE_COLLECT_MS = 500;
+
+let collectionAvatarIdleFrames: string[] = [];
+let collectionAvatarCollectFrames: string[] = [];
+let collectionAvatarState: CollectionAvatarState = 'idle';
+let collectionAvatarRafId: number | null = null;
+let collectionAvatarResumeTimer: number | null = null;
+let collectionAvatarAnimationToken = 0;
+let collectionAvatarPreloadToken = 0;
+const collectionAvatarFrameCache = new Map<string, {
+  image: HTMLImageElement;
+  ready: Promise<void>;
+}>();
 
 
 
@@ -10329,6 +10359,305 @@ function getActiveCollectibleBase64(): string {
 
 
 
+function normalizeCollectionAvatarFrames(frames: unknown): string[] {
+  if (!Array.isArray(frames)) return [];
+  return frames.filter((frame): frame is string =>
+    typeof frame === 'string' && (frame.startsWith('data:image/') || frame.startsWith('blob:'))
+  );
+}
+
+function getExportableCollectionAvatarStyle(): CollectionAvatarStylePayload | undefined {
+  const idleFrames = normalizeCollectionAvatarFrames(collectionAvatarIdleFrames);
+  const collectFrames = normalizeCollectionAvatarFrames(collectionAvatarCollectFrames);
+  return idleFrames.length || collectFrames.length ? { idleFrames, collectFrames } : undefined;
+}
+
+function hasCollectionAvatar(): boolean {
+  return collectionAvatarIdleFrames.length > 0 || collectionAvatarCollectFrames.length > 0;
+}
+
+function getCollectionAvatarTargetElement(): HTMLElement | null {
+  if (!isCollectMode || !hasCollectionAvatar()) return null;
+  return document.getElementById('collection-avatar-hud');
+}
+
+function stopCollectionAvatarAnimation(): void {
+  collectionAvatarAnimationToken++;
+  if (collectionAvatarRafId !== null) {
+    window.cancelAnimationFrame(collectionAvatarRafId);
+    collectionAvatarRafId = null;
+  }
+  if (collectionAvatarResumeTimer !== null) {
+    window.clearTimeout(collectionAvatarResumeTimer);
+    collectionAvatarResumeTimer = null;
+  }
+}
+
+function setCollectionAvatarFrame(src: string, state: CollectionAvatarState): void {
+  collectionAvatarState = state;
+  const hud = document.getElementById('collection-avatar-hud');
+  const image = document.getElementById('collection-avatar-image') as HTMLImageElement | null;
+  if (!hud || !image) return;
+  hud.dataset.state = state;
+  if (image.getAttribute('src') !== src) image.src = src;
+}
+
+function syncCollectionAvatarHUD(): void {
+  const hud = document.getElementById('collection-avatar-hud');
+  const image = document.getElementById('collection-avatar-image') as HTMLImageElement | null;
+  if (!hud || !image) return;
+  const visible = isCollectMode && hasCollectionAvatar();
+  hud.classList.toggle('visible', visible);
+  if (!visible) {
+    image.removeAttribute('src');
+    hud.dataset.state = 'idle';
+  } else if (!image.getAttribute('src')) {
+    setCollectionAvatarFrame(collectionAvatarIdleFrames[0] || collectionAvatarCollectFrames[0], 'idle');
+  }
+}
+
+function pruneCollectionAvatarFrameCache(): void {
+  const activeFrames = new Set([...collectionAvatarIdleFrames, ...collectionAvatarCollectFrames]);
+  for (const src of collectionAvatarFrameCache.keys()) {
+    if (!activeFrames.has(src)) collectionAvatarFrameCache.delete(src);
+  }
+}
+
+function preloadCollectionAvatarFrame(src: string): Promise<void> {
+  const cached = collectionAvatarFrameCache.get(src);
+  if (cached) return cached.ready;
+
+  const image = new Image();
+  image.decoding = 'async';
+  const ready = new Promise<void>((resolve) => {
+    image.onload = () => {
+      image.decode().catch(() => undefined).finally(resolve);
+    };
+    image.onerror = () => resolve();
+  });
+  collectionAvatarFrameCache.set(src, { image, ready });
+  image.src = src;
+  return ready;
+}
+
+async function preloadCollectionAvatarFrames(frames: string[]): Promise<void> {
+  await Promise.all(frames.map(preloadCollectionAvatarFrame));
+}
+
+function playCollectionAvatarFrameSequence(
+  frames: string[],
+  state: CollectionAvatarState,
+  loop: boolean,
+  onComplete?: () => void
+): void {
+  if (frames.length === 0) {
+    onComplete?.();
+    return;
+  }
+
+  const token = collectionAvatarAnimationToken;
+  const startedAt = performance.now();
+  let lastFrameIndex = -1;
+  const renderFrame = (now: number) => {
+    if (token !== collectionAvatarAnimationToken || !isCollectMode) return;
+
+    const elapsed = Math.max(0, now - startedAt);
+    const timelineFrame = Math.floor(elapsed / COLLECTION_AVATAR_FRAME_MS);
+    if (!loop && timelineFrame >= frames.length) {
+      collectionAvatarRafId = null;
+      onComplete?.();
+      return;
+    }
+
+    const frameIndex = loop
+      ? timelineFrame % frames.length
+      : Math.min(timelineFrame, frames.length - 1);
+    if (frameIndex !== lastFrameIndex) {
+      setCollectionAvatarFrame(frames[frameIndex], state);
+      lastFrameIndex = frameIndex;
+    }
+    collectionAvatarRafId = window.requestAnimationFrame(renderFrame);
+  };
+
+  renderFrame(startedAt);
+}
+
+function startCollectionAvatarIdleAnimation(): void {
+  stopCollectionAvatarAnimation();
+  const frames = collectionAvatarIdleFrames.length
+    ? collectionAvatarIdleFrames
+    : collectionAvatarCollectFrames.slice(0, 1);
+  if (!isCollectMode || frames.length === 0) {
+    syncCollectionAvatarHUD();
+    return;
+  }
+
+  if (frames.length === 1) setCollectionAvatarFrame(frames[0], 'idle');
+  else playCollectionAvatarFrameSequence(frames, 'idle', true);
+  syncCollectionAvatarHUD();
+}
+
+function triggerCollectionAvatarCollectState(): void {
+  if (!isCollectMode || !hasCollectionAvatar()) return;
+  const frames = collectionAvatarCollectFrames;
+  if (frames.length === 0) return;
+
+  stopCollectionAvatarAnimation();
+  const token = collectionAvatarAnimationToken;
+  if (frames.length === 1) {
+    setCollectionAvatarFrame(frames[0], 'collect');
+    collectionAvatarResumeTimer = window.setTimeout(() => {
+      if (token === collectionAvatarAnimationToken) startCollectionAvatarIdleAnimation();
+    }, COLLECTION_AVATAR_SINGLE_COLLECT_MS);
+    return;
+  }
+  playCollectionAvatarFrameSequence(frames, 'collect', false, startCollectionAvatarIdleAnimation);
+}
+
+function prepareCollectionAvatarAnimation(): void {
+  const token = ++collectionAvatarPreloadToken;
+  stopCollectionAvatarAnimation();
+  pruneCollectionAvatarFrameCache();
+  const frames = [...collectionAvatarIdleFrames, ...collectionAvatarCollectFrames];
+  const firstFrame = collectionAvatarIdleFrames[0] || collectionAvatarCollectFrames[0];
+  if (isCollectMode && firstFrame) setCollectionAvatarFrame(firstFrame, 'idle');
+  syncCollectionAvatarHUD();
+  void preloadCollectionAvatarFrames(frames).then(() => {
+    if (token === collectionAvatarPreloadToken) startCollectionAvatarIdleAnimation();
+  });
+}
+
+function refreshCollectionAvatarManager(): void {
+  const updateSlot = (state: CollectionAvatarState, frames: string[]) => {
+    const slot = document.getElementById(`btn-collection-avatar-${state}`);
+    const thumb = document.getElementById(`collection-avatar-${state}-thumb`) as HTMLImageElement | null;
+    const count = document.getElementById(`collection-avatar-${state}-count`);
+    slot?.classList.toggle('has-frames', frames.length > 0);
+    if (thumb) thumb.src = frames[0] || '';
+    if (count) count.textContent = frames.length > 0 ? `${frames.length} 帧` : '上传';
+  };
+  updateSlot('idle', collectionAvatarIdleFrames);
+  updateSlot('collect', collectionAvatarCollectFrames);
+
+  const status = document.getElementById('collection-avatar-status');
+  if (status) {
+    status.textContent = hasCollectionAvatar()
+      ? `待机 ${collectionAvatarIdleFrames.length} 帧 · 收集 ${collectionAvatarCollectFrames.length} 帧`
+      : '未上传头像';
+  }
+  const clearButton = document.getElementById('btn-collection-avatar-clear') as HTMLButtonElement | null;
+  if (clearButton) clearButton.style.display = hasCollectionAvatar() ? 'block' : 'none';
+}
+
+function openCollectionAvatarDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(COLLECTION_AVATAR_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(COLLECTION_AVATAR_DB_STORE)) {
+        request.result.createObjectStore(COLLECTION_AVATAR_DB_STORE, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function persistCollectionAvatarStyle(): Promise<void> {
+  const db = await openCollectionAvatarDB();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(COLLECTION_AVATAR_DB_STORE, 'readwrite');
+    transaction.objectStore(COLLECTION_AVATAR_DB_STORE).put({
+      id: COLLECTION_AVATAR_DB_KEY,
+      idleFrames: collectionAvatarIdleFrames,
+      collectFrames: collectionAvatarCollectFrames
+    });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+}
+
+function applyCollectionAvatarStylePayload(payload: unknown): void {
+  const source = payload && typeof payload === 'object' ? payload as CollectionAvatarStylePayload : {};
+  collectionAvatarIdleFrames = normalizeCollectionAvatarFrames(source.idleFrames);
+  collectionAvatarCollectFrames = normalizeCollectionAvatarFrames(source.collectFrames);
+  refreshCollectionAvatarManager();
+  prepareCollectionAvatarAnimation();
+}
+
+async function loadCollectionAvatarStyle(): Promise<void> {
+  try {
+    const db = await openCollectionAvatarDB();
+    const value = await new Promise<any>((resolve, reject) => {
+      const request = db.transaction(COLLECTION_AVATAR_DB_STORE, 'readonly')
+        .objectStore(COLLECTION_AVATAR_DB_STORE)
+        .get(COLLECTION_AVATAR_DB_KEY);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    applyCollectionAvatarStylePayload(value);
+  } catch (error) {
+    console.error('Failed to load collection avatar style:', error);
+    refreshCollectionAvatarManager();
+  }
+}
+
+function readCollectionAvatarFiles(files: FileList): Promise<string[]> {
+  const sortedFiles = Array.from(files)
+    .filter(file => file.type.startsWith('image/'))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return Promise.all(sortedFiles.map(file => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  })));
+}
+
+function bindCollectionAvatarManager(): void {
+  const bindInput = (state: CollectionAvatarState) => {
+    const button = document.getElementById(`btn-collection-avatar-${state}`) as HTMLButtonElement | null;
+    const input = document.getElementById(`input-collection-avatar-${state}`) as HTMLInputElement | null;
+    if (!button || !input) return;
+    button.onclick = () => input.click();
+    input.onchange = async () => {
+      if (!input.files?.length) return;
+      try {
+        const frames = await readCollectionAvatarFiles(input.files);
+        if (state === 'idle') collectionAvatarIdleFrames = frames;
+        else collectionAvatarCollectFrames = frames;
+        await persistCollectionAvatarStyle();
+        refreshCollectionAvatarManager();
+        prepareCollectionAvatarAnimation();
+        updateHeaderUI();
+      } catch (error) {
+        console.error('Failed to import collection avatar frames:', error);
+        alert('导入收集头像失败，请检查图片文件。');
+      } finally {
+        input.value = '';
+      }
+    };
+  };
+  bindInput('idle');
+  bindInput('collect');
+
+  const clearButton = document.getElementById('btn-collection-avatar-clear') as HTMLButtonElement | null;
+  if (clearButton) {
+    clearButton.onclick = async () => {
+      collectionAvatarIdleFrames = [];
+      collectionAvatarCollectFrames = [];
+      collectionAvatarPreloadToken++;
+      await persistCollectionAvatarStyle();
+      refreshCollectionAvatarManager();
+      stopCollectionAvatarAnimation();
+      collectionAvatarFrameCache.clear();
+      syncCollectionAvatarHUD();
+    };
+  }
+  refreshCollectionAvatarManager();
+}
+
 function updateHeaderUI() {
 
 
@@ -10389,11 +10718,19 @@ function updateHeaderUI() {
 
 
 
-    // Left side: LEVEL
+    // Left side: SCORE. Keep level-val hidden for legacy save/export readers.
 
 
 
-    headerItemEl.innerHTML = `LEVEL: <span id="level-val">${currentLevel}</span>`;
+    const scoreInput = document.getElementById('input-score') as HTMLInputElement | null;
+
+
+
+    const currentScore = scoreInput ? parseInt(scoreInput.value) || 854682 : 854682;
+
+
+
+    headerItemEl.innerHTML = `<span class="collect-score-hud"><span class="collect-score-label">SCORE</span><span id="score-val" class="collect-score-value">${currentScore.toLocaleString()}</span></span><span id="level-val" style="display:none;">${currentLevel}</span>`;
 
 
 
@@ -10401,7 +10738,7 @@ function updateHeaderUI() {
 
 
 
-    // Right side: Collectible Counter + Hidden Score
+    // Right side: Collectible Counter
 
 
 
@@ -10413,7 +10750,7 @@ function updateHeaderUI() {
 
 
 
-    scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:36px; height:36px; vertical-align:middle; margin-right:8px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span><span id="score-val" style="display:none;"></span>`;
+    scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:36px; height:36px; vertical-align:middle; margin-right:8px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
 
 
 
@@ -10438,6 +10775,30 @@ function updateHeaderUI() {
 
 
       collectContainer.style.display = 'flex';
+
+
+
+    }
+
+
+
+    const avatarHud = document.getElementById('collection-avatar-hud');
+
+
+
+    if (hasCollectionAvatar() && !avatarHud?.classList.contains('visible')) {
+
+
+
+      startCollectionAvatarIdleAnimation();
+
+
+
+    } else {
+
+
+
+      syncCollectionAvatarHUD();
 
 
 
@@ -10534,6 +10895,8 @@ function updateHeaderUI() {
 
 
       collectContainer.style.display = 'none';
+      stopCollectionAvatarAnimation();
+      syncCollectionAvatarHUD();
 
 
 
@@ -12265,7 +12628,11 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-  const targetEl = document.getElementById('collectible-header-icon');
+  const avatarTargetEl = getCollectionAvatarTargetElement();
+
+
+
+  const targetEl = avatarTargetEl || document.getElementById('collectible-header-icon');
 
 
 
@@ -12285,13 +12652,15 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-    targetLeft = targetRect.left - boardRect.left;
-
-
-
-    targetTop = targetRect.top - boardRect.top;
-
-    targetSize = Math.max(36, targetRect.width);
+    if (avatarTargetEl) {
+      targetSize = Math.max(36, Math.min(58, targetRect.width));
+      targetLeft = targetRect.left - boardRect.left + (targetRect.width - targetSize) / 2;
+      targetTop = targetRect.top - boardRect.top + (targetRect.height - targetSize) / 2;
+    } else {
+      targetLeft = targetRect.left - boardRect.left;
+      targetTop = targetRect.top - boardRect.top;
+      targetSize = Math.max(36, targetRect.width);
+    }
 
 
 
@@ -12478,6 +12847,10 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
     onComplete: () => {
+
+
+
+      if (avatarTargetEl) triggerCollectionAvatarCollectState();
 
 
 
@@ -15206,8 +15579,6 @@ function advanceContinuousScroll(deltaSec: number) {
 
     }
 
-
-
     rowColors[PARAMS.totalRows - 1] = getRainbowFixedColor(PARAMS.totalRows - 1);
 
 
@@ -17374,6 +17745,14 @@ async function init() {
 
 
   try {
+
+
+
+    await loadCollectionAvatarStyle();
+
+
+
+    bindCollectionAvatarManager();
 
 
 
@@ -28725,6 +29104,27 @@ function mapBoardWrapperRectToRecordingRect(
 
 
 
+function drawRecordingImageContained(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  box: { x: number; y: number; w: number; h: number }
+): void {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || box.w <= 0 || box.h <= 0) return;
+
+  const scale = Math.min(box.w / sourceWidth, box.h / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  context.drawImage(
+    image,
+    box.x + (box.w - drawWidth) / 2,
+    box.y + (box.h - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  );
+}
+
 function getRecordingCollectIconRect(width: number, height: number) {
 
   const headerBox = {
@@ -38902,7 +39302,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-      const leftText = `LEVEL: ${document.getElementById('level-val')!.innerText}`;
+      const leftText = `LEVEL: ${document.getElementById('level-val')?.innerText || '284'}`;
 
 
 
@@ -38926,11 +39326,24 @@ function startRecording(): Promise<boolean> {
 
 
 
-      recordingCtx!.fillText(leftText, leftX, textY);
+      if (isCollectMode) {
+        const scoreText = document.getElementById('score-val')?.innerText || '0';
+        const labelFontSize = headerFontSize * 0.58;
+        const valueFontSize = headerFontSize * 1.04;
+        const labelY = textY - headerFontSize * 0.28;
+        const valueY = textY + headerFontSize * 0.48;
 
+        recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+        recordingCtx!.fillText('SCORE', leftX, labelY);
+        if (!useRecordingBackground) recordingCtx!.strokeText('SCORE', leftX, labelY);
 
-
-      if (!useRecordingBackground) recordingCtx!.strokeText(leftText, leftX, textY);
+        recordingCtx!.font = `900 ${valueFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+        recordingCtx!.fillText(scoreText, leftX, valueY);
+        if (!useRecordingBackground) recordingCtx!.strokeText(scoreText, leftX, valueY);
+      } else {
+        recordingCtx!.fillText(leftText, leftX, textY);
+        if (!useRecordingBackground) recordingCtx!.strokeText(leftText, leftX, textY);
+      }
 
 
 
@@ -38993,6 +39406,34 @@ function startRecording(): Promise<boolean> {
       if (isCollectMode) {
 
 
+
+        const avatarHudEl = document.getElementById('collection-avatar-hud');
+        const avatarImageEl = document.getElementById('collection-avatar-image') as HTMLImageElement | null;
+        if (
+          avatarHudEl?.classList.contains('visible') &&
+          avatarImageEl?.complete &&
+          avatarImageEl.naturalWidth > 0 &&
+          boardWrapper
+        ) {
+          const avatarRect = avatarHudEl.getBoundingClientRect();
+          const boardRect = boardWrapper.getBoundingClientRect();
+          const avatarBox = useRecordingBackground
+            ? mapBoardWrapperRectToRecordingRect(
+                avatarRect,
+                boardRect,
+                getMasterBoardContentRect(width, height)
+              )
+            : {
+                x: (avatarRect.left - boardRect.left) * dpr,
+                y: (
+                  avatarRect.top -
+                  (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))
+                ) * dpr,
+                w: avatarRect.width * dpr,
+                h: avatarRect.height * dpr
+              };
+          drawRecordingImageContained(recordingCtx!, avatarImageEl, avatarBox);
+        }
 
         const collectValEl = document.getElementById('collect-val');
 
