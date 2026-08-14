@@ -20209,7 +20209,11 @@ function loadPropImage(dataUrl: string): Promise<HTMLImageElement> {
 }
 
 async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): Promise<void> {
-  const files = [...selectedFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  // The picker already restricts the input to images. Keep files whose MIME
+  // type is empty as well; Windows can leave it empty for some image files.
+  const files = [...selectedFiles]
+    .filter(file => !file.type || file.type.startsWith('image/'))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   if (files.length === 0) return;
 
   if (role === 'candy') {
@@ -20237,9 +20241,13 @@ function importPropImage(role: PropImageRole): void {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.multiple = role === 'machine' || role === 'machine_attack';
+  const isFrameRole = role === 'machine' || role === 'machine_attack';
+  input.multiple = isFrameRole;
+  if (isFrameRole) input.setAttribute('multiple', 'multiple');
   input.style.display = 'none';
   input.setAttribute('aria-hidden', 'true');
+  // Set the multi-select attributes before attaching and opening the picker.
+  // This avoids browser-specific picker behavior that falls back to one file.
   document.body.appendChild(input);
 
   const cleanup = () => {
@@ -20247,18 +20255,29 @@ function importPropImage(role: PropImageRole): void {
     input.remove();
   };
 
-  input.addEventListener('change', () => {
+  let handled = false;
+  const handleFiles = () => {
+    if (handled) return;
     const files = Array.from(input.files || []);
     if (files.length === 0) {
       cleanup();
       return;
     }
+    handled = true;
+    const countId = role === 'machine' ? 'prop-machine-count' : role === 'machine_attack' ? 'prop-machine-attack-count' : '';
+    const count = countId ? document.getElementById(countId) : null;
+    if (count && isFrameRole) count.textContent = `Reading ${files.length} frames`;
     void applyPropImageFiles(role, files)
-      .catch(error => console.error('Failed to import custom prop image.', error))
+      .catch(error => {
+        console.error('Failed to import custom prop image.', error);
+        if (count && isFrameRole) count.textContent = 'Upload failed';
+      })
       .finally(cleanup);
-  }, { once: true });
-  input.addEventListener('cancel', cleanup, { once: true });
-
+  };
+  // Chromium normally emits change, while some embedded file chooser paths
+  // emit input first. Handle both without processing the selection twice.
+  input.addEventListener('input', handleFiles);
+  input.addEventListener('change', handleFiles);
   // A cleared value guarantees that selecting the same file again emits change.
   input.value = '';
   input.click();

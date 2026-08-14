@@ -467,6 +467,8 @@ html, body {
 
 #material-panel {
   width: 280px;
+  max-height: none;
+  overflow-y: visible;
 }
 
 #script-panel {
@@ -489,7 +491,7 @@ body:not(.is-playable) #game-ui {
 body:not(.is-playable) #material-panel,
 body:not(.is-playable) #editor-panel {
   flex: 0 0 280px;
-  max-height: calc(100vh - 8px);
+  max-height: none;
 }
 
 body:not(.is-playable) #script-panel {
