@@ -976,8 +976,8 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 #script-panel .settings-section {
-  padding: 7px;
-  margin-bottom: 7px;
+  padding: 5px;
+  margin-bottom: 5px;
 }
 
 #script-panel .settings-section > h4:empty {
@@ -1035,8 +1035,8 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 #script-panel .script-primary-button-row {
-  gap: 7px !important;
-  margin-bottom: 7px !important;
+  gap: 5px !important;
+  margin-bottom: 5px !important;
 }
 
 #script-panel .script-primary-button-row .btn-apply {
@@ -1109,40 +1109,40 @@ body:not(.is-playable) #script-steps-panel {
 
 #script-panel input,
 #script-panel select {
-  min-height: 30px;
+  min-height: 25px;
 }
 
 #script-panel .script-compact-row {
-  min-height: 29px;
-  gap: 8px !important;
-  margin-bottom: 5px !important;
+  min-height: 25px;
+  gap: 5px !important;
+  margin-bottom: 3px !important;
 }
 
 #script-panel .script-pause-row {
-  min-height: 26px;
-  margin: -2px 0 5px !important;
-  font-size: 12px;
+  min-height: 24px;
+  margin: -2px 0 3px !important;
+  font-size: 11px;
 }
 
 #script-panel .script-pause-row select {
-  width: 84px;
-  flex: 0 0 84px !important;
-  height: 26px;
-  min-height: 26px;
-  padding: 2px 7px !important;
+  width: 76px;
+  flex: 0 0 76px !important;
+  height: 24px;
+  min-height: 24px;
+  padding: 1px 5px !important;
 }
 
 #script-panel .script-number-row label {
-  width: 104px !important;
-  font-size: 12px;
+  width: 96px !important;
+  font-size: 11px;
   line-height: 1.15;
 }
 
 #script-panel .script-number-row input,
 #script-panel .script-number-row select {
-  height: 27px;
-  min-height: 27px;
-  padding: 3px 8px !important;
+  height: 24px;
+  min-height: 24px;
+  padding: 2px 6px !important;
 }
 
 #script-panel .settings-section:has(#input-autoplay-target-duration) {
@@ -1150,15 +1150,15 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 #script-panel .settings-section:has(#input-autoplay-target-duration) .script-compact-row {
-  margin-bottom: 4px !important;
+  margin-bottom: 3px !important;
 }
 
 #script-panel label {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 #script-panel .vc-toggle {
-  margin: 2px 0 6px;
+  margin: 1px 0 4px;
 }
 
 /* Loading Overlay */
