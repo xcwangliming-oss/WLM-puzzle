@@ -355,6 +355,27 @@
         <div id="collectible-list" class="material-slots-container">
           <!-- Dynamic list will be rendered here -->
         </div>
+        <div id="collection-avatar-manager" class="collection-avatar-manager">
+          <div class="collection-avatar-manager-title">🧑 收集头像</div>
+          <div class="collection-avatar-slots">
+            <button type="button" id="btn-collection-avatar-idle" class="collection-avatar-slot" title="上传待机图片或序列帧">
+              <img id="collection-avatar-idle-thumb" alt="">
+              <span class="collection-avatar-slot-name">待机</span>
+              <span id="collection-avatar-idle-count" class="collection-avatar-slot-count">上传</span>
+            </button>
+            <button type="button" id="btn-collection-avatar-collect" class="collection-avatar-slot" title="上传收集图片或序列帧">
+              <img id="collection-avatar-collect-thumb" alt="">
+              <span class="collection-avatar-slot-name">收集</span>
+              <span id="collection-avatar-collect-count" class="collection-avatar-slot-count">上传</span>
+            </button>
+          </div>
+          <input type="file" id="input-collection-avatar-idle" accept="image/*" multiple hidden>
+          <input type="file" id="input-collection-avatar-collect" accept="image/*" multiple hidden>
+          <div class="collection-avatar-manager-footer">
+            <span id="collection-avatar-status">未上传头像</span>
+            <button type="button" id="btn-collection-avatar-clear">清除</button>
+          </div>
+        </div>
       </div>
 
       <div class="record-bg-panel material-bg-panel">
@@ -386,6 +407,9 @@
           <div id="board-wrapper">
             <div id="game-header">
               <div class="header-item">LEVEL: <span id="level-val">284</span></div>
+              <div id="collection-avatar-hud" aria-hidden="true">
+                <img id="collection-avatar-image" alt="">
+              </div>
               <div class="header-item">SCORE: <span id="score-val">854,682</span></div>
             </div>
             <div id="board-clip"></div>
