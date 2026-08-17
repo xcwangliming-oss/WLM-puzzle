@@ -20596,10 +20596,13 @@ function animatePropShrink(
   const machineSprite = machineFrameTextures.length > 0
     ? new PIXI.AnimatedSprite(machineFrameTextures)
     : new PIXI.Sprite(getPropTexture(1, dir));
+  const frameW = Math.max(1, machineSprite.texture.width);
+  const frameH = Math.max(1, machineSprite.texture.height);
+  const frameScale = Math.min(machineW / frameW, cellSz / frameH);
+  const initialCandyX = dir === 'left' ? rightEdge - startWw : leftEdge;
+  const bodyWindowX = dir === 'left' ? leftEdge : leftEdge + machineW;
+  const bodyWindowW = Math.max(0, startWw - machineW);
   const lockMachineHeadSize = () => {
-    const frameW = Math.max(1, machineSprite.texture.width);
-    const frameH = Math.max(1, machineSprite.texture.height);
-    const frameScale = Math.min(machineW / frameW, cellSz / frameH);
     machineSprite.scale.set(frameScale);
     const headCellX = dir === 'left' ? rightEdge - machineW : leftEdge;
     machineSprite.x = headCellX + (machineW - frameW * frameScale) / 2;
@@ -20619,7 +20622,7 @@ function animatePropShrink(
   candySprite.width = startWw;
   candySprite.height = cellSz;
   candySprite.y = baseYy;
-  candySprite.x = dir === 'left' ? rightEdge - startWw : leftEdge;
+  candySprite.x = initialCandyX;
 
   let shattered = false;
 
@@ -20629,12 +20632,10 @@ function animatePropShrink(
   // Draw initial mask state immediately to prevent a 1-frame invisible flash
   mask.clear();
   mask.beginFill(0xffffff);
-  const initialBodyW = Math.max(0, startWw - machineW);
-  if (dir === 'left') {
-    mask.drawRect(rightEdge - machineW - initialBodyW, baseYy, initialBodyW, cellSz);
-  } else {
-    mask.drawRect(leftEdge + machineW, baseYy, initialBodyW, cellSz);
-  }
+  // Keep the clipping window fixed at the machine-head side. The obstacle
+  // body moves into this window; changing the window itself makes the body
+  // appear to be squeezed during multi-row elimination.
+  mask.drawRect(bodyWindowX, baseYy, bodyWindowW, cellSz);
   mask.endFill();
 
   const container = new PIXI.Container();
@@ -20655,28 +20656,21 @@ function animatePropShrink(
       const ease = t; // Linear speed (uniform)
       
       const targetWw = Math.max(newLen * cellSz, machineW);
-      const curW = startWw + (targetWw - startWw) * ease;
+      const removedW = Math.max(0, startWw - targetWw);
       
       const shakeIntensity = 1 - ease;
       const shakeX = Math.sin(el * 0.05) * 2 * shakeIntensity;
       const shakeY = Math.cos(el * 0.05) * 1 * shakeIntensity;
 
       candySprite.y = baseYy + shakeY;
+      candySprite.x = dir === 'left'
+        ? initialCandyX + removedW * ease + shakeX
+        : initialCandyX - removedW * ease + shakeX;
       lockMachineHeadSize();
 
-      const bodyW = Math.max(0, curW - machineW);
       mask.clear();
       mask.beginFill(0xffffff);
-      if (dir === 'left') {
-        // Keep the source texture at its original size and move the visible
-        // body window toward the machine head. The head occupies the fixed
-        // rightmost cell and is covered by the mask instead of being scaled.
-        candySprite.x = leftEdge + shakeX;
-        mask.drawRect(rightEdge - machineW - bodyW + shakeX, baseYy - 20, bodyW, cellSz + 40);
-      } else {
-        candySprite.x = leftEdge + shakeX;
-        mask.drawRect(leftEdge + machineW + shakeX, baseYy - 20, bodyW, cellSz + 40);
-      }
+      mask.drawRect(bodyWindowX + shakeX, baseYy + shakeY - 20, bodyWindowW, cellSz + 40);
       mask.endFill();
       
       requestAnimationFrame(stepLast);

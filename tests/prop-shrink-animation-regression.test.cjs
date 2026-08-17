@@ -11,18 +11,18 @@ assert.match(
 );
 assert.match(
   source,
-  /const lockMachineHeadSize = \(\) => \{[\s\S]*?const frameScale = Math\.min\(machineW \/ frameW, cellSz \/ frameH\);[\s\S]*?machineSprite\.scale\.set\(frameScale\);/,
-  'the machine head must keep its aspect ratio during the body shrink',
+  /const frameScale = Math\.min\(machineW \/ frameW, cellSz \/ frameH\);[\s\S]*?const lockMachineHeadSize = \(\) => \{[\s\S]*?machineSprite\.scale\.set\(frameScale\);/,
+  'the machine head must keep a fixed aspect ratio during the body shrink',
 );
 assert.match(
   source,
-  /const candySprite = new PIXI\.Sprite\(sprite\.texture\);[\s\S]*?const initialBodyW = Math\.max\(0, startWw - machineW\)[\s\S]*?rightEdge - machineW - initialBodyW[\s\S]*?leftEdge \+ machineW, baseYy, initialBodyW/,
-  'the initial mask must leave the machine head cell outside the candy body',
+  /const initialCandyX = dir === 'left' \? rightEdge - startWw : leftEdge;[\s\S]*?const bodyWindowX = dir === 'left' \? leftEdge : leftEdge \+ machineW;[\s\S]*?const candySprite = new PIXI\.Sprite\(sprite\.texture\);[\s\S]*?mask\.drawRect\(bodyWindowX, baseYy, bodyWindowW, cellSz\)/,
+  'the initial mask must be fixed at the machine-head boundary',
 );
 assert.match(
   source,
-  /const bodyW = Math\.max\(0, curW - machineW\)[\s\S]*?candySprite\.x = leftEdge \+ shakeX[\s\S]*?rightEdge - machineW - bodyW \+ shakeX[\s\S]*?leftEdge \+ machineW \+ shakeX/,
-  'the shrink must move the candy body mask toward the fixed machine head',
+  /const removedW = Math\.max\(0, startWw - targetWw\)[\s\S]*?candySprite\.x = dir === 'left'[\s\S]*?initialCandyX \+ removedW \* ease \+ shakeX[\s\S]*?initialCandyX - removedW \* ease \+ shakeX[\s\S]*?mask\.drawRect\(bodyWindowX \+ shakeX, baseYy \+ shakeY - 20, bodyWindowW, cellSz \+ 40\)/,
+  'the shrink must move the full-size candy body toward the fixed machine head mask',
 );
 assert.match(
   source,
