@@ -6,17 +6,17 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.ts'), 'ut
 
 assert.match(
   source,
-  /function animatePropShrink\([\s\S]*?useAttackFrames = false[\s\S]*?new PIXI\.AnimatedSprite\(getPropAnimationTextures\(1, dir, animationState\)\)/,
-  'prop shrink must use the attack frame sequence for direct hits',
+  /function animatePropShrink\([\s\S]*?const machineFrameTextures = animationImages\.map\(image => PIXI\.Texture\.from\(image\)\)[\s\S]*?new PIXI\.AnimatedSprite\(machineFrameTextures\)/,
+  'prop shrink must use the selected raw machine-head frame sequence',
 );
 assert.match(
   source,
-  /const lockMachineHeadSize = \(\) => \{[\s\S]*?machineSprite\.scale\.set\(machineW \/ frameW, cellSz \/ frameH\);/,
-  'the machine head must keep a fixed size during the body shrink',
+  /const lockMachineHeadSize = \(\) => \{[\s\S]*?const frameScale = Math\.min\(machineW \/ frameW, cellSz \/ frameH\);[\s\S]*?machineSprite\.scale\.set\(frameScale\);/,
+  'the machine head must keep its aspect ratio during the body shrink',
 );
 assert.match(
   source,
-  /const initialBodyW = Math\.max\(0, startWw - machineW\)[\s\S]*?rightEdge - machineW - initialBodyW[\s\S]*?leftEdge \+ machineW, baseYy, initialBodyW/,
+  /const candySprite = new PIXI\.Sprite\(sprite\.texture\);[\s\S]*?const initialBodyW = Math\.max\(0, startWw - machineW\)[\s\S]*?rightEdge - machineW - initialBodyW[\s\S]*?leftEdge \+ machineW, baseYy, initialBodyW/,
   'the initial mask must leave the machine head cell outside the candy body',
 );
 assert.match(

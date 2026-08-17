@@ -20589,17 +20589,23 @@ function animatePropShrink(
   const animationImages = useAttackFrames
     ? customPropMachineAttackFrameImages
     : customPropMachineFrameImages;
-  const machineSprite = animationImages.length > 0
-    ? new PIXI.AnimatedSprite(getPropAnimationTextures(1, dir, animationState))
+  // Keep the machine head independent from the full obstacle texture. Using
+  // the composed one-cell prop texture here compresses the uploaded head when
+  // the whole obstacle body is shortened.
+  const machineFrameTextures = animationImages.map(image => PIXI.Texture.from(image));
+  const machineSprite = machineFrameTextures.length > 0
+    ? new PIXI.AnimatedSprite(machineFrameTextures)
     : new PIXI.Sprite(getPropTexture(1, dir));
   const lockMachineHeadSize = () => {
     const frameW = Math.max(1, machineSprite.texture.width);
     const frameH = Math.max(1, machineSprite.texture.height);
-    machineSprite.scale.set(machineW / frameW, cellSz / frameH);
+    const frameScale = Math.min(machineW / frameW, cellSz / frameH);
+    machineSprite.scale.set(frameScale);
+    const headCellX = dir === 'left' ? rightEdge - machineW : leftEdge;
+    machineSprite.x = headCellX + (machineW - frameW * frameScale) / 2;
+    machineSprite.y = baseYy + (cellSz - frameH * frameScale) / 2;
   };
   lockMachineHeadSize();
-  machineSprite.y = baseYy;
-  machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
 
   if (machineSprite instanceof PIXI.AnimatedSprite) {
     machineSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
@@ -20607,6 +20613,8 @@ function animatePropShrink(
     machineSprite.play();
   }
 
+  // The live sprite still holds the complete pre-damage texture here. Reuse
+  // it so the normal shrink and completion path remain unchanged.
   const candySprite = new PIXI.Sprite(sprite.texture);
   candySprite.width = startWw;
   candySprite.height = cellSz;
@@ -20653,9 +20661,7 @@ function animatePropShrink(
       const shakeX = Math.sin(el * 0.05) * 2 * shakeIntensity;
       const shakeY = Math.cos(el * 0.05) * 1 * shakeIntensity;
 
-      machineSprite.y = baseYy; // Machine head stays perfectly still!
       candySprite.y = baseYy + shakeY;
-      machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge; // Machine head stays perfectly still!
       lockMachineHeadSize();
 
       const bodyW = Math.max(0, curW - machineW);
@@ -20676,8 +20682,6 @@ function animatePropShrink(
       requestAnimationFrame(stepLast);
     } else if (el < totalDurL && newLen <= 0) {
       candySprite.visible = false;
-      machineSprite.y = baseYy;
-      machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
       lockMachineHeadSize();
       machineSprite.alpha = 1 - (el - shakeDurL - shrinkDurL) / fadeDurL;
       
