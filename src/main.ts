@@ -20013,10 +20013,70 @@ const PROP_STORAGE_MACHINE = 'custom_prop_machine_b64';
 const PROP_STORAGE_CANDY   = 'custom_prop_candy_b64';
 const PROP_STORAGE_MACHINE_FRAMES = 'custom_prop_machine_frames';
 const PROP_STORAGE_MACHINE_ATTACK_FRAMES = 'custom_prop_machine_attack_frames';
+const PROP_ASSET_DB = 'puzzle-editor-prop-assets';
+const PROP_ASSET_STORE = 'frames';
+
+function openPropAssetDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PROP_ASSET_DB, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(PROP_ASSET_STORE)) {
+        request.result.createObjectStore(PROP_ASSET_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Failed to open prop asset storage'));
+  });
+}
+
+function savePropFrameSet(key: string, frames: string[]): Promise<void> {
+  return openPropAssetDb().then(db => new Promise((resolve, reject) => {
+    const request = db.transaction(PROP_ASSET_STORE, 'readwrite').objectStore(PROP_ASSET_STORE).put(frames, key);
+    request.onsuccess = () => { db.close(); resolve(); };
+    request.onerror = () => { db.close(); reject(request.error || new Error('Failed to save prop frames')); };
+  }));
+}
+
+function clearLegacyPropFrameStorage(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* quota or restricted storage */ }
+}
+
+function loadPropFrameSet(key: string): Promise<string[] | null> {
+  return openPropAssetDb().then(db => new Promise((resolve, reject) => {
+    const request = db.transaction(PROP_ASSET_STORE, 'readonly').objectStore(PROP_ASSET_STORE).get(key);
+    request.onsuccess = () => { db.close(); resolve(Array.isArray(request.result) ? request.result : null); };
+    request.onerror = () => { db.close(); reject(request.error || new Error('Failed to load prop frames')); };
+  }));
+}
+
+async function hydrateStoredPropFrames(): Promise<void> {
+  try {
+    const [idleFrames, attackFrames] = await Promise.all([
+      loadPropFrameSet(PROP_STORAGE_MACHINE_FRAMES),
+      loadPropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES)
+    ]);
+    let changed = false;
+    if (customPropMachineFrames.length === 0 && idleFrames?.length) {
+      customPropMachineFrames = idleFrames;
+      changed = true;
+    }
+    if (customPropMachineAttackFrames.length === 0 && attackFrames?.length) {
+      customPropMachineAttackFrames = attackFrames;
+      changed = true;
+    }
+    if (changed) {
+      rebuildMachineTextures();
+      invalidatePropCache();
+      refreshPropStylePanel();
+    }
+  } catch (error) {
+    console.warn('Failed to load prop frames from IndexedDB.', error);
+  }
+}
 
 function invalidatePropCache(): void {
-  Object.keys(propTextureCache).forEach(k => { propTextureCache[k].destroy(true); delete propTextureCache[k]; });
-  Object.keys(propAnimationTextureCache).forEach(k => { propAnimationTextureCache[k].forEach(t => t.destroy(true)); delete propAnimationTextureCache[k]; });
+  Object.keys(propTextureCache).forEach(k => { propTextureCache[k]?.destroy(true); delete propTextureCache[k]; });
+  Object.keys(propAnimationTextureCache).forEach(k => { propAnimationTextureCache[k]?.forEach(t => t?.destroy(true)); delete propAnimationTextureCache[k]; });
   blocks.forEach(b => {
     if (!b.isProp) return;
     const anim = b.sprite instanceof PIXI.AnimatedSprite ? b.sprite : null;
@@ -20056,6 +20116,7 @@ function loadCustomPropImages(): void {
       rebuildMachineTextures();
       invalidatePropCache();
     }
+    void hydrateStoredPropFrames();
   } catch (error) {
     console.warn('Failed to load custom prop images; falling back to default prop style.', error);
     customPropMachineImg = null;
@@ -20071,16 +20132,16 @@ function applyPendingCustomPropStyle(): void {
   pendingCustomPropStyle = null;
 
   if (Array.isArray(style.machineFrames)) {
-    customPropMachineFrames = style.machineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
-    if (customPropMachineFrames.length > 0) {
-      localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(customPropMachineFrames));
-      localStorage.setItem(PROP_STORAGE_MACHINE, customPropMachineFrames[0]);
-    }
+      customPropMachineFrames = style.machineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+      if (customPropMachineFrames.length > 0) {
+        void savePropFrameSet(PROP_STORAGE_MACHINE_FRAMES, customPropMachineFrames);
+        try { localStorage.setItem(PROP_STORAGE_MACHINE, customPropMachineFrames[0]); } catch { /* IndexedDB is the source of truth */ }
+      }
   }
   if (Array.isArray(style.machineAttackFrames)) {
     customPropMachineAttackFrames = style.machineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
     if (customPropMachineAttackFrames.length > 0) {
-      localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(customPropMachineAttackFrames));
+      void savePropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES, customPropMachineAttackFrames);
     }
   }
   if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
@@ -20127,8 +20188,8 @@ function loadCustomPropMachineImageFromFirstFrame(): void {
 
 function rebuildMachineTextures(): void {
   try {
-    machineIdleTextures.forEach(t => t.destroy(true));
-    machineAttackTextures.forEach(t => t.destroy(true));
+    machineIdleTextures.forEach(t => t?.destroy(true));
+    machineAttackTextures.forEach(t => t?.destroy(true));
     machineIdleTextures = customPropMachineFrames.map(b64 => PIXI.Texture.from(b64));
     machineAttackTextures = customPropMachineAttackFrames.map(b64 => PIXI.Texture.from(b64));
     customPropMachineFrameImages = [];
@@ -20224,11 +20285,15 @@ async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): 
     const b64Array = await Promise.all(files.map(readPropImageFile));
     if (role === 'machine') {
       customPropMachineFrames = b64Array;
-      localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(b64Array));
-      localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]);
+      await savePropFrameSet(PROP_STORAGE_MACHINE_FRAMES, b64Array);
+      clearLegacyPropFrameStorage(PROP_STORAGE_MACHINE_FRAMES);
+      // Keep the legacy preview when it fits, but never let its quota failure
+      // turn a successful IndexedDB frame upload into an upload error.
+      try { localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]); } catch { /* IndexedDB is the source of truth */ }
     } else {
       customPropMachineAttackFrames = b64Array;
-      localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(b64Array));
+      await savePropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES, b64Array);
+      clearLegacyPropFrameStorage(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
     }
     rebuildMachineTextures();
   }
@@ -20238,6 +20303,17 @@ async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): 
 }
 
 function importPropImage(role: PropImageRole): void {
+  // Keep frame upload inputs mounted in the panel. Some Chromium file-picker
+  // integrations do not reliably dispatch change on a temporary input that is
+  // created and removed during the same click flow.
+  if (role === 'machine' || role === 'machine_attack') {
+    const inputId = role === 'machine' ? 'input-prop-machine' : 'input-prop-machine-attack';
+    const persistentInput = document.getElementById(inputId) as HTMLInputElement | null;
+    if (persistentInput) {
+      persistentInput.click();
+      return;
+    }
+  }
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
@@ -20278,6 +20354,7 @@ function importPropImage(role: PropImageRole): void {
   // emit input first. Handle both without processing the selection twice.
   input.addEventListener('input', handleFiles);
   input.addEventListener('change', handleFiles);
+  input.addEventListener('cancel', cleanup, { once: true });
   // A cleared value guarantees that selecting the same file again emits change.
   input.value = '';
   input.click();
@@ -20286,10 +20363,17 @@ function importPropImage(role: PropImageRole): void {
 function clearCustomPropImages(): void {
   customPropMachineImg = null; customPropCandyImg = null;
   customPropMachineFrames = []; customPropMachineAttackFrames = [];
-  machineIdleTextures.forEach(t => t.destroy(true)); machineIdleTextures = [];
-  machineAttackTextures.forEach(t => t.destroy(true)); machineAttackTextures = [];
+  machineIdleTextures.forEach(t => t?.destroy(true)); machineIdleTextures = [];
+  machineAttackTextures.forEach(t => t?.destroy(true)); machineAttackTextures = [];
   localStorage.removeItem(PROP_STORAGE_MACHINE); localStorage.removeItem(PROP_STORAGE_CANDY);
   localStorage.removeItem(PROP_STORAGE_MACHINE_FRAMES); localStorage.removeItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+  void openPropAssetDb().then(db => new Promise<void>(resolve => {
+    const tx = db.transaction(PROP_ASSET_STORE, 'readwrite');
+    tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_FRAMES);
+    tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); resolve(); };
+  })).catch(() => undefined);
   invalidatePropCache(); refreshPropStylePanel();
 }
 
@@ -20341,10 +20425,40 @@ function initPropStylePanel(): void {
           <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>收集</div><img id='prop-machine-attack-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-machine-attack-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div id='prop-machine-attack-count' style='font-size:9px;color:#777;'>点击上传</div>
         </div>
       </div>
+      <input id='input-prop-machine' type='file' accept='image/*' multiple hidden/>
+      <input id='input-prop-machine-attack' type='file' accept='image/*' multiple hidden/>
       <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
       <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会平铺重复；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
     </div>`;
   panel.appendChild(sec);
+  const bindFrameInput = (role: 'machine' | 'machine_attack', inputId: string, countId: string) => {
+    const input = document.getElementById(inputId) as HTMLInputElement | null;
+    if (!input) return;
+    let handled = false;
+    const handleFrameFiles = async () => {
+      if (handled) return;
+      const files = Array.from(input.files || []);
+      if (files.length === 0) return;
+      handled = true;
+      const count = document.getElementById(countId);
+      if (count) count.textContent = `Reading ${files.length} frames`;
+      try {
+        await applyPropImageFiles(role, files);
+      } catch (error) {
+        console.error('Failed to import custom prop frames.', error);
+        if (count) count.textContent = 'Upload failed';
+      } finally {
+        input.value = '';
+        handled = false;
+      }
+    };
+    // Chromium normally emits change; embedded file pickers may emit input.
+    // Bind both events to match the collection-avatar uploader contract.
+    input.onchange = handleFrameFiles;
+    input.oninput = handleFrameFiles;
+  };
+  bindFrameInput('machine', 'input-prop-machine', 'prop-machine-count');
+  bindFrameInput('machine_attack', 'input-prop-machine-attack', 'prop-machine-attack-count');
   ([['prop-candy-slot', 'candy'], ['prop-machine-slot', 'machine'], ['prop-machine-attack-slot', 'machine_attack']] as const).forEach(([id, role]) => {
     const el = document.getElementById(id) as HTMLElement | null;
     if (!el) return;
