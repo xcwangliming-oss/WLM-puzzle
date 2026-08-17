@@ -20589,8 +20589,12 @@ function animatePropShrink(
   const machineSprite = animationImages.length > 0
     ? new PIXI.AnimatedSprite(getPropAnimationTextures(1, dir, animationState))
     : new PIXI.Sprite(getPropTexture(1, dir));
-  machineSprite.width = machineW;
-  machineSprite.height = cellSz;
+  const lockMachineHeadSize = () => {
+    const frameW = Math.max(1, machineSprite.texture.width);
+    const frameH = Math.max(1, machineSprite.texture.height);
+    machineSprite.scale.set(machineW / frameW, cellSz / frameH);
+  };
+  lockMachineHeadSize();
   machineSprite.y = baseYy;
   machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
 
@@ -20648,6 +20652,7 @@ function animatePropShrink(
       machineSprite.y = baseYy; // Machine head stays perfectly still!
       candySprite.y = baseYy + shakeY;
       machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge; // Machine head stays perfectly still!
+      lockMachineHeadSize();
 
       let candyX = 0;
       mask.clear();
@@ -20668,6 +20673,7 @@ function animatePropShrink(
       candySprite.visible = false;
       machineSprite.y = baseYy;
       machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
+      lockMachineHeadSize();
       machineSprite.alpha = 1 - (el - shakeDurL - shrinkDurL) / fadeDurL;
       
       if (!shattered) {
