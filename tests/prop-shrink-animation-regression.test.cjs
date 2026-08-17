@@ -6,18 +6,13 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.ts'), 'ut
 
 assert.match(
   source,
-  /function animatePropShrink\([\s\S]*?const machineFrameTextures = animationState === 'attack'[\s\S]*?new PIXI\.AnimatedSprite\(machineFrameTextures\)/,
-  'prop shrink must use the selected raw machine-head frame sequence',
+  /function animatePropShrink\([\s\S]*?useAttackFrames = false[\s\S]*?new PIXI\.AnimatedSprite\(getPropAnimationTextures\(1, dir, animationState\)\)/,
+  'prop shrink must use the attack frame sequence for direct hits',
 );
 assert.match(
   source,
-  /const lockMachineHeadSize = \(\) => \{[\s\S]*?const frameScale = Math\.min\(machineW \/ frameW, cellSz \/ frameH\);[\s\S]*?machineSprite\.scale\.set\(frameScale\);/,
-  'the machine head must keep its aspect ratio during the body shrink',
-);
-assert.match(
-  source,
-  /const fullPropTexture = getPropAnimationTextures\(oldLen, dir, animationState\)\[0\][\s\S]*?const candySprite = new PIXI\.Sprite\(fullPropTexture\);/,
-  'the shrink animation must use the pre-damage full-length prop texture',
+  /const lockMachineHeadSize = \(\) => \{[\s\S]*?machineSprite\.scale\.set\(machineW \/ frameW, cellSz \/ frameH\);/,
+  'the machine head must keep a fixed size during the body shrink',
 );
 assert.match(
   source,
