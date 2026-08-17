@@ -21,8 +21,8 @@ assert.match(
 );
 assert.match(
   source,
-  /function playObstacleEatAnimation\([\s\S]*?getPropMachineHeadColumn\(\{ col: oldCol, length: oldLen, propDir: dir \}\)[\s\S]*?const startCol = dir === 'left' \? headCol \+ 1 : headCol - 1/,
-  'the eater must start exactly one cell in front of the machine head',
+  /function playObstacleEatAnimation\([\s\S]*?getPropMachineHeadColumn\(\{ col: oldCol, length: oldLen, propDir: dir \}\)[\s\S]*?const startCol = dir === 'left' \? oldCol - 1 : oldCol \+ oldLen[\s\S]*?const targetCol = dir === 'left' \? oldCol : oldCol \+ oldLen - 1/,
+  'the eater must start one cell before the obstacle body and advance into it',
 );
 assert.match(
   source,
@@ -31,8 +31,8 @@ assert.match(
 );
 assert.match(
   source,
-  /const approachSign = dir === 'left' \? -1 : 1;[\s\S]*?const targetX = \(headCol \+ 0\.5\) \* cellSz;/,
-  'the eater mouth must face the machine head and align with its target cell',
+  /const approachSign = dir === 'left' \? 1 : -1;[\s\S]*?const targetX = \(targetCol \+ 0\.5\) \* cellSz;/,
+  'the eater mouth must face the obstacle body and align with its next cell',
 );
 assert.match(
   source,

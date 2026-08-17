@@ -20619,12 +20619,13 @@ function playObstacleEatAnimation(
   const normalScale = Math.min(cellSz / frameW, cellSz / frameH);
   const startScale = normalScale * 3;
   const headCol = getPropMachineHeadColumn({ col: oldCol, length: oldLen, propDir: dir });
-  // Enter from exactly one cell in front of the machine head. The uploaded
-  // frame is assumed to face right; mirror it so the mouth faces the head.
-  const approachSign = dir === 'left' ? -1 : 1;
-  const startCol = dir === 'left' ? headCol + 1 : headCol - 1;
+  // Start in the empty cell immediately before the obstacle body, matching
+  // the eating direction. Advance one cell as one body segment is consumed.
+  const approachSign = dir === 'left' ? 1 : -1;
+  const startCol = dir === 'left' ? oldCol - 1 : oldCol + oldLen;
+  const targetCol = dir === 'left' ? oldCol : oldCol + oldLen - 1;
   const startX = (startCol + 0.5) * cellSz;
-  const targetX = (headCol + 0.5) * cellSz;
+  const targetX = (targetCol + 0.5) * cellSz;
   const baseY = row * cellSz + cellSz / 2;
   // Keep the eater moving for the whole shrink window, so it visually tracks
   // the obstacle instead of arriving early and freezing beside the head.
