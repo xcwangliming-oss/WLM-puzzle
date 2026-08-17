@@ -20730,10 +20730,25 @@ function playObstacleEatAnimation(
   };
   requestAnimationFrame(move);
 
-  window.setTimeout(() => {
-    if (anim.parent) anim.parent.removeChild(anim);
-    anim.destroy({ children: true });
-  }, Math.max(movementDuration, duration) + lingerDuration);
+  const cleanupDelay = Math.max(movementDuration, duration) + lingerDuration;
+  const shrinkStart = cleanupDelay - lingerDuration;
+  const shrinkStartTime = startTime + shrinkStart;
+  const finish = (now: number) => {
+    if (!anim.parent) return;
+    const t = Math.min(1, Math.max(0, (now - shrinkStartTime) / lingerDuration));
+    const eased = t * t * (3 - 2 * t);
+    const endScale = normalScale * 0.2;
+    const currentScale = normalScale + (endScale - normalScale) * eased;
+    anim.scale.set(approachSign * currentScale, currentScale);
+    anim.alpha = 1 - eased;
+    if (t < 1) {
+      requestAnimationFrame(finish);
+    } else {
+      anim.parent.removeChild(anim);
+      anim.destroy({ children: true });
+    }
+  };
+  window.setTimeout(() => requestAnimationFrame(finish), shrinkStart);
 }
 
 function animatePropShrink(
