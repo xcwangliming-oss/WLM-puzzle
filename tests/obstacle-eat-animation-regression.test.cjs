@@ -21,23 +21,28 @@ assert.match(
 );
 assert.match(
   source,
-  /function playObstacleEatAnimation\([\s\S]*?getPropMachineHeadColumn\(\{ col: oldCol, length: oldLen, propDir: dir \}\)[\s\S]*?const startCol = dir === 'left' \? oldCol \+ oldLen : oldCol - 1/,
-  'the eater must target the machine-head side and enter from one cell in front of the obstacle',
+  /function playObstacleEatAnimation\([\s\S]*?getPropMachineHeadColumn\(\{ col: oldCol, length: oldLen, propDir: dir \}\)[\s\S]*?const startCol = dir === 'left' \? oldCol : oldCol \+ oldLen - 1/,
+  'the eater must start at the obstacle front and target the machine-head side',
 );
 assert.match(
   source,
-  /const frameScale = Math\.min\(cellSz \/ frameW, cellSz \/ frameH\) \* 3;[\s\S]*?anim\.scale\.set\(dir === 'left' \? -frameScale : frameScale, frameScale\)/,
+  /const frameScale = Math\.min\(cellSz \/ frameW, cellSz \/ frameH\) \* 3;[\s\S]*?anim\.scale\.set\(leadingSign \* frameScale, frameScale\)/,
   'the eater must be three times the cell size while preserving aspect ratio and mirroring with obstacle direction',
 );
 assert.match(
   source,
-  /const leadingSign = dir === 'left' \? 1 : -1;[\s\S]*?const targetX = \(headCol \+ 0\.5\) \* cellSz \+ leadingSign \* eaterW \/ 2;/,
-  'the eater leading edge must align with the machine head instead of its center',
+  /const leadingSign = dir === 'left' \? 1 : -1;[\s\S]*?const targetX = \(headCol \+ 0\.5\) \* cellSz - leadingSign \* eaterW \/ 2;/,
+  'the eater mouth must face the machine head and align with its target cell',
 );
 assert.match(
   source,
   /const movementDuration = Math\.max\(300, duration - 80\);/,
   'the eater must remain in motion for the obstacle shrink window',
+);
+assert.match(
+  source,
+  /const lingerDuration = 260;[\s\S]*?Math\.max\(movementDuration, duration\) \+ lingerDuration/,
+  'the eater must linger briefly after the obstacle finishes shrinking',
 );
 assert.match(
   source,

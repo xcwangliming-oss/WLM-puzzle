@@ -20618,24 +20618,26 @@ function playObstacleEatAnimation(
   const frameH = Math.max(1, firstTexture.height || cellSz);
   const frameScale = Math.min(cellSz / frameW, cellSz / frameH) * 3;
   const headCol = getPropMachineHeadColumn({ col: oldCol, length: oldLen, propDir: dir });
-  const startCol = dir === 'left' ? oldCol + oldLen : oldCol - 1;
+  // Start at the obstacle's far/front end, then bite toward the machine head.
+  const startCol = dir === 'left' ? oldCol : oldCol + oldLen - 1;
   const leadingSign = dir === 'left' ? 1 : -1;
   const eaterW = frameW * frameScale;
   // The uploaded frame is assumed to face right. Mirroring makes the mouth
-  // face the machine head, and the leading edge lands on the obstacle cell.
-  const startX = (startCol + 0.5) * cellSz + leadingSign * eaterW / 2;
-  const targetX = (headCol + 0.5) * cellSz + leadingSign * eaterW / 2;
+  // face the machine head, and the leading edge lands on each target cell.
+  const startX = (startCol + 0.5) * cellSz - leadingSign * eaterW / 2;
+  const targetX = (headCol + 0.5) * cellSz - leadingSign * eaterW / 2;
   const baseY = row * cellSz + cellSz / 2;
   // Keep the eater moving for the whole shrink window, so it visually tracks
   // the obstacle instead of arriving early and freezing beside the head.
   const movementDuration = Math.max(300, duration - 80);
+  const lingerDuration = 260;
   const startTime = performance.now();
   const animationLayer = blocksContainer.parent || blocksContainer;
 
   anim.anchor.set(0.5);
   // Keep the uploaded character at a fixed aspect ratio. Mirroring follows
   // the machine-head side so the character enters from the correct side.
-  anim.scale.set(dir === 'left' ? -frameScale : frameScale, frameScale);
+  anim.scale.set(leadingSign * frameScale, frameScale);
   anim.x = startX;
   anim.y = baseY;
   anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
@@ -20662,7 +20664,7 @@ function playObstacleEatAnimation(
   window.setTimeout(() => {
     if (anim.parent) anim.parent.removeChild(anim);
     anim.destroy({ children: true });
-  }, Math.max(movementDuration, duration));
+  }, Math.max(movementDuration, duration) + lingerDuration);
 }
 
 function animatePropShrink(
