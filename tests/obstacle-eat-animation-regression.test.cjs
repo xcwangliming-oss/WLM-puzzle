@@ -26,8 +26,18 @@ assert.match(
 );
 assert.match(
   source,
-  /anim\.scale\.set\(dir === 'left' \? -frameScale : frameScale, frameScale\)/,
-  'the eater must preserve aspect ratio while mirroring with obstacle direction',
+  /const frameScale = Math\.min\(cellSz \/ frameW, cellSz \/ frameH\) \* 3;[\s\S]*?anim\.scale\.set\(dir === 'left' \? -frameScale : frameScale, frameScale\)/,
+  'the eater must be three times the cell size while preserving aspect ratio and mirroring with obstacle direction',
+);
+assert.match(
+  source,
+  /const leadingSign = dir === 'left' \? 1 : -1;[\s\S]*?const targetX = \(headCol \+ 0\.5\) \* cellSz \+ leadingSign \* eaterW \/ 2;/,
+  'the eater leading edge must align with the machine head instead of its center',
+);
+assert.match(
+  source,
+  /const movementDuration = Math\.max\(300, duration - 80\);/,
+  'the eater must remain in motion for the obstacle shrink window',
 );
 assert.match(
   source,

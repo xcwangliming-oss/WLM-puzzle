@@ -20616,13 +20616,19 @@ function playObstacleEatAnimation(
   const firstTexture = textures[0];
   const frameW = Math.max(1, firstTexture.width || cellSz);
   const frameH = Math.max(1, firstTexture.height || cellSz);
-  const frameScale = Math.min(cellSz / frameW, cellSz / frameH);
+  const frameScale = Math.min(cellSz / frameW, cellSz / frameH) * 3;
   const headCol = getPropMachineHeadColumn({ col: oldCol, length: oldLen, propDir: dir });
   const startCol = dir === 'left' ? oldCol + oldLen : oldCol - 1;
-  const startX = (startCol + 0.5) * cellSz;
-  const targetX = (headCol + 0.5) * cellSz;
+  const leadingSign = dir === 'left' ? 1 : -1;
+  const eaterW = frameW * frameScale;
+  // The uploaded frame is assumed to face right. Mirroring makes the mouth
+  // face the machine head, and the leading edge lands on the obstacle cell.
+  const startX = (startCol + 0.5) * cellSz + leadingSign * eaterW / 2;
+  const targetX = (headCol + 0.5) * cellSz + leadingSign * eaterW / 2;
   const baseY = row * cellSz + cellSz / 2;
-  const movementDuration = 180;
+  // Keep the eater moving for the whole shrink window, so it visually tracks
+  // the obstacle instead of arriving early and freezing beside the head.
+  const movementDuration = Math.max(300, duration - 80);
   const startTime = performance.now();
   const animationLayer = blocksContainer.parent || blocksContainer;
 
