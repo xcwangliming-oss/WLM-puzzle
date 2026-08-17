@@ -167,6 +167,27 @@ html, body {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+.style-assets-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid #444;
+  padding-top: 10px;
+}
+
+.style-assets-panel-title {
+  margin: 0 0 2px;
+  color: #f4f4ff;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.style-assets-panel .collection-avatar-manager {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .collection-avatar-manager-title {
   margin-bottom: 6px;
   color: #d7d7e5;
@@ -480,18 +501,33 @@ html, body {
 }
 
 body:not(.is-playable) #tab-level {
-  min-width: 1785px;
+  min-width: 0;
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+  gap: 12px !important;
+  padding: 0 8px 8px;
+  box-sizing: border-box;
 }
 
 body:not(.is-playable) #game-ui {
-  flex: 0 0 755px;
+  flex: 0 0 700px;
   height: calc(100vh - 8px);
 }
 
 body:not(.is-playable) #material-panel,
 body:not(.is-playable) #editor-panel {
-  flex: 0 0 280px;
+  flex: 0 0 250px;
   max-height: none;
+}
+
+body:not(.is-playable) #material-panel {
+  width: 250px;
+  padding: 6px;
+  gap: 8px !important;
+}
+
+body:not(.is-playable) .style-assets-panel {
+  gap: 5px;
 }
 
 body:not(.is-playable) #script-panel {

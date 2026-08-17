@@ -193,6 +193,8 @@ type CustomPropStylePayload = {
     candy?: string;
     machineFrames?: string[];
     machineAttackFrames?: string[];
+    eatFrames?: string[];
+    obstacleEaterEnabled?: boolean;
 };
 
 let pendingCustomPropStyle: CustomPropStylePayload | null = null;
@@ -230,7 +232,11 @@ function getExportableCustomPropStyle(): CustomPropStylePayload | undefined {
             }
         } catch {}
     }
-    return style.candy || style.machineFrames?.length || style.machineAttackFrames?.length ? style : undefined;
+    if (Array.isArray(customPropEatFrames) && customPropEatFrames.length > 0) {
+        style.eatFrames = customPropEatFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    if (obstacleEaterEnabled) style.obstacleEaterEnabled = true;
+    return style.candy || style.machineFrames?.length || style.machineAttackFrames?.length || style.eatFrames?.length || style.obstacleEaterEnabled ? style : undefined;
 }
 
 function queueCustomPropStyle(style: unknown): void {
@@ -246,7 +252,13 @@ function queueCustomPropStyle(style: unknown): void {
     if (Array.isArray(source.machineAttackFrames)) {
         normalized.machineAttackFrames = source.machineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
     }
-    if (!normalized.candy && !normalized.machineFrames?.length && !normalized.machineAttackFrames?.length) return;
+    if (Array.isArray(source.eatFrames)) {
+        normalized.eatFrames = source.eatFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    if (typeof source.obstacleEaterEnabled === 'boolean') {
+        normalized.obstacleEaterEnabled = source.obstacleEaterEnabled;
+    }
+    if (!normalized.candy && !normalized.machineFrames?.length && !normalized.machineAttackFrames?.length && !normalized.eatFrames?.length && normalized.obstacleEaterEnabled === undefined) return;
     pendingCustomPropStyle = normalized;
     if (customPropStyleSystemReady) applyPendingCustomPropStyle();
 }
@@ -20003,8 +20015,11 @@ let customPropMachineImg: HTMLImageElement | null = null;
 let customPropCandyImg: HTMLImageElement | null = null;
 let customPropMachineFrames: string[] = [];
 let customPropMachineAttackFrames: string[] = [];
+let customPropEatFrames: string[] = [];
+let obstacleEaterEnabled = false;
 let customPropMachineFrameImages: HTMLImageElement[] = [];
 let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
+let customPropEatFrameImages: HTMLImageElement[] = [];
 let machineIdleTextures: PIXI.Texture[] = [];
 let machineAttackTextures: PIXI.Texture[] = [];
 const propAnimationTextureCache: Record<string, PIXI.Texture[]> = {};
@@ -20014,6 +20029,8 @@ const PROP_STORAGE_MACHINE = 'custom_prop_machine_b64';
 const PROP_STORAGE_CANDY   = 'custom_prop_candy_b64';
 const PROP_STORAGE_MACHINE_FRAMES = 'custom_prop_machine_frames';
 const PROP_STORAGE_MACHINE_ATTACK_FRAMES = 'custom_prop_machine_attack_frames';
+const PROP_STORAGE_EAT_FRAMES = 'custom_prop_eat_frames';
+const PROP_STORAGE_OBSTACLE_EATER_ENABLED = 'custom_prop_obstacle_eater_enabled';
 const PROP_ASSET_DB = 'puzzle-editor-prop-assets';
 const PROP_ASSET_STORE = 'frames';
 
@@ -20052,9 +20069,10 @@ function loadPropFrameSet(key: string): Promise<string[] | null> {
 
 async function hydrateStoredPropFrames(): Promise<void> {
   try {
-    const [idleFrames, attackFrames] = await Promise.all([
+    const [idleFrames, attackFrames, eatFrames] = await Promise.all([
       loadPropFrameSet(PROP_STORAGE_MACHINE_FRAMES),
-      loadPropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES)
+      loadPropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES),
+      loadPropFrameSet(PROP_STORAGE_EAT_FRAMES)
     ]);
     let changed = false;
     // IndexedDB is the source of truth for uploaded frame sequences. The
@@ -20066,6 +20084,10 @@ async function hydrateStoredPropFrames(): Promise<void> {
     }
     if (attackFrames?.length && attackFrames.length !== customPropMachineAttackFrames.length) {
       customPropMachineAttackFrames = attackFrames;
+      changed = true;
+    }
+    if (eatFrames?.length && eatFrames.length !== customPropEatFrames.length) {
+      customPropEatFrames = eatFrames;
       changed = true;
     }
     if (changed) {
@@ -20098,6 +20120,7 @@ function invalidatePropCache(): void {
 
 function loadCustomPropImages(): void {
   try {
+    obstacleEaterEnabled = localStorage.getItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED) === 'true';
     const cb = localStorage.getItem(PROP_STORAGE_CANDY);
     if (cb) {
       const i = new Image();
@@ -20112,12 +20135,15 @@ function loadCustomPropImages(): void {
     const maf = localStorage.getItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
     if (maf) { try { customPropMachineAttackFrames = JSON.parse(maf); } catch(e){ customPropMachineAttackFrames = []; } }
 
+    const ef = localStorage.getItem(PROP_STORAGE_EAT_FRAMES);
+    if (ef) { try { customPropEatFrames = JSON.parse(ef); } catch(e){ customPropEatFrames = []; } }
+
     const mb = localStorage.getItem(PROP_STORAGE_MACHINE); // Legacy fallback
     if (mb && customPropMachineFrames.length === 0) {
       customPropMachineFrames = [mb];
     }
 
-    if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
+    if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0) {
       rebuildMachineTextures();
       invalidatePropCache();
     }
@@ -20128,6 +20154,8 @@ function loadCustomPropImages(): void {
     customPropCandyImg = null;
     customPropMachineFrames = [];
     customPropMachineAttackFrames = [];
+    customPropEatFrames = [];
+    obstacleEaterEnabled = false;
   }
 }
 
@@ -20149,7 +20177,17 @@ function applyPendingCustomPropStyle(): void {
       void savePropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES, customPropMachineAttackFrames);
     }
   }
-  if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
+  if (Array.isArray(style.eatFrames)) {
+    customPropEatFrames = style.eatFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    if (customPropEatFrames.length > 0) {
+      void savePropFrameSet(PROP_STORAGE_EAT_FRAMES, customPropEatFrames);
+    }
+  }
+  if (typeof style.obstacleEaterEnabled === 'boolean') {
+    obstacleEaterEnabled = style.obstacleEaterEnabled;
+    try { localStorage.setItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED, String(obstacleEaterEnabled)); } catch { /* storage is optional */ }
+  }
+  if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0) {
     rebuildMachineTextures();
   }
 
@@ -20207,14 +20245,20 @@ function rebuildMachineTextures(): void {
       customPropMachineAttackFrameImages = images;
       invalidatePropCache();
     }).catch(() => { customPropMachineAttackFrameImages = []; });
+    customPropEatFrameImages = [];
+    void Promise.all(customPropEatFrames.map(loadPropImage)).then(images => {
+      customPropEatFrameImages = images;
+    }).catch(() => { customPropEatFrameImages = []; });
     loadCustomPropMachineImageFromFirstFrame();
   } catch (error) {
     console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
     customPropMachineImg = null;
     customPropMachineFrames = [];
     customPropMachineAttackFrames = [];
+    customPropEatFrames = [];
     customPropMachineFrameImages = [];
     customPropMachineAttackFrameImages = [];
+    customPropEatFrameImages = [];
     machineIdleTextures = [];
     machineAttackTextures = [];
   }
@@ -20247,7 +20291,7 @@ function revertMachineHeadIdle(): void {
   }
 }
 
-type PropImageRole = 'machine' | 'machine_attack' | 'candy';
+type PropImageRole = 'machine' | 'machine_attack' | 'eat' | 'candy';
 const CUSTOM_FRAME_ANIMATION_SPEED = 0.5; // 30 FPS at Pixi's 60 Hz ticker
 
 function readPropImageFile(file: File): Promise<string> {
@@ -20289,10 +20333,13 @@ async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): 
       // Keep the legacy preview when it fits, but never let its quota failure
       // turn a successful IndexedDB frame upload into an upload error.
       try { localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]); } catch { /* IndexedDB is the source of truth */ }
-    } else {
+    } else if (role === 'machine_attack') {
       customPropMachineAttackFrames = b64Array;
       await savePropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES, b64Array);
       clearLegacyPropFrameStorage(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+    } else {
+      customPropEatFrames = b64Array;
+      await savePropFrameSet(PROP_STORAGE_EAT_FRAMES, b64Array);
     }
     rebuildMachineTextures();
   }
@@ -20305,8 +20352,8 @@ function importPropImage(role: PropImageRole): void {
   // Keep frame upload inputs mounted in the panel. Some Chromium file-picker
   // integrations do not reliably dispatch change on a temporary input that is
   // created and removed during the same click flow.
-  if (role === 'machine' || role === 'machine_attack') {
-    const inputId = role === 'machine' ? 'input-prop-machine' : 'input-prop-machine-attack';
+  if (role === 'machine' || role === 'machine_attack' || role === 'eat') {
+    const inputId = role === 'machine' ? 'input-prop-machine' : role === 'machine_attack' ? 'input-prop-machine-attack' : 'input-prop-eat';
     const persistentInput = document.getElementById(inputId) as HTMLInputElement | null;
     if (persistentInput) {
       persistentInput.click();
@@ -20316,7 +20363,7 @@ function importPropImage(role: PropImageRole): void {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  const isFrameRole = role === 'machine' || role === 'machine_attack';
+  const isFrameRole = role === 'machine' || role === 'machine_attack' || role === 'eat';
   input.multiple = isFrameRole;
   if (isFrameRole) input.setAttribute('multiple', 'multiple');
   input.style.display = 'none';
@@ -20339,7 +20386,7 @@ function importPropImage(role: PropImageRole): void {
       return;
     }
     handled = true;
-    const countId = role === 'machine' ? 'prop-machine-count' : role === 'machine_attack' ? 'prop-machine-attack-count' : '';
+    const countId = role === 'machine' ? 'prop-machine-count' : role === 'machine_attack' ? 'prop-machine-attack-count' : role === 'eat' ? 'prop-eat-count' : '';
     const count = countId ? document.getElementById(countId) : null;
     if (count && isFrameRole) count.textContent = `Reading ${files.length} frames`;
     void applyPropImageFiles(role, files)
@@ -20361,15 +20408,19 @@ function importPropImage(role: PropImageRole): void {
 
 function clearCustomPropImages(): void {
   customPropMachineImg = null; customPropCandyImg = null;
-  customPropMachineFrames = []; customPropMachineAttackFrames = [];
+  customPropMachineFrames = []; customPropMachineAttackFrames = []; customPropEatFrames = [];
+  customPropEatFrameImages = [];
   machineIdleTextures.forEach(t => t?.destroy(true)); machineIdleTextures = [];
   machineAttackTextures.forEach(t => t?.destroy(true)); machineAttackTextures = [];
   localStorage.removeItem(PROP_STORAGE_MACHINE); localStorage.removeItem(PROP_STORAGE_CANDY);
-  localStorage.removeItem(PROP_STORAGE_MACHINE_FRAMES); localStorage.removeItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+  localStorage.removeItem(PROP_STORAGE_MACHINE_FRAMES); localStorage.removeItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES); localStorage.removeItem(PROP_STORAGE_EAT_FRAMES);
+  localStorage.removeItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED);
+  obstacleEaterEnabled = false;
   void openPropAssetDb().then(db => new Promise<void>(resolve => {
     const tx = db.transaction(PROP_ASSET_STORE, 'readwrite');
     tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_FRAMES);
     tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+    tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_EAT_FRAMES);
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); resolve(); };
   })).catch(() => undefined);
@@ -20379,32 +20430,62 @@ function clearCustomPropImages(): void {
 function refreshPropStylePanel(): void {
   const mt  = document.getElementById('prop-machine-thumb')       as HTMLImageElement | null;
   const cma = document.getElementById('prop-machine-attack-thumb') as HTMLImageElement | null;
+  const eat = document.getElementById('prop-eat-thumb')            as HTMLImageElement | null;
   const ct  = document.getElementById('prop-candy-thumb')         as HTMLImageElement | null;
   const mp  = document.getElementById('prop-machine-placeholder') as HTMLElement | null;
   const cmap= document.getElementById('prop-machine-attack-placeholder') as HTMLElement | null;
+  const eap = document.getElementById('prop-eat-placeholder')      as HTMLElement | null;
   const cp  = document.getElementById('prop-candy-placeholder')   as HTMLElement | null;
   const btn = document.getElementById('btn-clear-prop-style')     as HTMLButtonElement | null;
   const bdg = document.getElementById('prop-custom-badge')        as HTMLElement | null;
   
   if (mt) { mt.src = customPropMachineFrames[0] || ''; mt.style.display = customPropMachineFrames.length > 0 ? 'block' : 'none'; }
   if (cma) { cma.src = customPropMachineAttackFrames[0] || ''; cma.style.display = customPropMachineAttackFrames.length > 0 ? 'block' : 'none'; }
+  if (eat) { eat.src = customPropEatFrames[0] || ''; eat.style.display = customPropEatFrames.length > 0 ? 'block' : 'none'; }
   if (ct) { ct.src = customPropCandyImg?.src   || ''; ct.style.display = customPropCandyImg   ? 'block' : 'none'; }
   const idleCount = document.getElementById('prop-machine-count');
   const collectCount = document.getElementById('prop-machine-attack-count');
+  const eatCount = document.getElementById('prop-eat-count');
+  if (eatCount) eatCount.textContent = customPropEatFrames.length ? `${customPropEatFrames.length} frames` : 'Click to upload';
   if (idleCount) idleCount.textContent = customPropMachineFrames.length ? `${customPropMachineFrames.length} 帧` : '点击上传';
   if (collectCount) collectCount.textContent = customPropMachineAttackFrames.length ? `${customPropMachineAttackFrames.length} 帧` : '点击上传';
   
   if (mp) mp.style.display = customPropMachineFrames.length > 0 ? 'none' : 'block';
   if (cmap) cmap.style.display = customPropMachineAttackFrames.length > 0 ? 'none' : 'block';
+  if (eap) eap.style.display = customPropEatFrames.length > 0 ? 'none' : 'block';
   if (cp) cp.style.display = customPropCandyImg   ? 'none' : 'block';
   
-  const hasCustom = !!(customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropCandyImg);
+  const hasCustom = !!(customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0 || customPropCandyImg);
   if (btn) btn.style.display = hasCustom ? 'inline-block' : 'none';
   if (bdg) bdg.style.display = hasCustom ? 'inline-block' : 'none';
+  refreshObstacleEaterToggle();
+}
+
+function ensureStyleAssetsPanel(): HTMLElement | null {
+  const materialPanel = document.getElementById('material-panel');
+  const avatarManager = document.getElementById('collection-avatar-manager');
+  if (!materialPanel || !avatarManager) return null;
+
+  let panel = document.getElementById('style-assets-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'style-assets-panel';
+    panel.className = 'style-assets-panel';
+    panel.innerHTML = '<h3 class="style-assets-panel-title">🎨 角色与道具样式</h3>';
+    const collectionSection = avatarManager.parentElement;
+    if (collectionSection?.parentElement === materialPanel) {
+      materialPanel.insertBefore(panel, collectionSection.nextSibling);
+    } else {
+      materialPanel.appendChild(panel);
+    }
+  }
+
+  if (avatarManager.parentElement !== panel) panel.appendChild(avatarManager);
+  return panel;
 }
 
 function initPropStylePanel(): void {
-  const panel = document.getElementById('material-panel');
+  const panel = ensureStyleAssetsPanel();
   if (!panel || document.getElementById('prop-style-section')) return;
   const sec = document.createElement('div');
   sec.id = 'prop-style-section';
@@ -20424,13 +20505,19 @@ function initPropStylePanel(): void {
           <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>收集</div><img id='prop-machine-attack-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-machine-attack-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div id='prop-machine-attack-count' style='font-size:9px;color:#777;'>点击上传</div>
         </div>
       </div>
+      <div style='font-size:10px;color:#aaa;margin-top:2px;'>闃滅杩涢瑙掕壊</div>
+      <div id='prop-eat-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+        <img id='prop-eat-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-eat-placeholder' style='font-size:10px;color:#aaa;'>鐐瑰嚮涓婁紶</div><div id='prop-eat-count' style='font-size:9px;color:#777;'>鐐瑰嚮涓婁紶</div>
+      </div>
       <input id='input-prop-machine' type='file' accept='image/*' multiple hidden/>
       <input id='input-prop-machine-attack' type='file' accept='image/*' multiple hidden/>
+      <input id='input-prop-eat' type='file' accept='image/*' multiple hidden/>
+      <label style='display:flex;align-items:center;gap:5px;padding:5px 6px;background:#1e1e2e;border:1px solid #555;border-radius:5px;cursor:pointer;font-size:10px;color:#ddd;'><input id='toggle-obstacle-eater' type='checkbox' style='margin:0;accent-color:#7c3aed;'/><span>启用吃障碍角色（消除时间×2）</span></label>
       <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
       <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会平铺重复；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
     </div>`;
   panel.appendChild(sec);
-  const bindFrameInput = (role: 'machine' | 'machine_attack', inputId: string, countId: string) => {
+  const bindFrameInput = (role: 'machine' | 'machine_attack' | 'eat', inputId: string, countId: string) => {
     const input = document.getElementById(inputId) as HTMLInputElement | null;
     if (!input) return;
     let handled = false;
@@ -20458,7 +20545,8 @@ function initPropStylePanel(): void {
   };
   bindFrameInput('machine', 'input-prop-machine', 'prop-machine-count');
   bindFrameInput('machine_attack', 'input-prop-machine-attack', 'prop-machine-attack-count');
-  ([['prop-candy-slot', 'candy'], ['prop-machine-slot', 'machine'], ['prop-machine-attack-slot', 'machine_attack']] as const).forEach(([id, role]) => {
+  bindFrameInput('eat', 'input-prop-eat', 'prop-eat-count');
+  ([['prop-candy-slot', 'candy'], ['prop-machine-slot', 'machine'], ['prop-machine-attack-slot', 'machine_attack'], ['prop-eat-slot', 'eat']] as const).forEach(([id, role]) => {
     const el = document.getElementById(id) as HTMLElement | null;
     if (!el) return;
     el.onclick = event => { event.preventDefault(); event.stopPropagation(); importPropImage(role); };
@@ -20466,11 +20554,27 @@ function initPropStylePanel(): void {
     el.addEventListener('mouseenter', () => el.style.borderColor = '#7c3aed');
     el.addEventListener('mouseleave', () => el.style.borderColor = '#555');
   });
+  bindObstacleEaterToggle();
   refreshPropStylePanel();
 }
 
+function refreshObstacleEaterToggle(): void {
+  const toggle = document.getElementById('toggle-obstacle-eater') as HTMLInputElement | null;
+  if (toggle) toggle.checked = obstacleEaterEnabled;
+}
+
+function bindObstacleEaterToggle(): void {
+  const toggle = document.getElementById('toggle-obstacle-eater') as HTMLInputElement | null;
+  if (!toggle) return;
+  toggle.onchange = () => {
+    obstacleEaterEnabled = toggle.checked;
+    try { localStorage.setItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED, String(obstacleEaterEnabled)); } catch { /* storage is optional */ }
+  };
+  refreshObstacleEaterToggle();
+}
+
 function initPropStylePanelLegacy(): void {
-  const panel = document.getElementById('material-panel');
+  const panel = ensureStyleAssetsPanel();
   if (!panel || document.getElementById('prop-style-section')) return;
   const sec = document.createElement('div');
   sec.id = 'prop-style-section';
@@ -20550,6 +20654,103 @@ function playPropMachineHeadShatter(row: number, col: number) {
   anim.play();
 }
 
+/** Play one independent eater animation for one damaged obstacle. */
+function playObstacleEatAnimation(
+  row: number,
+  oldCol: number,
+  oldLen: number,
+  dir: 'left' | 'right',
+  duration = 760,
+): void {
+  if (!obstacleEaterEnabled || customPropEatFrameImages.length === 0) return;
+  duration *= obstacleEaterEnabled ? 2 : 1;
+
+  const cellSz = PARAMS.cellSize || 50;
+  const textures = customPropEatFrameImages.map(image => PIXI.Texture.from(image));
+  if (textures.length === 0) return;
+
+  const anim = new PIXI.AnimatedSprite(textures);
+  const firstTexture = textures[0];
+  const frameW = Math.max(1, firstTexture.width || cellSz);
+  const frameH = Math.max(1, firstTexture.height || cellSz);
+  // Reserve a fixed 2x2-cell area (four cells) for the eater regardless of
+  // the uploaded frame dimensions. The image remains aspect-ratio correct.
+  const eaterW = cellSz * 2;
+  const eaterH = cellSz * 2;
+  const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
+  const startScale = normalScale * 0.2;
+  // Start in the two empty cells immediately before the obstacle body,
+  // matching the eating direction. Advance one cell as one body segment is
+  // consumed.
+  const approachSign = dir === 'left' ? 1 : -1;
+  const startX = dir === 'left'
+    ? (oldCol - 1) * cellSz
+    : (oldCol + oldLen + 1) * cellSz;
+  const targetX = dir === 'left'
+    ? oldCol * cellSz
+    : (oldCol + oldLen) * cellSz;
+  const baseY = (row + 0.5) * cellSz;
+  // Keep the eater moving for the whole shrink window, so it visually tracks
+  // the obstacle instead of arriving early and freezing beside the head.
+  const growDuration = Math.min(260, Math.max(160, duration * 0.35));
+  const movementDuration = Math.max(300, duration - growDuration);
+  const lingerDuration = 260;
+  const startTime = performance.now();
+  const animationLayer = blocksContainer.parent || blocksContainer;
+
+  anim.anchor.set(0.5);
+  // Keep the uploaded character at a fixed aspect ratio. Mirroring follows
+  // the machine-head side so the character enters from the correct side.
+  anim.scale.set(approachSign * startScale, startScale);
+  anim.x = startX;
+  anim.y = baseY;
+  anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+  anim.loop = true;
+  anim.zIndex = 1000;
+  animationLayer.addChild(anim);
+  anim.play();
+
+  const propTestState = document.getElementById('prop-test-state');
+  if (propTestState) {
+    propTestState.dataset.lastObstacleEat = JSON.stringify({ row, oldCol, oldLen, dir });
+  }
+
+  const move = (now: number) => {
+    if (!anim.parent) return;
+    const elapsed = now - startTime;
+    const growT = Math.min(1, elapsed / growDuration);
+    const growEased = 1 - Math.pow(1 - growT, 3);
+    const scale = startScale + (normalScale - startScale) * growEased;
+    const moveT = Math.min(1, Math.max(0, (elapsed - growDuration) / movementDuration));
+    const moveEased = 1 - Math.pow(1 - moveT, 3);
+    anim.x = startX + (targetX - startX) * moveEased;
+    anim.y = baseY;
+    anim.scale.set(approachSign * scale, scale);
+    if (moveT < 1) requestAnimationFrame(move);
+  };
+  requestAnimationFrame(move);
+
+  const cleanupDelay = Math.max(movementDuration, duration) + lingerDuration;
+  const shrinkStart = cleanupDelay - lingerDuration;
+  const shrinkStartTime = startTime + shrinkStart;
+  const finish = (now: number) => {
+    if (!anim.parent) return;
+    const t = Math.min(1, Math.max(0, (now - shrinkStartTime) / lingerDuration));
+    const eased = t * t * (3 - 2 * t);
+    const endScale = normalScale * 0.2;
+    const currentScale = normalScale + (endScale - normalScale) * eased;
+    anim.scale.set(approachSign * currentScale, currentScale);
+    anim.alpha = 1 - eased;
+    if (t < 1) {
+      requestAnimationFrame(finish);
+    } else {
+      anim.parent.removeChild(anim);
+      anim.destroy({ children: true });
+    }
+  };
+  window.setTimeout(() => requestAnimationFrame(finish), shrinkStart);
+}
+
 function animatePropShrink(
   sprite: PIXI.Sprite,
   dir: 'left' | 'right',
@@ -20578,9 +20779,10 @@ function animatePropShrink(
   const rightEdge = oldCol * cellSz + oldLen * cellSz;
   const leftEdge = oldCol * cellSz;
 
+  const durationMultiplier = obstacleEaterEnabled ? 2 : 1;
   const shakeDurL = 100;
-  const shrinkDurL = 400;
-  const fadeDurL = 150;
+  const shrinkDurL = 400 * durationMultiplier;
+  const fadeDurL = 150 * durationMultiplier;
   const totalDurL = newLen <= 0 ? shakeDurL + shrinkDurL + fadeDurL : shakeDurL + shrinkDurL;
   const startTimeL = performance.now();
 
@@ -24804,6 +25006,7 @@ function checkEliminations() {
 
         setTimeout(() => {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
+          playObstacleEatAnimation(b.row, oldCol, oldLen, dir, b.length <= 0 ? 650 : 500);
           
           animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, true, () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
