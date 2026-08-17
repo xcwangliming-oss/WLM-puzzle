@@ -20225,19 +20225,6 @@ function getPropAnimationTextures(length: number, dir: 'left' | 'right', state: 
   return propAnimationTextureCache[key];
 }
 
-function triggerMachineHeadAttack(clearedRows: readonly number[]): void {
-  if (customPropMachineAttackFrameImages.length > 0) {
-    blocks.forEach(b => {
-      if (b.isProp && clearedRows.includes(b.row) && b.sprite instanceof PIXI.AnimatedSprite) {
-        b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'attack');
-        b.sprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
-        b.sprite.loop = true;
-        b.sprite.gotoAndPlay(0);
-      }
-    });
-  }
-}
-
 function revertMachineHeadIdle(): void {
   if (customPropMachineFrameImages.length > 0) {
     blocks.forEach(b => {
@@ -20562,6 +20549,7 @@ function animatePropShrink(
   oldLen: number,
   newCol: number,
   newLen: number,
+  useAttackFrames = false,
   onComplete?: () => void
 ) {
   if (!sprite || !sprite.parent) {
@@ -20588,11 +20576,23 @@ function animatePropShrink(
   const startTimeL = performance.now();
 
   // Create temporary sprites
-  const machineSprite = new PIXI.Sprite(getPropTexture(1, dir));
+  const animationState = useAttackFrames ? 'attack' : 'idle';
+  const animationImages = useAttackFrames
+    ? customPropMachineAttackFrameImages
+    : customPropMachineFrameImages;
+  const machineSprite = animationImages.length > 0
+    ? new PIXI.AnimatedSprite(getPropAnimationTextures(1, dir, animationState))
+    : new PIXI.Sprite(getPropTexture(1, dir));
   machineSprite.width = machineW;
   machineSprite.height = cellSz;
   machineSprite.y = baseYy;
   machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
+
+  if (machineSprite instanceof PIXI.AnimatedSprite) {
+    machineSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    machineSprite.loop = true;
+    machineSprite.play();
+  }
 
   const candySprite = new PIXI.Sprite(sprite.texture);
   candySprite.width = startWw;
@@ -20617,7 +20617,11 @@ function animatePropShrink(
 
   const container = new PIXI.Container();
   container.addChild(candySprite, machineSprite, mask);
-  sprite.parent.addChild(container);
+  // Keep the temporary animation above the board's block layer. Gravity and
+  // row cleanup may remove/reorder block sprites, but must not interrupt this
+  // independent shrink animation.
+  const animationLayer = sprite.parent.parent || sprite.parent;
+  animationLayer.addChild(container);
 
   sprite.visible = false;
 
@@ -20645,7 +20649,7 @@ function animatePropShrink(
       if (dir === 'left') {
         candyX = rightEdge - curW + shakeX;
         candySprite.x = candyX;
-        mask.drawRect(candyX, baseYy - 20, Math.max(0, curW - machineW), cellSz + 40); 
+        mask.drawRect(candyX, baseYy - 20, Math.max(0, curW - machineW), cellSz + 40);
       } else {
         candyX = leftEdge - (startWw - curW) + shakeX;
         candySprite.x = candyX;
@@ -24729,10 +24733,6 @@ function checkEliminations() {
 
 
   if (fullRows.length > 0) {
-    // Only obstacle heads in the rows being cleared should enter attack state.
-    // Ordinary row clears must leave unrelated obstacles in their idle state.
-    const hasPropInClearedRow = fullRows.some(row => blocks.some(b => b.isProp && b.row === row));
-    if (hasPropInClearedRow) triggerMachineHeadAttack(fullRows);
     // TRACK ELIMINATIONS FOR PLAYABLE
     playableCombos++;
     playableRows += fullRows.length;
@@ -24766,13 +24766,15 @@ function checkEliminations() {
 
         // Calculate hit distance: 0 for direct hit, 1 for adjacent hit
         const hitDistance = fullRows.includes(b.row) ? 0 : 1;
-        // Direct hits wait 100ms. Adjacent hits wait an extra 100ms.
-        const animationDelay = 100 + hitDistance * 100;
+        // A direct hit starts its attack animation on the same frame as the
+        // row shrink. Adjacent-row damage remains slightly delayed so it does
+        // not visually compete with the direct row's animation.
+        const animationDelay = hitDistance * 100;
 
         setTimeout(() => {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
           
-          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, () => {
+          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, fullRows.includes(b.row), () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
               blocksContainer.removeChild(b.sprite);
             }
