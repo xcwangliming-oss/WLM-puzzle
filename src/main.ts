@@ -20616,20 +20616,27 @@ function playObstacleEatAnimation(
   const firstTexture = textures[0];
   const frameW = Math.max(1, firstTexture.width || cellSz);
   const frameH = Math.max(1, firstTexture.height || cellSz);
-  const normalScale = Math.min(cellSz / frameW, cellSz / frameH);
-  const startScale = normalScale * 3;
-  const headCol = getPropMachineHeadColumn({ col: oldCol, length: oldLen, propDir: dir });
-  // Start in the empty cell immediately before the obstacle body, matching
-  // the eating direction. Advance one cell as one body segment is consumed.
+  // Reserve a fixed 2x2-cell area (four cells) for the eater regardless of
+  // the uploaded frame dimensions. The image remains aspect-ratio correct.
+  const eaterW = cellSz * 2;
+  const eaterH = cellSz * 2;
+  const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
+  const startScale = normalScale * 0.2;
+  // Start in the two empty cells immediately before the obstacle body,
+  // matching the eating direction. Advance one cell as one body segment is
+  // consumed.
   const approachSign = dir === 'left' ? 1 : -1;
-  const startCol = dir === 'left' ? oldCol - 1 : oldCol + oldLen;
-  const targetCol = dir === 'left' ? oldCol : oldCol + oldLen - 1;
-  const startX = (startCol + 0.5) * cellSz;
-  const targetX = (targetCol + 0.5) * cellSz;
-  const baseY = row * cellSz + cellSz / 2;
+  const startX = dir === 'left'
+    ? (oldCol - 1) * cellSz
+    : (oldCol + oldLen + 1) * cellSz;
+  const targetX = dir === 'left'
+    ? oldCol * cellSz
+    : (oldCol + oldLen) * cellSz;
+  const baseY = (row + 0.5) * cellSz;
   // Keep the eater moving for the whole shrink window, so it visually tracks
   // the obstacle instead of arriving early and freezing beside the head.
-  const movementDuration = Math.max(300, duration - 80);
+  const growDuration = Math.min(260, Math.max(160, duration * 0.35));
+  const movementDuration = Math.max(300, duration - growDuration);
   const lingerDuration = 260;
   const startTime = performance.now();
   const animationLayer = blocksContainer.parent || blocksContainer;
@@ -20653,13 +20660,16 @@ function playObstacleEatAnimation(
 
   const move = (now: number) => {
     if (!anim.parent) return;
-    const t = Math.min(1, (now - startTime) / movementDuration);
-    const eased = 1 - Math.pow(1 - t, 3);
-    anim.x = startX + (targetX - startX) * eased;
+    const elapsed = now - startTime;
+    const growT = Math.min(1, elapsed / growDuration);
+    const growEased = 1 - Math.pow(1 - growT, 3);
+    const scale = startScale + (normalScale - startScale) * growEased;
+    const moveT = Math.min(1, Math.max(0, (elapsed - growDuration) / movementDuration));
+    const moveEased = 1 - Math.pow(1 - moveT, 3);
+    anim.x = startX + (targetX - startX) * moveEased;
     anim.y = baseY;
-    const scale = startScale + (normalScale - startScale) * eased;
     anim.scale.set(approachSign * scale, scale);
-    if (t < 1) requestAnimationFrame(move);
+    if (moveT < 1) requestAnimationFrame(move);
   };
   requestAnimationFrame(move);
 
