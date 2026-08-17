@@ -20621,10 +20621,11 @@ function animatePropShrink(
   // Draw initial mask state immediately to prevent a 1-frame invisible flash
   mask.clear();
   mask.beginFill(0xffffff);
+  const initialBodyW = Math.max(0, startWw - machineW);
   if (dir === 'left') {
-    mask.drawRect(rightEdge - startWw, baseYy, startWw, cellSz);
+    mask.drawRect(rightEdge - machineW - initialBodyW, baseYy, initialBodyW, cellSz);
   } else {
-    mask.drawRect(leftEdge, baseYy, startWw, cellSz);
+    mask.drawRect(leftEdge + machineW, baseYy, initialBodyW, cellSz);
   }
   mask.endFill();
 
@@ -20657,17 +20658,18 @@ function animatePropShrink(
       machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge; // Machine head stays perfectly still!
       lockMachineHeadSize();
 
-      let candyX = 0;
+      const bodyW = Math.max(0, curW - machineW);
       mask.clear();
       mask.beginFill(0xffffff);
       if (dir === 'left') {
-        candyX = rightEdge - curW + shakeX;
-        candySprite.x = candyX;
-        mask.drawRect(candyX, baseYy - 20, Math.max(0, curW - machineW), cellSz + 40);
+        // Keep the source texture at its original size and move the visible
+        // body window toward the machine head. The head occupies the fixed
+        // rightmost cell and is covered by the mask instead of being scaled.
+        candySprite.x = leftEdge + shakeX;
+        mask.drawRect(rightEdge - machineW - bodyW + shakeX, baseYy - 20, bodyW, cellSz + 40);
       } else {
-        candyX = leftEdge - (startWw - curW) + shakeX;
-        candySprite.x = candyX;
-        mask.drawRect(leftEdge + machineW + shakeX, baseYy - 20, Math.max(0, curW - machineW), cellSz + 40);
+        candySprite.x = leftEdge + shakeX;
+        mask.drawRect(leftEdge + machineW + shakeX, baseYy - 20, bodyW, cellSz + 40);
       }
       mask.endFill();
       

@@ -16,6 +16,16 @@ assert.match(
 );
 assert.match(
   source,
+  /const initialBodyW = Math\.max\(0, startWw - machineW\)[\s\S]*?rightEdge - machineW - initialBodyW[\s\S]*?leftEdge \+ machineW, baseYy, initialBodyW/,
+  'the initial mask must leave the machine head cell outside the candy body',
+);
+assert.match(
+  source,
+  /const bodyW = Math\.max\(0, curW - machineW\)[\s\S]*?candySprite\.x = leftEdge \+ shakeX[\s\S]*?rightEdge - machineW - bodyW \+ shakeX[\s\S]*?leftEdge \+ machineW \+ shakeX/,
+  'the shrink must move the candy body mask toward the fixed machine head',
+);
+assert.match(
+  source,
   /animatePropShrink\(b\.sprite,[\s\S]*?b\.length,\s*true,\s*\(\) =>/,
   'every obstacle damaged by a clear wave must receive the attack animation',
 );
