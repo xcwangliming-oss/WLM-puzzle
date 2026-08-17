@@ -11,7 +11,7 @@ assert.match(
 );
 assert.match(
   source,
-  /machineSprite\.width = machineW;\s*\n\s*machineSprite\.height = cellSz;/,
+  /const lockMachineHeadSize = \(\) => \{[\s\S]*?machineSprite\.scale\.set\(machineW \/ frameW, cellSz \/ frameH\);/,
   'the machine head must keep a fixed size during the body shrink',
 );
 assert.match(
