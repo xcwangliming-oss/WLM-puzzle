@@ -44,5 +44,10 @@ assert.match(
   /if \(propAnimationStates\.get\(b\.sprite\) !== 'attack'\) return;/,
   'ordinary movement must not restart an already-idle obstacle sequence',
 );
+assert.match(
+  source,
+  /if \(sprite instanceof PIXI\.AnimatedSprite && customPropMachineFrameImages\.length > 0\)[\s\S]*?getPropAnimationTextures\(newLen, dir, 'idle'\)[\s\S]*?sprite\.scale\.set\(1\);/,
+  'completed shrink must restore idle animation frames and reset the live sprite transform',
+);
 
 console.log('prop shrink animation regression checks passed');

@@ -20689,7 +20689,22 @@ function animatePropShrink(
     } else {
       container.destroy({ children: true });
       if (newLen > 0) {
-        sprite.texture = getPropTexture(newLen, dir);
+        // Restore the live prop using the same idle texture set as spawnBlock.
+        // Replacing an AnimatedSprite with a single composed texture here lets
+        // its old animation state overwrite the dimensions on the next tick.
+        if (sprite instanceof PIXI.AnimatedSprite && customPropMachineFrameImages.length > 0) {
+          const idleTextures = getPropAnimationTextures(newLen, dir, 'idle');
+          if (idleTextures.length > 0) {
+            sprite.stop();
+            sprite.textures = idleTextures;
+            sprite.animationSpeed = 0.2;
+            propAnimationStates.set(sprite, 'idle');
+            sprite.gotoAndPlay(0);
+          }
+        } else {
+          sprite.texture = getPropTexture(newLen, dir);
+        }
+        sprite.scale.set(1);
         sprite.width = newLen * cellSz;
         sprite.x = dir === 'left' ? rightEdge - sprite.width : leftEdge;
         sprite.y = baseYy;
