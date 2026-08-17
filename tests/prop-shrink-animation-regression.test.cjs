@@ -16,8 +16,8 @@ assert.match(
 );
 assert.match(
   source,
-  /animatePropShrink\(b\.sprite,[\s\S]*?fullRows\.includes\(b\.row\),\s*\(\) =>/,
-  'only obstacles in a cleared row may receive the attack animation',
+  /animatePropShrink\(b\.sprite,[\s\S]*?b\.length,\s*true,\s*\(\) =>/,
+  'every obstacle damaged by a clear wave must receive the attack animation',
 );
 assert.match(
   source,

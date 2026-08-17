@@ -24766,15 +24766,15 @@ function checkEliminations() {
 
         // Calculate hit distance: 0 for direct hit, 1 for adjacent hit
         const hitDistance = fullRows.includes(b.row) ? 0 : 1;
-        // A direct hit starts its attack animation on the same frame as the
-        // row shrink. Adjacent-row damage remains slightly delayed so it does
-        // not visually compete with the direct row's animation.
+        // Every damaged obstacle uses the collection sequence. A direct hit
+        // starts on the same frame as the row shrink; adjacent-row damage is
+        // only offset slightly to preserve the existing wave order.
         const animationDelay = hitDistance * 100;
 
         setTimeout(() => {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
           
-          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, fullRows.includes(b.row), () => {
+          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, true, () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
               blocksContainer.removeChild(b.sprite);
             }
