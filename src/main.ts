@@ -20225,12 +20225,13 @@ function getPropAnimationTextures(length: number, dir: 'left' | 'right', state: 
   return propAnimationTextureCache[key];
 }
 
-function triggerMachineHeadAttack(): void {
+function triggerMachineHeadAttack(clearedRows: readonly number[]): void {
   if (customPropMachineAttackFrameImages.length > 0) {
     blocks.forEach(b => {
-      if (b.isProp && b.sprite instanceof PIXI.AnimatedSprite) {
+      if (b.isProp && clearedRows.includes(b.row) && b.sprite instanceof PIXI.AnimatedSprite) {
         b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'attack');
-        b.sprite.animationSpeed = 0.2;
+        b.sprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+        b.sprite.loop = true;
         b.sprite.gotoAndPlay(0);
       }
     });
@@ -20242,7 +20243,8 @@ function revertMachineHeadIdle(): void {
     blocks.forEach(b => {
       if (b.isProp && b.sprite instanceof PIXI.AnimatedSprite) {
         b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
-        b.sprite.animationSpeed = 0.2;
+        b.sprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+        b.sprite.loop = true;
         b.sprite.gotoAndPlay(0);
       }
     });
@@ -20250,6 +20252,7 @@ function revertMachineHeadIdle(): void {
 }
 
 type PropImageRole = 'machine' | 'machine_attack' | 'candy';
+const CUSTOM_FRAME_ANIMATION_SPEED = 0.5; // 30 FPS at Pixi's 60 Hz ticker
 
 function readPropImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -21246,7 +21249,8 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
     const propTextures = getPropAnimationTextures(length, propDir, 'idle');
     if (customPropMachineFrameImages.length > 0) {
       const animSprite = new PIXI.AnimatedSprite(propTextures);
-      animSprite.animationSpeed = 0.2;
+      animSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+      animSprite.loop = true;
       animSprite.play();
       sprite = animSprite;
     } else {
@@ -21263,7 +21267,8 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    animSprite.animationSpeed = 0.25;
+    animSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    animSprite.loop = true;
 
 
 
@@ -24724,7 +24729,10 @@ function checkEliminations() {
 
 
   if (fullRows.length > 0) {
-    triggerMachineHeadAttack();
+    // Only obstacle heads in the rows being cleared should enter attack state.
+    // Ordinary row clears must leave unrelated obstacles in their idle state.
+    const hasPropInClearedRow = fullRows.some(row => blocks.some(b => b.isProp && b.row === row));
+    if (hasPropInClearedRow) triggerMachineHeadAttack(fullRows);
     // TRACK ELIMINATIONS FOR PLAYABLE
     playableCombos++;
     playableRows += fullRows.length;
