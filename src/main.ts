@@ -20616,16 +20616,15 @@ function playObstacleEatAnimation(
   const firstTexture = textures[0];
   const frameW = Math.max(1, firstTexture.width || cellSz);
   const frameH = Math.max(1, firstTexture.height || cellSz);
-  const frameScale = Math.min(cellSz / frameW, cellSz / frameH) * 3;
+  const normalScale = Math.min(cellSz / frameW, cellSz / frameH);
+  const startScale = normalScale * 3;
   const headCol = getPropMachineHeadColumn({ col: oldCol, length: oldLen, propDir: dir });
-  // Start at the obstacle's far/front end, then bite toward the machine head.
-  const startCol = dir === 'left' ? oldCol : oldCol + oldLen - 1;
-  const leadingSign = dir === 'left' ? 1 : -1;
-  const eaterW = frameW * frameScale;
-  // The uploaded frame is assumed to face right. Mirroring makes the mouth
-  // face the machine head, and the leading edge lands on each target cell.
-  const startX = (startCol + 0.5) * cellSz - leadingSign * eaterW / 2;
-  const targetX = (headCol + 0.5) * cellSz - leadingSign * eaterW / 2;
+  // Enter from exactly one cell in front of the machine head. The uploaded
+  // frame is assumed to face right; mirror it so the mouth faces the head.
+  const approachSign = dir === 'left' ? -1 : 1;
+  const startCol = dir === 'left' ? headCol + 1 : headCol - 1;
+  const startX = (startCol + 0.5) * cellSz;
+  const targetX = (headCol + 0.5) * cellSz;
   const baseY = row * cellSz + cellSz / 2;
   // Keep the eater moving for the whole shrink window, so it visually tracks
   // the obstacle instead of arriving early and freezing beside the head.
@@ -20637,7 +20636,7 @@ function playObstacleEatAnimation(
   anim.anchor.set(0.5);
   // Keep the uploaded character at a fixed aspect ratio. Mirroring follows
   // the machine-head side so the character enters from the correct side.
-  anim.scale.set(leadingSign * frameScale, frameScale);
+  anim.scale.set(approachSign * startScale, startScale);
   anim.x = startX;
   anim.y = baseY;
   anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
@@ -20656,7 +20655,9 @@ function playObstacleEatAnimation(
     const t = Math.min(1, (now - startTime) / movementDuration);
     const eased = 1 - Math.pow(1 - t, 3);
     anim.x = startX + (targetX - startX) * eased;
-    anim.y = baseY - Math.sin(Math.PI * t) * cellSz * 0.28;
+    anim.y = baseY;
+    const scale = startScale + (normalScale - startScale) * eased;
+    anim.scale.set(approachSign * scale, scale);
     if (t < 1) requestAnimationFrame(move);
   };
   requestAnimationFrame(move);
