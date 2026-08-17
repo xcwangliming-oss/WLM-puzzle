@@ -20057,11 +20057,14 @@ async function hydrateStoredPropFrames(): Promise<void> {
       loadPropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES)
     ]);
     let changed = false;
-    if (customPropMachineFrames.length === 0 && idleFrames?.length) {
+    // IndexedDB is the source of truth for uploaded frame sequences. The
+    // localStorage values are legacy single-frame fallbacks and can otherwise
+    // overwrite a complete idle sequence during a page refresh.
+    if (idleFrames?.length && idleFrames.length !== customPropMachineFrames.length) {
       customPropMachineFrames = idleFrames;
       changed = true;
     }
-    if (customPropMachineAttackFrames.length === 0 && attackFrames?.length) {
+    if (attackFrames?.length && attackFrames.length !== customPropMachineAttackFrames.length) {
       customPropMachineAttackFrames = attackFrames;
       changed = true;
     }
