@@ -20008,6 +20008,7 @@ let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
 let machineIdleTextures: PIXI.Texture[] = [];
 let machineAttackTextures: PIXI.Texture[] = [];
 const propAnimationTextureCache: Record<string, PIXI.Texture[]> = {};
+const propAnimationStates = new WeakMap<PIXI.AnimatedSprite, 'idle' | 'attack'>();
 
 const PROP_STORAGE_MACHINE = 'custom_prop_machine_b64';
 const PROP_STORAGE_CANDY   = 'custom_prop_candy_b64';
@@ -20082,6 +20083,7 @@ function invalidatePropCache(): void {
     const anim = b.sprite instanceof PIXI.AnimatedSprite ? b.sprite : null;
     if (anim && customPropMachineFrameImages.length > 0) {
       anim.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
+      propAnimationStates.set(anim, 'idle');
       anim.gotoAndPlay(0);
     } else {
       b.sprite.texture = getPropTexture(b.length, b.propDir || 'left');
@@ -20229,9 +20231,13 @@ function revertMachineHeadIdle(): void {
   if (customPropMachineFrameImages.length > 0) {
     blocks.forEach(b => {
       if (b.isProp && b.sprite instanceof PIXI.AnimatedSprite) {
+        // The normal movement/gravity path calls this function after every
+        // wave. Do not restart an already-idle sequence on every move.
+        if (propAnimationStates.get(b.sprite) !== 'attack') return;
         b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
         b.sprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
         b.sprite.loop = true;
+        propAnimationStates.set(b.sprite, 'idle');
         b.sprite.gotoAndPlay(0);
       }
     });
@@ -21255,6 +21261,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
       const animSprite = new PIXI.AnimatedSprite(propTextures);
       animSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
       animSprite.loop = true;
+      propAnimationStates.set(animSprite, 'idle');
       animSprite.play();
       sprite = animSprite;
     } else {

@@ -29,5 +29,10 @@ assert.match(
   /const animationLayer = sprite\.parent\.parent \|\| sprite\.parent;/,
   'shrink animation must live above the block layer while gravity reorders blocks',
 );
+assert.match(
+  source,
+  /if \(propAnimationStates\.get\(b\.sprite\) !== 'attack'\) return;/,
+  'ordinary movement must not restart an already-idle obstacle sequence',
+);
 
 console.log('prop shrink animation regression checks passed');
