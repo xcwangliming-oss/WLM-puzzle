@@ -558,6 +558,9 @@ const PARAMS = {
 
   effectType: 'default',
 
+  // Multi-row elimination playback order. Keep the legacy simultaneous behavior by default.
+  rowClearOrder: 'simultaneous',
+
 
 
 }
@@ -20000,17 +20003,97 @@ let customPropMachineImg: HTMLImageElement | null = null;
 let customPropCandyImg: HTMLImageElement | null = null;
 let customPropMachineFrames: string[] = [];
 let customPropMachineAttackFrames: string[] = [];
+let customPropMachineFrameImages: HTMLImageElement[] = [];
+let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
 let machineIdleTextures: PIXI.Texture[] = [];
 let machineAttackTextures: PIXI.Texture[] = [];
+const propAnimationTextureCache: Record<string, PIXI.Texture[]> = {};
+const propAnimationStates = new WeakMap<PIXI.AnimatedSprite, 'idle' | 'attack'>();
 
 const PROP_STORAGE_MACHINE = 'custom_prop_machine_b64';
 const PROP_STORAGE_CANDY   = 'custom_prop_candy_b64';
 const PROP_STORAGE_MACHINE_FRAMES = 'custom_prop_machine_frames';
 const PROP_STORAGE_MACHINE_ATTACK_FRAMES = 'custom_prop_machine_attack_frames';
+const PROP_ASSET_DB = 'puzzle-editor-prop-assets';
+const PROP_ASSET_STORE = 'frames';
+
+function openPropAssetDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PROP_ASSET_DB, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(PROP_ASSET_STORE)) {
+        request.result.createObjectStore(PROP_ASSET_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Failed to open prop asset storage'));
+  });
+}
+
+function savePropFrameSet(key: string, frames: string[]): Promise<void> {
+  return openPropAssetDb().then(db => new Promise((resolve, reject) => {
+    const request = db.transaction(PROP_ASSET_STORE, 'readwrite').objectStore(PROP_ASSET_STORE).put(frames, key);
+    request.onsuccess = () => { db.close(); resolve(); };
+    request.onerror = () => { db.close(); reject(request.error || new Error('Failed to save prop frames')); };
+  }));
+}
+
+function clearLegacyPropFrameStorage(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* quota or restricted storage */ }
+}
+
+function loadPropFrameSet(key: string): Promise<string[] | null> {
+  return openPropAssetDb().then(db => new Promise((resolve, reject) => {
+    const request = db.transaction(PROP_ASSET_STORE, 'readonly').objectStore(PROP_ASSET_STORE).get(key);
+    request.onsuccess = () => { db.close(); resolve(Array.isArray(request.result) ? request.result : null); };
+    request.onerror = () => { db.close(); reject(request.error || new Error('Failed to load prop frames')); };
+  }));
+}
+
+async function hydrateStoredPropFrames(): Promise<void> {
+  try {
+    const [idleFrames, attackFrames] = await Promise.all([
+      loadPropFrameSet(PROP_STORAGE_MACHINE_FRAMES),
+      loadPropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES)
+    ]);
+    let changed = false;
+    // IndexedDB is the source of truth for uploaded frame sequences. The
+    // localStorage values are legacy single-frame fallbacks and can otherwise
+    // overwrite a complete idle sequence during a page refresh.
+    if (idleFrames?.length && idleFrames.length !== customPropMachineFrames.length) {
+      customPropMachineFrames = idleFrames;
+      changed = true;
+    }
+    if (attackFrames?.length && attackFrames.length !== customPropMachineAttackFrames.length) {
+      customPropMachineAttackFrames = attackFrames;
+      changed = true;
+    }
+    if (changed) {
+      rebuildMachineTextures();
+      invalidatePropCache();
+      refreshPropStylePanel();
+    }
+  } catch (error) {
+    console.warn('Failed to load prop frames from IndexedDB.', error);
+  }
+}
 
 function invalidatePropCache(): void {
-  Object.keys(propTextureCache).forEach(k => { propTextureCache[k].destroy(true); delete propTextureCache[k]; });
-  blocks.forEach(b => { if (b.isProp) { const tex = getPropTexture(b.length, b.propDir || 'left'); b.sprite.texture = tex; b.sprite.width = b.length * PARAMS.cellSize; b.sprite.height = PARAMS.cellSize; } });
+  Object.keys(propTextureCache).forEach(k => { propTextureCache[k]?.destroy(true); delete propTextureCache[k]; });
+  Object.keys(propAnimationTextureCache).forEach(k => { propAnimationTextureCache[k]?.forEach(t => t?.destroy(true)); delete propAnimationTextureCache[k]; });
+  blocks.forEach(b => {
+    if (!b.isProp) return;
+    const anim = b.sprite instanceof PIXI.AnimatedSprite ? b.sprite : null;
+    if (anim && customPropMachineFrameImages.length > 0) {
+      anim.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
+      propAnimationStates.set(anim, 'idle');
+      anim.gotoAndPlay(0);
+    } else {
+      b.sprite.texture = getPropTexture(b.length, b.propDir || 'left');
+    }
+    b.sprite.width = b.length * PARAMS.cellSize;
+    b.sprite.height = PARAMS.cellSize;
+  });
 }
 
 function loadCustomPropImages(): void {
@@ -20038,6 +20121,7 @@ function loadCustomPropImages(): void {
       rebuildMachineTextures();
       invalidatePropCache();
     }
+    void hydrateStoredPropFrames();
   } catch (error) {
     console.warn('Failed to load custom prop images; falling back to default prop style.', error);
     customPropMachineImg = null;
@@ -20053,16 +20137,16 @@ function applyPendingCustomPropStyle(): void {
   pendingCustomPropStyle = null;
 
   if (Array.isArray(style.machineFrames)) {
-    customPropMachineFrames = style.machineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
-    if (customPropMachineFrames.length > 0) {
-      localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(customPropMachineFrames));
-      localStorage.setItem(PROP_STORAGE_MACHINE, customPropMachineFrames[0]);
-    }
+      customPropMachineFrames = style.machineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+      if (customPropMachineFrames.length > 0) {
+        void savePropFrameSet(PROP_STORAGE_MACHINE_FRAMES, customPropMachineFrames);
+        try { localStorage.setItem(PROP_STORAGE_MACHINE, customPropMachineFrames[0]); } catch { /* IndexedDB is the source of truth */ }
+      }
   }
   if (Array.isArray(style.machineAttackFrames)) {
     customPropMachineAttackFrames = style.machineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
     if (customPropMachineAttackFrames.length > 0) {
-      localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(customPropMachineAttackFrames));
+      void savePropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES, customPropMachineAttackFrames);
     }
   }
   if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
@@ -20109,52 +20193,62 @@ function loadCustomPropMachineImageFromFirstFrame(): void {
 
 function rebuildMachineTextures(): void {
   try {
-    machineIdleTextures.forEach(t => t.destroy(true));
-    machineAttackTextures.forEach(t => t.destroy(true));
+    machineIdleTextures.forEach(t => t?.destroy(true));
+    machineAttackTextures.forEach(t => t?.destroy(true));
     machineIdleTextures = customPropMachineFrames.map(b64 => PIXI.Texture.from(b64));
     machineAttackTextures = customPropMachineAttackFrames.map(b64 => PIXI.Texture.from(b64));
+    customPropMachineFrameImages = [];
+    customPropMachineAttackFrameImages = [];
+    void Promise.all(customPropMachineFrames.map(loadPropImage)).then(images => {
+      customPropMachineFrameImages = images;
+      invalidatePropCache();
+    }).catch(() => { customPropMachineFrameImages = []; });
+    void Promise.all(customPropMachineAttackFrames.map(loadPropImage)).then(images => {
+      customPropMachineAttackFrameImages = images;
+      invalidatePropCache();
+    }).catch(() => { customPropMachineAttackFrameImages = []; });
     loadCustomPropMachineImageFromFirstFrame();
   } catch (error) {
     console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
     customPropMachineImg = null;
     customPropMachineFrames = [];
     customPropMachineAttackFrames = [];
+    customPropMachineFrameImages = [];
+    customPropMachineAttackFrameImages = [];
     machineIdleTextures = [];
     machineAttackTextures = [];
   }
 }
 
-function triggerMachineHeadAttack(): void {
-  if (machineAttackTextures.length > 0 && machineIdleTextures.length > 0) {
-    blocks.forEach(b => {
-      if (b.isProp && b.sprite && (b.sprite as any).children && (b.sprite as any).children.length > 1) {
-        const head = (b.sprite as any).children[1] as PIXI.AnimatedSprite;
-        if (head && (head instanceof PIXI.AnimatedSprite) && head.textures !== machineAttackTextures) {
-          head.textures = machineAttackTextures;
-          head.animationSpeed = 0.2;
-          head.gotoAndPlay(0);
-        }
-      }
-    });
+function getPropAnimationTextures(length: number, dir: 'left' | 'right', state: 'idle' | 'attack'): PIXI.Texture[] {
+  const images = state === 'attack' ? customPropMachineAttackFrameImages : customPropMachineFrameImages;
+  if (images.length === 0) return [getPropTexture(length, dir)];
+  const key = `peppermint_anim_${state}_${length}_${dir}_${PARAMS.cellSize}_${images.length}`;
+  if (!propAnimationTextureCache[key]) {
+    propAnimationTextureCache[key] = images.map((image, index) => getPropTexture(length, dir, image, `${state}-${index}`));
   }
+  return propAnimationTextureCache[key];
 }
 
 function revertMachineHeadIdle(): void {
-  if (machineAttackTextures.length > 0 && machineIdleTextures.length > 0) {
+  if (customPropMachineFrameImages.length > 0) {
     blocks.forEach(b => {
-      if (b.isProp && b.sprite && (b.sprite as any).children && (b.sprite as any).children.length > 1) {
-        const head = (b.sprite as any).children[1] as PIXI.AnimatedSprite;
-        if (head && (head instanceof PIXI.AnimatedSprite) && head.textures === machineAttackTextures) {
-          head.textures = machineIdleTextures;
-          head.animationSpeed = 0.2;
-          head.gotoAndPlay(0);
-        }
+      if (b.isProp && b.sprite instanceof PIXI.AnimatedSprite) {
+        // The normal movement/gravity path calls this function after every
+        // wave. Do not restart an already-idle sequence on every move.
+        if (propAnimationStates.get(b.sprite) !== 'attack') return;
+        b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
+        b.sprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+        b.sprite.loop = true;
+        propAnimationStates.set(b.sprite, 'idle');
+        b.sprite.gotoAndPlay(0);
       }
     });
   }
 }
 
 type PropImageRole = 'machine' | 'machine_attack' | 'candy';
+const CUSTOM_FRAME_ANIMATION_SPEED = 0.5; // 30 FPS at Pixi's 60 Hz ticker
 
 function readPropImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -20175,7 +20269,11 @@ function loadPropImage(dataUrl: string): Promise<HTMLImageElement> {
 }
 
 async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): Promise<void> {
-  const files = [...selectedFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  // The picker already restricts the input to images. Keep files whose MIME
+  // type is empty as well; Windows can leave it empty for some image files.
+  const files = [...selectedFiles]
+    .filter(file => !file.type || file.type.startsWith('image/'))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   if (files.length === 0) return;
 
   if (role === 'candy') {
@@ -20186,11 +20284,15 @@ async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): 
     const b64Array = await Promise.all(files.map(readPropImageFile));
     if (role === 'machine') {
       customPropMachineFrames = b64Array;
-      localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(b64Array));
-      localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]);
+      await savePropFrameSet(PROP_STORAGE_MACHINE_FRAMES, b64Array);
+      clearLegacyPropFrameStorage(PROP_STORAGE_MACHINE_FRAMES);
+      // Keep the legacy preview when it fits, but never let its quota failure
+      // turn a successful IndexedDB frame upload into an upload error.
+      try { localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]); } catch { /* IndexedDB is the source of truth */ }
     } else {
       customPropMachineAttackFrames = b64Array;
-      localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(b64Array));
+      await savePropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES, b64Array);
+      clearLegacyPropFrameStorage(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
     }
     rebuildMachineTextures();
   }
@@ -20200,12 +20302,27 @@ async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): 
 }
 
 function importPropImage(role: PropImageRole): void {
+  // Keep frame upload inputs mounted in the panel. Some Chromium file-picker
+  // integrations do not reliably dispatch change on a temporary input that is
+  // created and removed during the same click flow.
+  if (role === 'machine' || role === 'machine_attack') {
+    const inputId = role === 'machine' ? 'input-prop-machine' : 'input-prop-machine-attack';
+    const persistentInput = document.getElementById(inputId) as HTMLInputElement | null;
+    if (persistentInput) {
+      persistentInput.click();
+      return;
+    }
+  }
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.multiple = role === 'machine' || role === 'machine_attack';
+  const isFrameRole = role === 'machine' || role === 'machine_attack';
+  input.multiple = isFrameRole;
+  if (isFrameRole) input.setAttribute('multiple', 'multiple');
   input.style.display = 'none';
   input.setAttribute('aria-hidden', 'true');
+  // Set the multi-select attributes before attaching and opening the picker.
+  // This avoids browser-specific picker behavior that falls back to one file.
   document.body.appendChild(input);
 
   const cleanup = () => {
@@ -20213,18 +20330,30 @@ function importPropImage(role: PropImageRole): void {
     input.remove();
   };
 
-  input.addEventListener('change', () => {
+  let handled = false;
+  const handleFiles = () => {
+    if (handled) return;
     const files = Array.from(input.files || []);
     if (files.length === 0) {
       cleanup();
       return;
     }
+    handled = true;
+    const countId = role === 'machine' ? 'prop-machine-count' : role === 'machine_attack' ? 'prop-machine-attack-count' : '';
+    const count = countId ? document.getElementById(countId) : null;
+    if (count && isFrameRole) count.textContent = `Reading ${files.length} frames`;
     void applyPropImageFiles(role, files)
-      .catch(error => console.error('Failed to import custom prop image.', error))
+      .catch(error => {
+        console.error('Failed to import custom prop image.', error);
+        if (count && isFrameRole) count.textContent = 'Upload failed';
+      })
       .finally(cleanup);
-  }, { once: true });
+  };
+  // Chromium normally emits change, while some embedded file chooser paths
+  // emit input first. Handle both without processing the selection twice.
+  input.addEventListener('input', handleFiles);
+  input.addEventListener('change', handleFiles);
   input.addEventListener('cancel', cleanup, { once: true });
-
   // A cleared value guarantees that selecting the same file again emits change.
   input.value = '';
   input.click();
@@ -20233,10 +20362,17 @@ function importPropImage(role: PropImageRole): void {
 function clearCustomPropImages(): void {
   customPropMachineImg = null; customPropCandyImg = null;
   customPropMachineFrames = []; customPropMachineAttackFrames = [];
-  machineIdleTextures.forEach(t => t.destroy(true)); machineIdleTextures = [];
-  machineAttackTextures.forEach(t => t.destroy(true)); machineAttackTextures = [];
+  machineIdleTextures.forEach(t => t?.destroy(true)); machineIdleTextures = [];
+  machineAttackTextures.forEach(t => t?.destroy(true)); machineAttackTextures = [];
   localStorage.removeItem(PROP_STORAGE_MACHINE); localStorage.removeItem(PROP_STORAGE_CANDY);
   localStorage.removeItem(PROP_STORAGE_MACHINE_FRAMES); localStorage.removeItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+  void openPropAssetDb().then(db => new Promise<void>(resolve => {
+    const tx = db.transaction(PROP_ASSET_STORE, 'readwrite');
+    tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_FRAMES);
+    tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); resolve(); };
+  })).catch(() => undefined);
   invalidatePropCache(); refreshPropStylePanel();
 }
 
@@ -20253,6 +20389,10 @@ function refreshPropStylePanel(): void {
   if (mt) { mt.src = customPropMachineFrames[0] || ''; mt.style.display = customPropMachineFrames.length > 0 ? 'block' : 'none'; }
   if (cma) { cma.src = customPropMachineAttackFrames[0] || ''; cma.style.display = customPropMachineAttackFrames.length > 0 ? 'block' : 'none'; }
   if (ct) { ct.src = customPropCandyImg?.src   || ''; ct.style.display = customPropCandyImg   ? 'block' : 'none'; }
+  const idleCount = document.getElementById('prop-machine-count');
+  const collectCount = document.getElementById('prop-machine-attack-count');
+  if (idleCount) idleCount.textContent = customPropMachineFrames.length ? `${customPropMachineFrames.length} 帧` : '点击上传';
+  if (collectCount) collectCount.textContent = customPropMachineAttackFrames.length ? `${customPropMachineAttackFrames.length} 帧` : '点击上传';
   
   if (mp) mp.style.display = customPropMachineFrames.length > 0 ? 'none' : 'block';
   if (cmap) cmap.style.display = customPropMachineAttackFrames.length > 0 ? 'none' : 'block';
@@ -20264,6 +20404,72 @@ function refreshPropStylePanel(): void {
 }
 
 function initPropStylePanel(): void {
+  const panel = document.getElementById('material-panel');
+  if (!panel || document.getElementById('prop-style-section')) return;
+  const sec = document.createElement('div');
+  sec.id = 'prop-style-section';
+  sec.style.cssText = 'display:flex;flex-direction:column;border-top:1px solid #444;padding-top:8px;margin-top:4px;';
+  sec.innerHTML = `<h3 style='margin:2px 0 6px;display:flex;align-items:center;gap:6px;font-size:14px;'>🎨 障碍道具样式<span id='prop-custom-badge' style='display:none;font-size:9px;background:#7c3aed;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;'>自定义</span></h3>
+    <div style='display:flex;flex-direction:column;gap:6px;'>
+      <div style='font-size:10px;color:#aaa;'>障碍体</div>
+      <div id='prop-candy-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:6px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+        <img id='prop-candy-thumb' style='display:none;width:100%;height:30px;object-fit:contain;border-radius:4px;'/><div id='prop-candy-placeholder' style='font-size:10px;color:#aaa;'>点击上传单张图片</div>
+      </div>
+      <div style='font-size:10px;color:#aaa;margin-top:2px;'>障碍头 <span style='color:#666;'>待机 / 收集</span></div>
+      <div style='display:grid;grid-template-columns:1fr 1fr;gap:5px;'>
+        <div id='prop-machine-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>待机</div><img id='prop-machine-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-machine-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div id='prop-machine-count' style='font-size:9px;color:#777;'>点击上传</div>
+        </div>
+        <div id='prop-machine-attack-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>收集</div><img id='prop-machine-attack-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-machine-attack-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div id='prop-machine-attack-count' style='font-size:9px;color:#777;'>点击上传</div>
+        </div>
+      </div>
+      <input id='input-prop-machine' type='file' accept='image/*' multiple hidden/>
+      <input id='input-prop-machine-attack' type='file' accept='image/*' multiple hidden/>
+      <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
+      <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会平铺重复；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
+    </div>`;
+  panel.appendChild(sec);
+  const bindFrameInput = (role: 'machine' | 'machine_attack', inputId: string, countId: string) => {
+    const input = document.getElementById(inputId) as HTMLInputElement | null;
+    if (!input) return;
+    let handled = false;
+    const handleFrameFiles = async () => {
+      if (handled) return;
+      const files = Array.from(input.files || []);
+      if (files.length === 0) return;
+      handled = true;
+      const count = document.getElementById(countId);
+      if (count) count.textContent = `Reading ${files.length} frames`;
+      try {
+        await applyPropImageFiles(role, files);
+      } catch (error) {
+        console.error('Failed to import custom prop frames.', error);
+        if (count) count.textContent = 'Upload failed';
+      } finally {
+        input.value = '';
+        handled = false;
+      }
+    };
+    // Chromium normally emits change; embedded file pickers may emit input.
+    // Bind both events to match the collection-avatar uploader contract.
+    input.onchange = handleFrameFiles;
+    input.oninput = handleFrameFiles;
+  };
+  bindFrameInput('machine', 'input-prop-machine', 'prop-machine-count');
+  bindFrameInput('machine_attack', 'input-prop-machine-attack', 'prop-machine-attack-count');
+  ([['prop-candy-slot', 'candy'], ['prop-machine-slot', 'machine'], ['prop-machine-attack-slot', 'machine_attack']] as const).forEach(([id, role]) => {
+    const el = document.getElementById(id) as HTMLElement | null;
+    if (!el) return;
+    el.onclick = event => { event.preventDefault(); event.stopPropagation(); importPropImage(role); };
+    el.addEventListener('pointerdown', event => event.stopPropagation());
+    el.addEventListener('mouseenter', () => el.style.borderColor = '#7c3aed');
+    el.addEventListener('mouseleave', () => el.style.borderColor = '#555');
+  });
+  refreshPropStylePanel();
+}
+
+function initPropStylePanelLegacy(): void {
   const panel = document.getElementById('material-panel');
   if (!panel || document.getElementById('prop-style-section')) return;
   const sec = document.createElement('div');
@@ -20352,6 +20558,7 @@ function animatePropShrink(
   oldLen: number,
   newCol: number,
   newLen: number,
+  useAttackFrames = false,
   onComplete?: () => void
 ) {
   if (!sprite || !sprite.parent) {
@@ -20378,17 +20585,44 @@ function animatePropShrink(
   const startTimeL = performance.now();
 
   // Create temporary sprites
-  const machineSprite = new PIXI.Sprite(getPropTexture(1, dir));
-  machineSprite.width = machineW;
-  machineSprite.height = cellSz;
-  machineSprite.y = baseYy;
-  machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
+  const animationState = useAttackFrames ? 'attack' : 'idle';
+  const animationImages = useAttackFrames
+    ? customPropMachineAttackFrameImages
+    : customPropMachineFrameImages;
+  // Keep the machine head independent from the full obstacle texture. Using
+  // the composed one-cell prop texture here compresses the uploaded head when
+  // the whole obstacle body is shortened.
+  const machineFrameTextures = animationImages.map(image => PIXI.Texture.from(image));
+  const machineSprite = machineFrameTextures.length > 0
+    ? new PIXI.AnimatedSprite(machineFrameTextures)
+    : new PIXI.Sprite(getPropTexture(1, dir));
+  const frameW = Math.max(1, machineSprite.texture.width);
+  const frameH = Math.max(1, machineSprite.texture.height);
+  const frameScale = Math.min(machineW / frameW, cellSz / frameH);
+  const initialCandyX = dir === 'left' ? rightEdge - startWw : leftEdge;
+  const bodyWindowX = dir === 'left' ? leftEdge : leftEdge + machineW;
+  const bodyWindowW = Math.max(0, startWw - machineW);
+  const lockMachineHeadSize = () => {
+    machineSprite.scale.set(frameScale);
+    const headCellX = dir === 'left' ? rightEdge - machineW : leftEdge;
+    machineSprite.x = headCellX + (machineW - frameW * frameScale) / 2;
+    machineSprite.y = baseYy + (cellSz - frameH * frameScale) / 2;
+  };
+  lockMachineHeadSize();
 
+  if (machineSprite instanceof PIXI.AnimatedSprite) {
+    machineSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    machineSprite.loop = true;
+    machineSprite.play();
+  }
+
+  // The live sprite still holds the complete pre-damage texture here. Reuse
+  // it so the normal shrink and completion path remain unchanged.
   const candySprite = new PIXI.Sprite(sprite.texture);
   candySprite.width = startWw;
   candySprite.height = cellSz;
   candySprite.y = baseYy;
-  candySprite.x = dir === 'left' ? rightEdge - startWw : leftEdge;
+  candySprite.x = initialCandyX;
 
   let shattered = false;
 
@@ -20398,16 +20632,19 @@ function animatePropShrink(
   // Draw initial mask state immediately to prevent a 1-frame invisible flash
   mask.clear();
   mask.beginFill(0xffffff);
-  if (dir === 'left') {
-    mask.drawRect(rightEdge - startWw, baseYy, startWw, cellSz);
-  } else {
-    mask.drawRect(leftEdge, baseYy, startWw, cellSz);
-  }
+  // Keep the clipping window fixed at the machine-head side. The obstacle
+  // body moves into this window; changing the window itself makes the body
+  // appear to be squeezed during multi-row elimination.
+  mask.drawRect(bodyWindowX, baseYy, bodyWindowW, cellSz);
   mask.endFill();
 
   const container = new PIXI.Container();
   container.addChild(candySprite, machineSprite, mask);
-  sprite.parent.addChild(container);
+  // Keep the temporary animation above the board's block layer. Gravity and
+  // row cleanup may remove/reorder block sprites, but must not interrupt this
+  // independent shrink animation.
+  const animationLayer = sprite.parent.parent || sprite.parent;
+  animationLayer.addChild(container);
 
   sprite.visible = false;
 
@@ -20419,35 +20656,27 @@ function animatePropShrink(
       const ease = t; // Linear speed (uniform)
       
       const targetWw = Math.max(newLen * cellSz, machineW);
-      const curW = startWw + (targetWw - startWw) * ease;
+      const removedW = Math.max(0, startWw - targetWw);
       
       const shakeIntensity = 1 - ease;
       const shakeX = Math.sin(el * 0.05) * 2 * shakeIntensity;
       const shakeY = Math.cos(el * 0.05) * 1 * shakeIntensity;
 
-      machineSprite.y = baseYy; // Machine head stays perfectly still!
       candySprite.y = baseYy + shakeY;
-      machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge; // Machine head stays perfectly still!
+      candySprite.x = dir === 'left'
+        ? initialCandyX + removedW * ease + shakeX
+        : initialCandyX - removedW * ease + shakeX;
+      lockMachineHeadSize();
 
-      let candyX = 0;
       mask.clear();
       mask.beginFill(0xffffff);
-      if (dir === 'left') {
-        candyX = rightEdge - curW + shakeX;
-        candySprite.x = candyX;
-        mask.drawRect(candyX, baseYy - 20, Math.max(0, curW - machineW), cellSz + 40); 
-      } else {
-        candyX = leftEdge - (startWw - curW) + shakeX;
-        candySprite.x = candyX;
-        mask.drawRect(leftEdge + machineW + shakeX, baseYy - 20, Math.max(0, curW - machineW), cellSz + 40);
-      }
+      mask.drawRect(bodyWindowX + shakeX, baseYy + shakeY - 20, bodyWindowW, cellSz + 40);
       mask.endFill();
       
       requestAnimationFrame(stepLast);
     } else if (el < totalDurL && newLen <= 0) {
       candySprite.visible = false;
-      machineSprite.y = baseYy;
-      machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
+      lockMachineHeadSize();
       machineSprite.alpha = 1 - (el - shakeDurL - shrinkDurL) / fadeDurL;
       
       if (!shattered) {
@@ -20460,7 +20689,22 @@ function animatePropShrink(
     } else {
       container.destroy({ children: true });
       if (newLen > 0) {
-        sprite.texture = getPropTexture(newLen, dir);
+        // Restore the live prop using the same idle texture set as spawnBlock.
+        // Replacing an AnimatedSprite with a single composed texture here lets
+        // its old animation state overwrite the dimensions on the next tick.
+        if (sprite instanceof PIXI.AnimatedSprite && customPropMachineFrameImages.length > 0) {
+          const idleTextures = getPropAnimationTextures(newLen, dir, 'idle');
+          if (idleTextures.length > 0) {
+            sprite.stop();
+            sprite.textures = idleTextures;
+            sprite.animationSpeed = 0.2;
+            propAnimationStates.set(sprite, 'idle');
+            sprite.gotoAndPlay(0);
+          }
+        } else {
+          sprite.texture = getPropTexture(newLen, dir);
+        }
+        sprite.scale.set(1);
         sprite.width = newLen * cellSz;
         sprite.x = dir === 'left' ? rightEdge - sprite.width : leftEdge;
         sprite.y = baseYy;
@@ -20474,7 +20718,7 @@ function animatePropShrink(
 
 
 
-function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Texture {
+function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineImgOverride: HTMLImageElement | null = null, cacheTag = ''): PIXI.Texture {
 
 
 
@@ -20482,8 +20726,9 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
 
 
 
-  const customParts = `${customPropCandyImg ? 'candy' : ''}_${customPropMachineImg ? 'machine' : ''}`;
-  const key = `peppermint_${length}_${dir}_${cellSize}_${customParts || 'default'}`;
+  const machineImg = machineImgOverride || customPropMachineImg;
+  const customParts = `${customPropCandyImg ? 'candy' : ''}_${machineImg ? 'machine' : ''}`;
+  const key = `peppermint_${length}_${dir}_${cellSize}_${customParts || 'default'}_${cacheTag}`;
   if (propTextureCache[key]) return propTextureCache[key];
 
   const w = length * cellSize;
@@ -20983,21 +21228,21 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
     }
   }
 
-  if (customPropMachineImg && customPropMachineImg.naturalWidth > 0 && customPropMachineImg.naturalHeight > 0) {
+  if (machineImg && machineImg.naturalWidth > 0 && machineImg.naturalHeight > 0) {
     ctx.save();
     ctx.beginPath();
     ctx.arc(machineCenterX, machineCenterY, machineRadius + 2, 0, Math.PI * 2);
     ctx.clip();
     ctx.clearRect(machineCenterX - machineRadius - 3, machineCenterY - machineRadius - 3, (machineRadius + 3) * 2, (machineRadius + 3) * 2);
-    const scale = Math.min((machineRadius * 2) / customPropMachineImg.naturalWidth, (machineRadius * 2) / customPropMachineImg.naturalHeight);
-    const imgW = customPropMachineImg.naturalWidth * scale;
-    const imgH = customPropMachineImg.naturalHeight * scale;
+    const scale = Math.min((machineRadius * 2) / machineImg.naturalWidth, (machineRadius * 2) / machineImg.naturalHeight);
+    const imgW = machineImg.naturalWidth * scale;
+    const imgH = machineImg.naturalHeight * scale;
     if (dir === 'right') {
       ctx.translate(machineCenterX, machineCenterY);
       ctx.scale(-1, 1);
-      ctx.drawImage(customPropMachineImg, -imgW / 2, -imgH / 2, imgW, imgH);
+      ctx.drawImage(machineImg, -imgW / 2, -imgH / 2, imgW, imgH);
     } else {
-      ctx.drawImage(customPropMachineImg, machineCenterX - imgW / 2, machineCenterY - imgH / 2, imgW, imgH);
+      ctx.drawImage(machineImg, machineCenterX - imgW / 2, machineCenterY - imgH / 2, imgW, imgH);
     }
     ctx.restore();
   }
@@ -21035,18 +21280,17 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
   if (isProp) {
-
-
-
-    // Prop blocks use a dynamically generated texture
-
-
-
-    const texture = getPropTexture(length, propDir);
-
-
-
-    sprite = new PIXI.Sprite(texture);
+    const propTextures = getPropAnimationTextures(length, propDir, 'idle');
+    if (customPropMachineFrameImages.length > 0) {
+      const animSprite = new PIXI.AnimatedSprite(propTextures);
+      animSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+      animSprite.loop = true;
+      propAnimationStates.set(animSprite, 'idle');
+      animSprite.play();
+      sprite = animSprite;
+    } else {
+      sprite = new PIXI.Sprite(propTextures[0]);
+    }
 
 
 
@@ -21058,7 +21302,8 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    animSprite.animationSpeed = 0.25;
+    animSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    animSprite.loop = true;
 
 
 
@@ -24552,13 +24797,15 @@ function checkEliminations() {
 
         // Calculate hit distance: 0 for direct hit, 1 for adjacent hit
         const hitDistance = fullRows.includes(b.row) ? 0 : 1;
-        // Direct hits wait 100ms. Adjacent hits wait an extra 100ms.
-        const animationDelay = 100 + hitDistance * 100;
+        // Every damaged obstacle uses the collection sequence. A direct hit
+        // starts on the same frame as the row shrink; adjacent-row damage is
+        // only offset slightly to preserve the existing wave order.
+        const animationDelay = hitDistance * 100;
 
         setTimeout(() => {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
           
-          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, () => {
+          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, true, () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
               blocksContainer.removeChild(b.sprite);
             }
@@ -24966,9 +25213,16 @@ function checkEliminations() {
 
     lastShatterCellColors = [];
 
+    // In sequential mode, the bottom-most cleared row owns the first timeline slot.
+    const rowsForPlayback = PARAMS.rowClearOrder === 'bottom-up'
+      ? [...fullRows].sort((a, b) => b - a)
+      : fullRows;
+    const rowPlaybackGap = PARAMS.rowClearOrder === 'bottom-up' && rowsForPlayback.length > 1
+      ? 0.8
+      : 0;
 
-
-    fullRows.forEach(r => {
+    rowsForPlayback.forEach((r, rowPlaybackIndex) => {
+      const rowPlaybackOffset = rowPlaybackIndex * rowPlaybackGap;
 
 
 
@@ -25027,7 +25281,7 @@ function checkEliminations() {
 
 
 
-      }, [], 0);
+      }, [], rowPlaybackOffset);
 
 
 
@@ -25131,7 +25385,7 @@ function checkEliminations() {
 
 
 
-          }, [], delay);
+          }, [], rowPlaybackOffset + delay);
 
 
 
@@ -25139,8 +25393,8 @@ function checkEliminations() {
 
 
 
-        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, delay);
-        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, delay);
+        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, rowPlaybackOffset + delay);
+        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, rowPlaybackOffset + delay);
 
         if (PARAMS.effectType === 'gem-shatter') {
           tl.call(() => {
@@ -25182,7 +25436,7 @@ function checkEliminations() {
                 anim.play();
               }
             }
-          }, [], delay);
+          }, [], rowPlaybackOffset + delay);
         }
 
 
@@ -29436,6 +29690,14 @@ function setupDOMUI() {
 
 
   setupShatterModeButtons();
+
+  const sequentialRowClearCheckbox = document.getElementById('input-sequential-row-clear') as HTMLInputElement | null;
+  if (sequentialRowClearCheckbox) {
+    sequentialRowClearCheckbox.checked = PARAMS.rowClearOrder === 'bottom-up';
+    sequentialRowClearCheckbox.addEventListener('change', () => {
+      PARAMS.rowClearOrder = sequentialRowClearCheckbox.checked ? 'bottom-up' : 'simultaneous';
+    });
+  }
 
 
 
@@ -39421,7 +39683,10 @@ function startRecording(): Promise<boolean> {
             ? mapBoardWrapperRectToRecordingRect(
                 avatarRect,
                 boardRect,
-                getMasterBoardContentRect(width, height)
+                // The avatar lives in the phone wrapper header, not inside the
+                // playable board. Map it against the full recording canvas so
+                // the exported video keeps the same header position as the editor.
+                { x: 0, y: 0, w: width, h: height }
               )
             : {
                 x: (avatarRect.left - boardRect.left) * dpr,

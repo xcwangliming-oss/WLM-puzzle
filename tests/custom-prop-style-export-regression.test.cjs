@@ -41,4 +41,10 @@ assert.match(
   'export must fall back to the original uploaded machine attack frame data',
 );
 
+assert.match(
+  mainSource,
+  /IndexedDB is the source of truth for uploaded frame sequences[\s\S]*?idleFrames\.length !== customPropMachineFrames\.length[\s\S]*?attackFrames\.length !== customPropMachineAttackFrames\.length/,
+  'refresh must prefer the complete IndexedDB frame sequences over legacy localStorage fallbacks',
+);
+
 console.log('custom prop style export regression checks passed');
