@@ -194,6 +194,7 @@ type CustomPropStylePayload = {
     machineFrames?: string[];
     machineAttackFrames?: string[];
     eatFrames?: string[];
+    obstacleEaterEnabled?: boolean;
 };
 
 let pendingCustomPropStyle: CustomPropStylePayload | null = null;
@@ -234,7 +235,8 @@ function getExportableCustomPropStyle(): CustomPropStylePayload | undefined {
     if (Array.isArray(customPropEatFrames) && customPropEatFrames.length > 0) {
         style.eatFrames = customPropEatFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
     }
-    return style.candy || style.machineFrames?.length || style.machineAttackFrames?.length || style.eatFrames?.length ? style : undefined;
+    if (obstacleEaterEnabled) style.obstacleEaterEnabled = true;
+    return style.candy || style.machineFrames?.length || style.machineAttackFrames?.length || style.eatFrames?.length || style.obstacleEaterEnabled ? style : undefined;
 }
 
 function queueCustomPropStyle(style: unknown): void {
@@ -253,7 +255,10 @@ function queueCustomPropStyle(style: unknown): void {
     if (Array.isArray(source.eatFrames)) {
         normalized.eatFrames = source.eatFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
     }
-    if (!normalized.candy && !normalized.machineFrames?.length && !normalized.machineAttackFrames?.length && !normalized.eatFrames?.length) return;
+    if (typeof source.obstacleEaterEnabled === 'boolean') {
+        normalized.obstacleEaterEnabled = source.obstacleEaterEnabled;
+    }
+    if (!normalized.candy && !normalized.machineFrames?.length && !normalized.machineAttackFrames?.length && !normalized.eatFrames?.length && normalized.obstacleEaterEnabled === undefined) return;
     pendingCustomPropStyle = normalized;
     if (customPropStyleSystemReady) applyPendingCustomPropStyle();
 }
@@ -20011,6 +20016,7 @@ let customPropCandyImg: HTMLImageElement | null = null;
 let customPropMachineFrames: string[] = [];
 let customPropMachineAttackFrames: string[] = [];
 let customPropEatFrames: string[] = [];
+let obstacleEaterEnabled = false;
 let customPropMachineFrameImages: HTMLImageElement[] = [];
 let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
 let customPropEatFrameImages: HTMLImageElement[] = [];
@@ -20024,6 +20030,7 @@ const PROP_STORAGE_CANDY   = 'custom_prop_candy_b64';
 const PROP_STORAGE_MACHINE_FRAMES = 'custom_prop_machine_frames';
 const PROP_STORAGE_MACHINE_ATTACK_FRAMES = 'custom_prop_machine_attack_frames';
 const PROP_STORAGE_EAT_FRAMES = 'custom_prop_eat_frames';
+const PROP_STORAGE_OBSTACLE_EATER_ENABLED = 'custom_prop_obstacle_eater_enabled';
 const PROP_ASSET_DB = 'puzzle-editor-prop-assets';
 const PROP_ASSET_STORE = 'frames';
 
@@ -20113,6 +20120,7 @@ function invalidatePropCache(): void {
 
 function loadCustomPropImages(): void {
   try {
+    obstacleEaterEnabled = localStorage.getItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED) === 'true';
     const cb = localStorage.getItem(PROP_STORAGE_CANDY);
     if (cb) {
       const i = new Image();
@@ -20147,6 +20155,7 @@ function loadCustomPropImages(): void {
     customPropMachineFrames = [];
     customPropMachineAttackFrames = [];
     customPropEatFrames = [];
+    obstacleEaterEnabled = false;
   }
 }
 
@@ -20173,6 +20182,10 @@ function applyPendingCustomPropStyle(): void {
     if (customPropEatFrames.length > 0) {
       void savePropFrameSet(PROP_STORAGE_EAT_FRAMES, customPropEatFrames);
     }
+  }
+  if (typeof style.obstacleEaterEnabled === 'boolean') {
+    obstacleEaterEnabled = style.obstacleEaterEnabled;
+    try { localStorage.setItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED, String(obstacleEaterEnabled)); } catch { /* storage is optional */ }
   }
   if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0) {
     rebuildMachineTextures();
@@ -20401,6 +20414,8 @@ function clearCustomPropImages(): void {
   machineAttackTextures.forEach(t => t?.destroy(true)); machineAttackTextures = [];
   localStorage.removeItem(PROP_STORAGE_MACHINE); localStorage.removeItem(PROP_STORAGE_CANDY);
   localStorage.removeItem(PROP_STORAGE_MACHINE_FRAMES); localStorage.removeItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES); localStorage.removeItem(PROP_STORAGE_EAT_FRAMES);
+  localStorage.removeItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED);
+  obstacleEaterEnabled = false;
   void openPropAssetDb().then(db => new Promise<void>(resolve => {
     const tx = db.transaction(PROP_ASSET_STORE, 'readwrite');
     tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_FRAMES);
@@ -20443,6 +20458,7 @@ function refreshPropStylePanel(): void {
   const hasCustom = !!(customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0 || customPropCandyImg);
   if (btn) btn.style.display = hasCustom ? 'inline-block' : 'none';
   if (bdg) bdg.style.display = hasCustom ? 'inline-block' : 'none';
+  refreshObstacleEaterToggle();
 }
 
 function ensureStyleAssetsPanel(): HTMLElement | null {
@@ -20496,6 +20512,7 @@ function initPropStylePanel(): void {
       <input id='input-prop-machine' type='file' accept='image/*' multiple hidden/>
       <input id='input-prop-machine-attack' type='file' accept='image/*' multiple hidden/>
       <input id='input-prop-eat' type='file' accept='image/*' multiple hidden/>
+      <label style='display:flex;align-items:center;gap:5px;padding:5px 6px;background:#1e1e2e;border:1px solid #555;border-radius:5px;cursor:pointer;font-size:10px;color:#ddd;'><input id='toggle-obstacle-eater' type='checkbox' style='margin:0;accent-color:#7c3aed;'/><span>启用吃障碍角色（消除时间×2）</span></label>
       <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
       <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会平铺重复；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
     </div>`;
@@ -20537,7 +20554,23 @@ function initPropStylePanel(): void {
     el.addEventListener('mouseenter', () => el.style.borderColor = '#7c3aed');
     el.addEventListener('mouseleave', () => el.style.borderColor = '#555');
   });
+  bindObstacleEaterToggle();
   refreshPropStylePanel();
+}
+
+function refreshObstacleEaterToggle(): void {
+  const toggle = document.getElementById('toggle-obstacle-eater') as HTMLInputElement | null;
+  if (toggle) toggle.checked = obstacleEaterEnabled;
+}
+
+function bindObstacleEaterToggle(): void {
+  const toggle = document.getElementById('toggle-obstacle-eater') as HTMLInputElement | null;
+  if (!toggle) return;
+  toggle.onchange = () => {
+    obstacleEaterEnabled = toggle.checked;
+    try { localStorage.setItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED, String(obstacleEaterEnabled)); } catch { /* storage is optional */ }
+  };
+  refreshObstacleEaterToggle();
 }
 
 function initPropStylePanelLegacy(): void {
@@ -20629,7 +20662,8 @@ function playObstacleEatAnimation(
   dir: 'left' | 'right',
   duration = 760,
 ): void {
-  if (customPropEatFrameImages.length === 0) return;
+  if (!obstacleEaterEnabled || customPropEatFrameImages.length === 0) return;
+  duration *= obstacleEaterEnabled ? 2 : 1;
 
   const cellSz = PARAMS.cellSize || 50;
   const textures = customPropEatFrameImages.map(image => PIXI.Texture.from(image));
@@ -20730,9 +20764,10 @@ function animatePropShrink(
   const rightEdge = oldCol * cellSz + oldLen * cellSz;
   const leftEdge = oldCol * cellSz;
 
+  const durationMultiplier = obstacleEaterEnabled ? 2 : 1;
   const shakeDurL = 100;
-  const shrinkDurL = 400;
-  const fadeDurL = 150;
+  const shrinkDurL = 400 * durationMultiplier;
+  const fadeDurL = 150 * durationMultiplier;
   const totalDurL = newLen <= 0 ? shakeDurL + shrinkDurL + fadeDurL : shakeDurL + shrinkDurL;
   const startTimeL = performance.now();
 
