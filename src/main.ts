@@ -20445,8 +20445,31 @@ function refreshPropStylePanel(): void {
   if (bdg) bdg.style.display = hasCustom ? 'inline-block' : 'none';
 }
 
+function ensureStyleAssetsPanel(): HTMLElement | null {
+  const materialPanel = document.getElementById('material-panel');
+  const avatarManager = document.getElementById('collection-avatar-manager');
+  if (!materialPanel || !avatarManager) return null;
+
+  let panel = document.getElementById('style-assets-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'style-assets-panel';
+    panel.className = 'style-assets-panel';
+    panel.innerHTML = '<h3 class="style-assets-panel-title">🎨 角色与道具样式</h3>';
+    const collectionSection = avatarManager.parentElement;
+    if (collectionSection?.parentElement === materialPanel) {
+      materialPanel.insertBefore(panel, collectionSection.nextSibling);
+    } else {
+      materialPanel.appendChild(panel);
+    }
+  }
+
+  if (avatarManager.parentElement !== panel) panel.appendChild(avatarManager);
+  return panel;
+}
+
 function initPropStylePanel(): void {
-  const panel = document.getElementById('material-panel');
+  const panel = ensureStyleAssetsPanel();
   if (!panel || document.getElementById('prop-style-section')) return;
   const sec = document.createElement('div');
   sec.id = 'prop-style-section';
@@ -20518,7 +20541,7 @@ function initPropStylePanel(): void {
 }
 
 function initPropStylePanelLegacy(): void {
-  const panel = document.getElementById('material-panel');
+  const panel = ensureStyleAssetsPanel();
   if (!panel || document.getElementById('prop-style-section')) return;
   const sec = document.createElement('div');
   sec.id = 'prop-style-section';

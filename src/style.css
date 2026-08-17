@@ -167,6 +167,27 @@ html, body {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+.style-assets-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid #444;
+  padding-top: 10px;
+}
+
+.style-assets-panel-title {
+  margin: 0 0 2px;
+  color: #f4f4ff;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.style-assets-panel .collection-avatar-manager {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .collection-avatar-manager-title {
   margin-bottom: 6px;
   color: #d7d7e5;
