@@ -20463,8 +20463,9 @@ function refreshPropStylePanel(): void {
 
 function ensureStyleAssetsPanel(): HTMLElement | null {
   const materialPanel = document.getElementById('material-panel');
+  const tabLevel = document.getElementById('tab-level');
   const avatarManager = document.getElementById('collection-avatar-manager');
-  if (!materialPanel || !avatarManager) return null;
+  if (!materialPanel || !tabLevel || !avatarManager) return null;
 
   let panel = document.getElementById('style-assets-panel');
   if (!panel) {
@@ -20472,12 +20473,9 @@ function ensureStyleAssetsPanel(): HTMLElement | null {
     panel.id = 'style-assets-panel';
     panel.className = 'style-assets-panel';
     panel.innerHTML = '<h3 class="style-assets-panel-title">🎨 角色与道具样式</h3>';
-    const collectionSection = avatarManager.parentElement;
-    if (collectionSection?.parentElement === materialPanel) {
-      materialPanel.insertBefore(panel, collectionSection.nextSibling);
-    } else {
-      materialPanel.appendChild(panel);
-    }
+    tabLevel.insertBefore(panel, materialPanel.nextSibling);
+  } else if (panel.parentElement !== tabLevel) {
+    tabLevel.insertBefore(panel, materialPanel.nextSibling);
   }
 
   if (avatarManager.parentElement !== panel) panel.appendChild(avatarManager);
