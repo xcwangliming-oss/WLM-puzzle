@@ -20018,6 +20018,8 @@ let obstacleEaterEnabled = false;
 let customPropMachineFrameImages: HTMLImageElement[] = [];
 let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
 let customPropEatFrameImages: HTMLImageElement[] = [];
+let customPropEatFramesReady: Promise<void> = Promise.resolve();
+let customPropEatLoadGeneration = 0;
 let machineIdleTextures: PIXI.Texture[] = [];
 let machineAttackTextures: PIXI.Texture[] = [];
 const propAnimationTextureCache: Record<string, PIXI.Texture[]> = {};
@@ -20244,9 +20246,16 @@ function rebuildMachineTextures(): void {
       invalidatePropCache();
     }).catch(() => { customPropMachineAttackFrameImages = []; });
     customPropEatFrameImages = [];
-    void Promise.all(customPropEatFrames.map(loadPropImage)).then(images => {
-      customPropEatFrameImages = images;
-    }).catch(() => { customPropEatFrameImages = []; });
+    const eatLoadGeneration = ++customPropEatLoadGeneration;
+    customPropEatFramesReady = Promise.all(customPropEatFrames.map(frame =>
+      loadPropImage(frame).catch(error => {
+        console.warn('Failed to load one obstacle eater frame; skipping that frame.', error);
+        return null;
+      })
+    )).then(images => {
+      if (eatLoadGeneration !== customPropEatLoadGeneration) return;
+      customPropEatFrameImages = images.filter((image): image is HTMLImageElement => image !== null);
+    });
     loadCustomPropMachineImageFromFirstFrame();
   } catch (error) {
     console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
@@ -20257,6 +20266,8 @@ function rebuildMachineTextures(): void {
     customPropMachineFrameImages = [];
     customPropMachineAttackFrameImages = [];
     customPropEatFrameImages = [];
+    customPropEatFramesReady = Promise.resolve();
+    customPropEatLoadGeneration++;
     machineIdleTextures = [];
     machineAttackTextures = [];
   }
@@ -20409,6 +20420,8 @@ function clearCustomPropImages(): void {
   customPropMachineImg = null; customPropCandyImg = null;
   customPropMachineFrames = []; customPropMachineAttackFrames = []; customPropEatFrames = [];
   customPropEatFrameImages = [];
+  customPropEatFramesReady = Promise.resolve();
+  customPropEatLoadGeneration++;
   machineIdleTextures.forEach(t => t?.destroy(true)); machineIdleTextures = [];
   machineAttackTextures.forEach(t => t?.destroy(true)); machineAttackTextures = [];
   localStorage.removeItem(PROP_STORAGE_MACHINE); localStorage.removeItem(PROP_STORAGE_CANDY);
@@ -20659,94 +20672,106 @@ function playObstacleEatAnimation(
   dir: 'left' | 'right',
   duration = 760,
 ): void {
-  if (!obstacleEaterEnabled || customPropEatFrameImages.length === 0) return;
-  duration *= obstacleEaterEnabled ? 2 : 1;
+  if (!obstacleEaterEnabled || (customPropEatFrameImages.length === 0 && customPropEatFrames.length === 0)) return;
 
-  const cellSz = PARAMS.cellSize || 50;
-  const textures = customPropEatFrameImages.map(image => PIXI.Texture.from(image));
-  if (textures.length === 0) return;
+  const startAnimation = () => {
+    if (!obstacleEaterEnabled) return;
+    const sourceImages = customPropEatFrameImages;
+    if (sourceImages.length === 0) return;
+    duration *= obstacleEaterEnabled ? 2 : 1;
 
-  const anim = new PIXI.AnimatedSprite(textures);
-  const firstTexture = textures[0];
-  const frameW = Math.max(1, firstTexture.width || cellSz);
-  const frameH = Math.max(1, firstTexture.height || cellSz);
+    const cellSz = PARAMS.cellSize || 50;
+    const textures = sourceImages.map(image => PIXI.Texture.from(image));
+    if (textures.length === 0) return;
+
+    const anim = new PIXI.AnimatedSprite(textures);
+    const firstTexture = textures[0];
+    const frameW = Math.max(1, firstTexture.width || cellSz);
+    const frameH = Math.max(1, firstTexture.height || cellSz);
   // Reserve a fixed 2x2-cell area (four cells) for the eater regardless of
   // the uploaded frame dimensions. The image remains aspect-ratio correct.
-  const eaterW = cellSz * 2;
-  const eaterH = cellSz * 2;
-  const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
-  const startScale = normalScale * 0.2;
+    const eaterW = cellSz * 2;
+    const eaterH = cellSz * 2;
+    const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
+    const startScale = normalScale * 0.2;
   // The machine head is on the right for `left` props and on the left for
   // `right` props. Place the eater in front of that head, rather than in
   // front of the body's first cell. The sprite is centered, so the 1.5-cell
   // offset puts its inner edge against the head cell.
-  const headCol = dir === 'left' ? oldCol + oldLen - 1 : oldCol;
-  const eatingSide = dir === 'left' ? 1 : -1;
-  const headCenterX = (headCol + 0.5) * cellSz;
-  const startX = headCenterX + eatingSide * cellSz * 2.5;
-  const targetX = headCenterX + eatingSide * cellSz * 1.5;
-  const baseY = (row + 0.5) * cellSz;
+    const headCol = dir === 'left' ? oldCol + oldLen - 1 : oldCol;
+    const eatingSide = dir === 'left' ? 1 : -1;
+    const headCenterX = (headCol + 0.5) * cellSz;
+    const startX = headCenterX + eatingSide * cellSz * 2.5;
+    const targetX = headCenterX + eatingSide * cellSz * 1.5;
+    const baseY = (row + 0.5) * cellSz;
   // Keep the eater moving for the whole shrink window, so it visually tracks
   // the obstacle instead of arriving early and freezing beside the head.
-  const growDuration = Math.min(260, Math.max(160, duration * 0.35));
-  const movementDuration = Math.max(300, duration - growDuration);
-  const lingerDuration = 260;
-  const startTime = performance.now();
-  const animationLayer = blocksContainer.parent || blocksContainer;
+    const growDuration = Math.min(260, Math.max(160, duration * 0.35));
+    const movementDuration = Math.max(300, duration - growDuration);
+    const lingerDuration = 260;
+    const startTime = performance.now();
+    const animationLayer = blocksContainer.parent || blocksContainer;
 
-  anim.anchor.set(0.5);
+    anim.anchor.set(0.5);
   // Keep the uploaded character at a fixed aspect ratio. The eater must face
   // the machine head: a left-facing prop needs a mirrored eater because the
   // uploaded eating artwork faces right by default.
-  const eaterScaleX = dir === 'left' ? -1 : 1;
-  anim.scale.set(eaterScaleX * startScale, startScale);
-  anim.x = startX;
-  anim.y = baseY;
-  anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
-  anim.loop = true;
-  anim.zIndex = 1000;
-  animationLayer.addChild(anim);
-  anim.play();
-
-  const propTestState = document.getElementById('prop-test-state');
-  if (propTestState) {
-    propTestState.dataset.lastObstacleEat = JSON.stringify({ row, oldCol, oldLen, dir });
-  }
-
-  const move = (now: number) => {
-    if (!anim.parent) return;
-    const elapsed = now - startTime;
-    const growT = Math.min(1, elapsed / growDuration);
-    const growEased = 1 - Math.pow(1 - growT, 3);
-    const scale = startScale + (normalScale - startScale) * growEased;
-    const moveT = Math.min(1, Math.max(0, (elapsed - growDuration) / movementDuration));
-    const moveEased = 1 - Math.pow(1 - moveT, 3);
-    anim.x = startX + (targetX - startX) * moveEased;
+    const eaterScaleX = dir === 'left' ? -1 : 1;
+    anim.scale.set(eaterScaleX * startScale, startScale);
+    anim.x = startX;
     anim.y = baseY;
-    anim.scale.set(eaterScaleX * scale, scale);
-    if (moveT < 1) requestAnimationFrame(move);
-  };
-  requestAnimationFrame(move);
+    anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    anim.loop = true;
+    anim.zIndex = 1000;
+    animationLayer.addChild(anim);
+    anim.play();
 
-  const cleanupDelay = Math.max(movementDuration, duration) + lingerDuration;
-  const shrinkStart = cleanupDelay - lingerDuration;
-  const shrinkStartTime = startTime + shrinkStart;
-  const finish = (now: number) => {
-    if (!anim.parent) return;
-    const t = Math.min(1, Math.max(0, (now - shrinkStartTime) / lingerDuration));
-    const eased = t * t * (3 - 2 * t);
-    const endScale = normalScale * 0.2;
-    const currentScale = normalScale + (endScale - normalScale) * eased;
-    anim.scale.set(eaterScaleX * currentScale, currentScale);
-    anim.alpha = 1 - eased;
-    if (t < 1) {
-      requestAnimationFrame(finish);
-    } else {
-      anim.parent.removeChild(anim);
-      anim.destroy({ children: true });
+    const propTestState = document.getElementById('prop-test-state');
+    if (propTestState) {
+      propTestState.dataset.lastObstacleEat = JSON.stringify({ row, oldCol, oldLen, dir });
     }
+
+    const move = (now: number) => {
+      if (!anim.parent) return;
+      const elapsed = now - startTime;
+      const growT = Math.min(1, elapsed / growDuration);
+      const growEased = 1 - Math.pow(1 - growT, 3);
+      const scale = startScale + (normalScale - startScale) * growEased;
+      const moveT = Math.min(1, Math.max(0, (elapsed - growDuration) / movementDuration));
+      const moveEased = 1 - Math.pow(1 - moveT, 3);
+      anim.x = startX + (targetX - startX) * moveEased;
+      anim.y = baseY;
+      anim.scale.set(eaterScaleX * scale, scale);
+      if (moveT < 1) requestAnimationFrame(move);
+    };
+    requestAnimationFrame(move);
+
+    const cleanupDelay = Math.max(movementDuration, duration) + lingerDuration;
+    const shrinkStart = cleanupDelay - lingerDuration;
+    const shrinkStartTime = startTime + shrinkStart;
+    const finish = (now: number) => {
+      if (!anim.parent) return;
+      const t = Math.min(1, Math.max(0, (now - shrinkStartTime) / lingerDuration));
+      const eased = t * t * (3 - 2 * t);
+      const endScale = normalScale * 0.2;
+      const currentScale = normalScale + (endScale - normalScale) * eased;
+      anim.scale.set(eaterScaleX * currentScale, currentScale);
+      anim.alpha = 1 - eased;
+      if (t < 1) {
+        requestAnimationFrame(finish);
+      } else {
+        anim.parent.removeChild(anim);
+        anim.destroy({ children: true });
+      }
+    };
+    window.setTimeout(() => requestAnimationFrame(finish), shrinkStart);
   };
-  window.setTimeout(() => requestAnimationFrame(finish), shrinkStart);
+
+  if (customPropEatFrameImages.length > 0) {
+    startAnimation();
+  } else {
+    void customPropEatFramesReady.then(startAnimation);
+  }
 }
 
 function animatePropShrink(
