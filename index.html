@@ -130,8 +130,8 @@
       }
       body:not(.is-playable) #tab-level {
         display: grid !important;
-        grid-template-columns: 280px 755px 280px 232px 158px !important;
-        gap: 20px !important;
+        grid-template-columns: 250px 250px 755px 280px 232px 158px !important;
+        gap: 12px !important;
         justify-content: center !important;
         align-items: start !important;
         padding-top: 0 !important;
@@ -141,7 +141,16 @@
       }
       body:not(.is-playable) #material-panel {
         grid-column: 1 !important;
-        width: 280px !important;
+        width: 250px !important;
+        height: auto !important;
+        min-height: 100% !important;
+        max-height: none !important;
+        overflow: visible !important;
+        align-self: start !important;
+      }
+      body:not(.is-playable) #style-assets-panel {
+        grid-column: 2 !important;
+        width: 250px !important;
         height: auto !important;
         min-height: 100% !important;
         max-height: none !important;
@@ -149,20 +158,20 @@
         align-self: start !important;
       }
       body:not(.is-playable) #game-ui {
-        grid-column: 2 !important;
+        grid-column: 3 !important;
         width: 755px !important;
         max-width: 755px !important;
       }
       body:not(.is-playable) #editor-panel {
-        grid-column: 3 !important;
+        grid-column: 4 !important;
         width: 280px !important;
       }
       body:not(.is-playable) #script-panel {
-        grid-column: 4 !important;
+        grid-column: 5 !important;
         width: 232px !important;
       }
       body:not(.is-playable) #script-steps-panel {
-        grid-column: 5 !important;
+        grid-column: 6 !important;
         width: 158px !important;
       }
       #tab-level #playable-export-column {
