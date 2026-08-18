@@ -20280,7 +20280,7 @@ function revertMachineHeadIdle(): void {
         // wave. Do not restart an already-idle sequence on every move.
         if (propAnimationStates.get(b.sprite) !== 'attack') return;
         b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
-        b.sprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+        b.sprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
         b.sprite.loop = true;
         propAnimationStates.set(b.sprite, 'idle');
         b.sprite.gotoAndPlay(0);
@@ -20291,6 +20291,7 @@ function revertMachineHeadIdle(): void {
 
 type PropImageRole = 'machine' | 'machine_attack' | 'eat' | 'candy';
 const CUSTOM_FRAME_ANIMATION_SPEED = 0.5; // 30 FPS at Pixi's 60 Hz ticker
+const CUSTOM_PROP_IDLE_ANIMATION_SPEED = 0.85; // Faster, smoother obstacle idle playback.
 
 function readPropImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -20810,7 +20811,9 @@ function animatePropShrink(
   lockMachineHeadSize();
 
   if (machineSprite instanceof PIXI.AnimatedSprite) {
-    machineSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    machineSprite.animationSpeed = animationState === 'idle'
+      ? CUSTOM_PROP_IDLE_ANIMATION_SPEED
+      : CUSTOM_FRAME_ANIMATION_SPEED;
     machineSprite.loop = true;
     machineSprite.play();
   }
@@ -20896,7 +20899,7 @@ function animatePropShrink(
           if (idleTextures.length > 0) {
             sprite.stop();
             sprite.textures = idleTextures;
-            sprite.animationSpeed = 0.2;
+            sprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
             propAnimationStates.set(sprite, 'idle');
             sprite.gotoAndPlay(0);
           }
@@ -20951,6 +20954,8 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
 
 
   const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
 
 
@@ -21406,7 +21411,10 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
       const tileCanvas = document.createElement('canvas');
       tileCanvas.width = tileW;
       tileCanvas.height = h;
-      tileCanvas.getContext('2d')!.drawImage(customPropCandyImg, 0, 0, tileW, h);
+      const tileCtx = tileCanvas.getContext('2d')!;
+      tileCtx.imageSmoothingEnabled = true;
+      tileCtx.imageSmoothingQuality = 'high';
+      tileCtx.drawImage(customPropCandyImg, 0, 0, tileW, h);
       ctx.save();
       ctx.beginPath();
       ctx.roundRect(stickStartX - 2, stickY - 2, stickW + 4, stickH + 4, cornerRadius + 2);
@@ -21482,7 +21490,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
     const propTextures = getPropAnimationTextures(length, propDir, 'idle');
     if (customPropMachineFrameImages.length > 0) {
       const animSprite = new PIXI.AnimatedSprite(propTextures);
-      animSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+      animSprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
       animSprite.loop = true;
       propAnimationStates.set(animSprite, 'idle');
       animSprite.play();
