@@ -16921,8 +16921,6 @@ interface ManagedRecordingBackground {
 
 }
 
-
-
 const NO_BACKGROUND_ID = 'none';
 
 
@@ -20677,16 +20675,15 @@ function playObstacleEatAnimation(
   const eaterH = cellSz * 2;
   const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
   const startScale = normalScale * 0.2;
-  // Start in the two empty cells immediately before the obstacle body,
-  // matching the eating direction. Advance one cell as one body segment is
-  // consumed.
-  const approachSign = dir === 'left' ? 1 : -1;
-  const startX = dir === 'left'
-    ? (oldCol - 1) * cellSz
-    : (oldCol + oldLen + 1) * cellSz;
-  const targetX = dir === 'left'
-    ? oldCol * cellSz
-    : (oldCol + oldLen) * cellSz;
+  // The machine head is on the right for `left` props and on the left for
+  // `right` props. Place the eater in front of that head, rather than in
+  // front of the body's first cell. The sprite is centered, so the 1.5-cell
+  // offset puts its inner edge against the head cell.
+  const headCol = dir === 'left' ? oldCol + oldLen - 1 : oldCol;
+  const eatingSide = dir === 'left' ? 1 : -1;
+  const headCenterX = (headCol + 0.5) * cellSz;
+  const startX = headCenterX + eatingSide * cellSz * 2.5;
+  const targetX = headCenterX + eatingSide * cellSz * 1.5;
   const baseY = (row + 0.5) * cellSz;
   // Keep the eater moving for the whole shrink window, so it visually tracks
   // the obstacle instead of arriving early and freezing beside the head.
@@ -20697,9 +20694,11 @@ function playObstacleEatAnimation(
   const animationLayer = blocksContainer.parent || blocksContainer;
 
   anim.anchor.set(0.5);
-  // Keep the uploaded character at a fixed aspect ratio. Mirroring follows
-  // the machine-head side so the character enters from the correct side.
-  anim.scale.set(approachSign * startScale, startScale);
+  // Keep the uploaded character at a fixed aspect ratio. The eater must face
+  // the machine head: a left-facing prop needs a mirrored eater because the
+  // uploaded eating artwork faces right by default.
+  const eaterScaleX = dir === 'left' ? -1 : 1;
+  anim.scale.set(eaterScaleX * startScale, startScale);
   anim.x = startX;
   anim.y = baseY;
   anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
@@ -20723,7 +20722,7 @@ function playObstacleEatAnimation(
     const moveEased = 1 - Math.pow(1 - moveT, 3);
     anim.x = startX + (targetX - startX) * moveEased;
     anim.y = baseY;
-    anim.scale.set(approachSign * scale, scale);
+    anim.scale.set(eaterScaleX * scale, scale);
     if (moveT < 1) requestAnimationFrame(move);
   };
   requestAnimationFrame(move);
@@ -20737,7 +20736,7 @@ function playObstacleEatAnimation(
     const eased = t * t * (3 - 2 * t);
     const endScale = normalScale * 0.2;
     const currentScale = normalScale + (endScale - normalScale) * eased;
-    anim.scale.set(approachSign * currentScale, currentScale);
+    anim.scale.set(eaterScaleX * currentScale, currentScale);
     anim.alpha = 1 - eased;
     if (t < 1) {
       requestAnimationFrame(finish);
