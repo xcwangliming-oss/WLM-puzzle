@@ -20020,6 +20020,9 @@ let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
 let customPropEatFrameImages: HTMLImageElement[] = [];
 let customPropEatFramesReady: Promise<void> = Promise.resolve();
 let customPropEatLoadGeneration = 0;
+let customPropEatFramesLoadPromise: Promise<HTMLImageElement[]> = Promise.resolve([]);
+let customPropFramesHydrationPromise: Promise<void> = Promise.resolve();
+let customPropEatFramesLoadKey = '';
 let machineIdleTextures: PIXI.Texture[] = [];
 let machineAttackTextures: PIXI.Texture[] = [];
 const propAnimationTextureCache: Record<string, PIXI.Texture[]> = {};
@@ -20095,6 +20098,9 @@ async function hydrateStoredPropFrames(): Promise<void> {
       invalidatePropCache();
       refreshPropStylePanel();
     }
+    if (customPropEatFrames.length > 0) {
+      await loadCustomPropEatFrameImages();
+    }
   } catch (error) {
     console.warn('Failed to load prop frames from IndexedDB.', error);
   }
@@ -20147,7 +20153,7 @@ function loadCustomPropImages(): void {
       rebuildMachineTextures();
       invalidatePropCache();
     }
-    void hydrateStoredPropFrames();
+    customPropFramesHydrationPromise = hydrateStoredPropFrames();
   } catch (error) {
     console.warn('Failed to load custom prop images; falling back to default prop style.', error);
     customPropMachineImg = null;
@@ -20245,17 +20251,7 @@ function rebuildMachineTextures(): void {
       customPropMachineAttackFrameImages = images;
       invalidatePropCache();
     }).catch(() => { customPropMachineAttackFrameImages = []; });
-    customPropEatFrameImages = [];
-    const eatLoadGeneration = ++customPropEatLoadGeneration;
-    customPropEatFramesReady = Promise.all(customPropEatFrames.map(frame =>
-      loadPropImage(frame).catch(error => {
-        console.warn('Failed to load one obstacle eater frame; skipping that frame.', error);
-        return null;
-      })
-    )).then(images => {
-      if (eatLoadGeneration !== customPropEatLoadGeneration) return;
-      customPropEatFrameImages = images.filter((image): image is HTMLImageElement => image !== null);
-    });
+    void loadCustomPropEatFrameImages();
     loadCustomPropMachineImageFromFirstFrame();
   } catch (error) {
     console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
@@ -20267,6 +20263,8 @@ function rebuildMachineTextures(): void {
     customPropMachineAttackFrameImages = [];
     customPropEatFrameImages = [];
     customPropEatFramesReady = Promise.resolve();
+    customPropEatFramesLoadPromise = Promise.resolve([]);
+    customPropEatFramesLoadKey = '';
     customPropEatLoadGeneration++;
     machineIdleTextures = [];
     machineAttackTextures = [];
@@ -20316,10 +20314,51 @@ function readPropImageFile(file: File): Promise<string> {
 function loadPropImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = async () => {
+      try {
+        if (typeof image.decode === 'function') await image.decode();
+      } catch {
+        // The image is already load-complete; tolerate browsers with partial decode support.
+      }
+      resolve(image);
+    };
     image.onerror = () => reject(new Error('Failed to load the selected prop image'));
     image.src = dataUrl;
   });
+}
+
+function loadCustomPropEatFrameImages(): Promise<HTMLImageElement[]> {
+  const frames = customPropEatFrames.filter(frame => typeof frame === 'string' && frame.length > 0);
+  const loadKey = frames.join('\u0000');
+  if (loadKey === customPropEatFramesLoadKey) return customPropEatFramesLoadPromise;
+  customPropEatFramesLoadKey = loadKey;
+  const loadGeneration = ++customPropEatLoadGeneration;
+
+  if (frames.length === 0) {
+    customPropEatFramesLoadKey = '';
+    customPropEatFrameImages = [];
+    customPropEatFramesLoadPromise = Promise.resolve([]);
+    customPropEatFramesReady = Promise.resolve();
+    return customPropEatFramesLoadPromise;
+  }
+
+  const loadPromise = Promise.all(frames.map(frame =>
+    loadPropImage(frame).catch(error => {
+      console.warn('Failed to load one obstacle eater frame; skipping that frame.', error);
+      return null;
+    })
+  )).then(images => {
+    const loadedImages = images.filter((image): image is HTMLImageElement => image !== null);
+    if (loadGeneration === customPropEatLoadGeneration) {
+      customPropEatFrameImages = loadedImages;
+      invalidatePropCache();
+    }
+    return loadedImages;
+  });
+
+  customPropEatFramesLoadPromise = loadPromise;
+  customPropEatFramesReady = loadPromise.then(() => undefined);
+  return loadPromise;
 }
 
 async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): Promise<void> {
@@ -20421,6 +20460,8 @@ function clearCustomPropImages(): void {
   customPropMachineFrames = []; customPropMachineAttackFrames = []; customPropEatFrames = [];
   customPropEatFrameImages = [];
   customPropEatFramesReady = Promise.resolve();
+  customPropEatFramesLoadPromise = Promise.resolve([]);
+  customPropEatFramesLoadKey = '';
   customPropEatLoadGeneration++;
   machineIdleTextures.forEach(t => t?.destroy(true)); machineIdleTextures = [];
   machineAttackTextures.forEach(t => t?.destroy(true)); machineAttackTextures = [];
@@ -20672,11 +20713,11 @@ function playObstacleEatAnimation(
   dir: 'left' | 'right',
   duration = 760,
 ): void {
-  if (!obstacleEaterEnabled || (customPropEatFrameImages.length === 0 && customPropEatFrames.length === 0)) return;
+  if (!obstacleEaterEnabled) return;
 
-  const startAnimation = () => {
+  const startAnimation = (loadedImages: HTMLImageElement[] = customPropEatFrameImages) => {
     if (!obstacleEaterEnabled) return;
-    const sourceImages = customPropEatFrameImages;
+    const sourceImages = loadedImages;
     if (sourceImages.length === 0) return;
     duration *= obstacleEaterEnabled ? 2 : 1;
 
@@ -20700,9 +20741,12 @@ function playObstacleEatAnimation(
   // offset puts its inner edge against the head cell.
     const headCol = dir === 'left' ? oldCol + oldLen - 1 : oldCol;
     const eatingSide = dir === 'left' ? 1 : -1;
-    const headCenterX = (headCol + 0.5) * cellSz;
-    const startX = headCenterX + eatingSide * cellSz * 2.5;
-    const targetX = headCenterX + eatingSide * cellSz * 1.5;
+    const approachSign = dir === 'left' ? 1 : -1;
+    const targetX = dir === 'left'
+      ? (oldCol + oldLen) * cellSz
+      : oldCol * cellSz;
+    const targetXBoundary = (oldCol + oldLen) * cellSz;
+    const startX = (dir === 'left' ? targetXBoundary : targetX) + eatingSide * cellSz;
     const baseY = (row + 0.5) * cellSz;
   // Keep the eater moving for the whole shrink window, so it visually tracks
   // the obstacle instead of arriving early and freezing beside the head.
@@ -20710,14 +20754,16 @@ function playObstacleEatAnimation(
     const movementDuration = Math.max(300, duration - growDuration);
     const lingerDuration = 260;
     const startTime = performance.now();
-    const animationLayer = blocksContainer.parent || blocksContainer;
+    // Keep the eater in the same board-local coordinate space as obstacle
+    // sprites. Adding it to the parent makes its cell coordinates relative to
+    // the whole board shell and can place it outside the visible playfield.
+    const animationLayer = blocksContainer;
 
     anim.anchor.set(0.5);
   // Keep the uploaded character at a fixed aspect ratio. The eater must face
   // the machine head: a left-facing prop needs a mirrored eater because the
   // uploaded eating artwork faces right by default.
-    const eaterScaleX = dir === 'left' ? -1 : 1;
-    anim.scale.set(eaterScaleX * startScale, startScale);
+    anim.scale.set(approachSign * startScale, startScale);
     anim.x = startX;
     anim.y = baseY;
     anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
@@ -20741,7 +20787,7 @@ function playObstacleEatAnimation(
       const moveEased = 1 - Math.pow(1 - moveT, 3);
       anim.x = startX + (targetX - startX) * moveEased;
       anim.y = baseY;
-      anim.scale.set(eaterScaleX * scale, scale);
+      anim.scale.set(approachSign * scale, scale);
       if (moveT < 1) requestAnimationFrame(move);
     };
     requestAnimationFrame(move);
@@ -20755,7 +20801,7 @@ function playObstacleEatAnimation(
       const eased = t * t * (3 - 2 * t);
       const endScale = normalScale * 0.2;
       const currentScale = normalScale + (endScale - normalScale) * eased;
-      anim.scale.set(eaterScaleX * currentScale, currentScale);
+      anim.scale.set(approachSign * currentScale, currentScale);
       anim.alpha = 1 - eased;
       if (t < 1) {
         requestAnimationFrame(finish);
@@ -20767,11 +20813,18 @@ function playObstacleEatAnimation(
     window.setTimeout(() => requestAnimationFrame(finish), shrinkStart);
   };
 
-  if (customPropEatFrameImages.length > 0) {
-    startAnimation();
-  } else {
-    void customPropEatFramesReady.then(startAnimation);
-  }
+  const prepareFrames = customPropFramesHydrationPromise
+    .then(() => {
+      if (customPropEatFrameImages.length > 0) return customPropEatFrameImages;
+      if (customPropEatFrames.length > 0) return loadCustomPropEatFrameImages();
+      return [];
+    })
+    .catch(error => {
+      console.warn('Failed to prepare obstacle eater frames.', error);
+      return [];
+    });
+
+  void prepareFrames.then(startAnimation);
 }
 
 function animatePropShrink(
@@ -25024,8 +25077,11 @@ function checkEliminations() {
         const dir = b.propDir || 'left';
         const oldCol = b.col;
         const oldLen = b.length;
-        b.col = damage.col;
-        b.length = damage.length;
+        const targetRow = b.row;
+        const newCol = damage.col;
+        const newLen = damage.length;
+        b.col = newCol;
+        b.length = newLen;
 
         // Calculate hit distance: 0 for direct hit, 1 for adjacent hit
         const hitDistance = fullRows.includes(b.row) ? 0 : 1;
@@ -25038,7 +25094,7 @@ function checkEliminations() {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
           playObstacleEatAnimation(b.row, oldCol, oldLen, dir, b.length <= 0 ? 650 : 500);
           
-          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, true, () => {
+          animatePropShrink(b.sprite, dir, targetRow, oldCol, oldLen, newCol, b.length, true, () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
               blocksContainer.removeChild(b.sprite);
             }
