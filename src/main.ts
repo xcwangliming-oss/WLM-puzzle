@@ -20018,6 +20018,11 @@ let obstacleEaterEnabled = false;
 let customPropMachineFrameImages: HTMLImageElement[] = [];
 let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
 let customPropEatFrameImages: HTMLImageElement[] = [];
+let customPropEatFramesReady: Promise<void> = Promise.resolve();
+let customPropEatLoadGeneration = 0;
+let customPropEatFramesLoadPromise: Promise<HTMLImageElement[]> = Promise.resolve([]);
+let customPropFramesHydrationPromise: Promise<void> = Promise.resolve();
+let customPropEatFramesLoadKey = '';
 let machineIdleTextures: PIXI.Texture[] = [];
 let machineAttackTextures: PIXI.Texture[] = [];
 const propAnimationTextureCache: Record<string, PIXI.Texture[]> = {};
@@ -20093,6 +20098,9 @@ async function hydrateStoredPropFrames(): Promise<void> {
       invalidatePropCache();
       refreshPropStylePanel();
     }
+    if (customPropEatFrames.length > 0) {
+      await loadCustomPropEatFrameImages();
+    }
   } catch (error) {
     console.warn('Failed to load prop frames from IndexedDB.', error);
   }
@@ -20145,7 +20153,7 @@ function loadCustomPropImages(): void {
       rebuildMachineTextures();
       invalidatePropCache();
     }
-    void hydrateStoredPropFrames();
+    customPropFramesHydrationPromise = hydrateStoredPropFrames();
   } catch (error) {
     console.warn('Failed to load custom prop images; falling back to default prop style.', error);
     customPropMachineImg = null;
@@ -20243,10 +20251,7 @@ function rebuildMachineTextures(): void {
       customPropMachineAttackFrameImages = images;
       invalidatePropCache();
     }).catch(() => { customPropMachineAttackFrameImages = []; });
-    customPropEatFrameImages = [];
-    void Promise.all(customPropEatFrames.map(loadPropImage)).then(images => {
-      customPropEatFrameImages = images;
-    }).catch(() => { customPropEatFrameImages = []; });
+    void loadCustomPropEatFrameImages();
     loadCustomPropMachineImageFromFirstFrame();
   } catch (error) {
     console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
@@ -20257,6 +20262,10 @@ function rebuildMachineTextures(): void {
     customPropMachineFrameImages = [];
     customPropMachineAttackFrameImages = [];
     customPropEatFrameImages = [];
+    customPropEatFramesReady = Promise.resolve();
+    customPropEatFramesLoadPromise = Promise.resolve([]);
+    customPropEatFramesLoadKey = '';
+    customPropEatLoadGeneration++;
     machineIdleTextures = [];
     machineAttackTextures = [];
   }
@@ -20280,7 +20289,7 @@ function revertMachineHeadIdle(): void {
         // wave. Do not restart an already-idle sequence on every move.
         if (propAnimationStates.get(b.sprite) !== 'attack') return;
         b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
-        b.sprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+        b.sprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
         b.sprite.loop = true;
         propAnimationStates.set(b.sprite, 'idle');
         b.sprite.gotoAndPlay(0);
@@ -20291,6 +20300,7 @@ function revertMachineHeadIdle(): void {
 
 type PropImageRole = 'machine' | 'machine_attack' | 'eat' | 'candy';
 const CUSTOM_FRAME_ANIMATION_SPEED = 0.5; // 30 FPS at Pixi's 60 Hz ticker
+const CUSTOM_PROP_IDLE_ANIMATION_SPEED = 0.85; // Faster, smoother obstacle idle playback.
 
 function readPropImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -20304,10 +20314,51 @@ function readPropImageFile(file: File): Promise<string> {
 function loadPropImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = async () => {
+      try {
+        if (typeof image.decode === 'function') await image.decode();
+      } catch {
+        // The image is already load-complete; tolerate browsers with partial decode support.
+      }
+      resolve(image);
+    };
     image.onerror = () => reject(new Error('Failed to load the selected prop image'));
     image.src = dataUrl;
   });
+}
+
+function loadCustomPropEatFrameImages(): Promise<HTMLImageElement[]> {
+  const frames = customPropEatFrames.filter(frame => typeof frame === 'string' && frame.length > 0);
+  const loadKey = frames.join('\u0000');
+  if (loadKey === customPropEatFramesLoadKey) return customPropEatFramesLoadPromise;
+  customPropEatFramesLoadKey = loadKey;
+  const loadGeneration = ++customPropEatLoadGeneration;
+
+  if (frames.length === 0) {
+    customPropEatFramesLoadKey = '';
+    customPropEatFrameImages = [];
+    customPropEatFramesLoadPromise = Promise.resolve([]);
+    customPropEatFramesReady = Promise.resolve();
+    return customPropEatFramesLoadPromise;
+  }
+
+  const loadPromise = Promise.all(frames.map(frame =>
+    loadPropImage(frame).catch(error => {
+      console.warn('Failed to load one obstacle eater frame; skipping that frame.', error);
+      return null;
+    })
+  )).then(images => {
+    const loadedImages = images.filter((image): image is HTMLImageElement => image !== null);
+    if (loadGeneration === customPropEatLoadGeneration) {
+      customPropEatFrameImages = loadedImages;
+      invalidatePropCache();
+    }
+    return loadedImages;
+  });
+
+  customPropEatFramesLoadPromise = loadPromise;
+  customPropEatFramesReady = loadPromise.then(() => undefined);
+  return loadPromise;
 }
 
 async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): Promise<void> {
@@ -20408,6 +20459,10 @@ function clearCustomPropImages(): void {
   customPropMachineImg = null; customPropCandyImg = null;
   customPropMachineFrames = []; customPropMachineAttackFrames = []; customPropEatFrames = [];
   customPropEatFrameImages = [];
+  customPropEatFramesReady = Promise.resolve();
+  customPropEatFramesLoadPromise = Promise.resolve([]);
+  customPropEatFramesLoadKey = '';
+  customPropEatLoadGeneration++;
   machineIdleTextures.forEach(t => t?.destroy(true)); machineIdleTextures = [];
   machineAttackTextures.forEach(t => t?.destroy(true)); machineAttackTextures = [];
   localStorage.removeItem(PROP_STORAGE_MACHINE); localStorage.removeItem(PROP_STORAGE_CANDY);
@@ -20655,97 +20710,127 @@ function playObstacleEatAnimation(
   row: number,
   oldCol: number,
   oldLen: number,
+  newCol: number,
+  newLen: number,
   dir: 'left' | 'right',
   duration = 760,
 ): void {
-  if (!obstacleEaterEnabled || customPropEatFrameImages.length === 0) return;
-  duration *= obstacleEaterEnabled ? 2 : 1;
+  if (!obstacleEaterEnabled) return;
 
-  const cellSz = PARAMS.cellSize || 50;
-  const textures = customPropEatFrameImages.map(image => PIXI.Texture.from(image));
-  if (textures.length === 0) return;
+  const startAnimation = (loadedImages: HTMLImageElement[] = customPropEatFrameImages) => {
+    if (!obstacleEaterEnabled) return;
+    const sourceImages = loadedImages;
+    if (sourceImages.length === 0) return;
+    duration *= obstacleEaterEnabled ? 2 : 1;
 
-  const anim = new PIXI.AnimatedSprite(textures);
-  const firstTexture = textures[0];
-  const frameW = Math.max(1, firstTexture.width || cellSz);
-  const frameH = Math.max(1, firstTexture.height || cellSz);
-  // Reserve a fixed 2x2-cell area (four cells) for the eater regardless of
-  // the uploaded frame dimensions. The image remains aspect-ratio correct.
-  const eaterW = cellSz * 2;
-  const eaterH = cellSz * 2;
-  const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
-  const startScale = normalScale * 0.2;
-  // The machine head is on the right for `left` props and on the left for
-  // `right` props. Place the eater in front of that head, rather than in
-  // front of the body's first cell. The sprite is centered, so the 1.5-cell
-  // offset puts its inner edge against the head cell.
-  const headCol = dir === 'left' ? oldCol + oldLen - 1 : oldCol;
-  const eatingSide = dir === 'left' ? 1 : -1;
-  const headCenterX = (headCol + 0.5) * cellSz;
-  const startX = headCenterX + eatingSide * cellSz * 2.5;
-  const targetX = headCenterX + eatingSide * cellSz * 1.5;
-  const baseY = (row + 0.5) * cellSz;
-  // Keep the eater moving for the whole shrink window, so it visually tracks
-  // the obstacle instead of arriving early and freezing beside the head.
-  const growDuration = Math.min(260, Math.max(160, duration * 0.35));
-  const movementDuration = Math.max(300, duration - growDuration);
-  const lingerDuration = 260;
-  const startTime = performance.now();
-  const animationLayer = blocksContainer.parent || blocksContainer;
+    const cellSz = PARAMS.cellSize || 50;
+    const textures = sourceImages.map(image => PIXI.Texture.from(image));
+    if (textures.length === 0) return;
 
-  anim.anchor.set(0.5);
-  // Keep the uploaded character at a fixed aspect ratio. The eater must face
-  // the machine head: a left-facing prop needs a mirrored eater because the
-  // uploaded eating artwork faces right by default.
-  const eaterScaleX = dir === 'left' ? -1 : 1;
-  anim.scale.set(eaterScaleX * startScale, startScale);
-  anim.x = startX;
-  anim.y = baseY;
-  anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
-  anim.loop = true;
-  anim.zIndex = 1000;
-  animationLayer.addChild(anim);
-  anim.play();
+    const anim = new PIXI.AnimatedSprite(textures);
+    const firstTexture = textures[0];
+    const frameW = Math.max(1, firstTexture.width || cellSz);
+    const frameH = Math.max(1, firstTexture.height || cellSz);
+    // Reserve a fixed 2x2-cell area (four cells) for the eater regardless of
+    // the uploaded frame dimensions. The image remains aspect-ratio correct.
+    const eaterW = cellSz * 2;
+    const eaterH = cellSz * 2;
+    const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
+    const startScale = normalScale * 0.2;
+    // The eater starts outside the obstacle's free end, then advances one
+    // cell with that end as the obstacle shortens toward its machine head.
+    const getFreeEndCenterX = (col: number, length: number) => dir === 'left'
+      ? (col - 1) * cellSz
+      : (col + length + 1) * cellSz;
+    const approachSign = dir === 'left' ? 1 : -1;
+    const startX = getFreeEndCenterX(oldCol, oldLen);
+    const targetX = getFreeEndCenterX(newCol, newLen);
+    const baseY = (row + 0.5) * cellSz;
+    // Keep the eater moving for the whole shrink window, so it visually tracks
+    // the obstacle instead of arriving early and freezing beside the head.
+    const growDuration = Math.min(260, Math.max(160, duration * 0.35));
+    const movementDuration = Math.max(300, duration - growDuration);
+    const lingerDuration = 260;
+    const startTime = performance.now();
+    // Keep the eater in the same board-local coordinate space as obstacle
+    // sprites. Adding it to the parent makes its cell coordinates relative to
+    // the whole board shell and can place it outside the visible playfield.
+    const animationLayer = blocksContainer;
 
-  const propTestState = document.getElementById('prop-test-state');
-  if (propTestState) {
-    propTestState.dataset.lastObstacleEat = JSON.stringify({ row, oldCol, oldLen, dir });
-  }
-
-  const move = (now: number) => {
-    if (!anim.parent) return;
-    const elapsed = now - startTime;
-    const growT = Math.min(1, elapsed / growDuration);
-    const growEased = 1 - Math.pow(1 - growT, 3);
-    const scale = startScale + (normalScale - startScale) * growEased;
-    const moveT = Math.min(1, Math.max(0, (elapsed - growDuration) / movementDuration));
-    const moveEased = 1 - Math.pow(1 - moveT, 3);
-    anim.x = startX + (targetX - startX) * moveEased;
+    anim.anchor.set(0.5);
+    // Keep the uploaded character at a fixed aspect ratio. The eater must face
+    // the machine head: a left-facing prop uses the artwork's default direction.
+    anim.scale.set(approachSign * startScale, startScale);
+    anim.x = startX;
     anim.y = baseY;
-    anim.scale.set(eaterScaleX * scale, scale);
-    if (moveT < 1) requestAnimationFrame(move);
-  };
-  requestAnimationFrame(move);
+    anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    anim.loop = true;
+    anim.zIndex = 1000;
+    animationLayer.addChild(anim);
+    anim.play();
 
-  const cleanupDelay = Math.max(movementDuration, duration) + lingerDuration;
-  const shrinkStart = cleanupDelay - lingerDuration;
-  const shrinkStartTime = startTime + shrinkStart;
-  const finish = (now: number) => {
-    if (!anim.parent) return;
-    const t = Math.min(1, Math.max(0, (now - shrinkStartTime) / lingerDuration));
-    const eased = t * t * (3 - 2 * t);
-    const endScale = normalScale * 0.2;
-    const currentScale = normalScale + (endScale - normalScale) * eased;
-    anim.scale.set(eaterScaleX * currentScale, currentScale);
-    anim.alpha = 1 - eased;
-    if (t < 1) {
-      requestAnimationFrame(finish);
-    } else {
-      anim.parent.removeChild(anim);
-      anim.destroy({ children: true });
+    const propTestState = document.getElementById('prop-test-state');
+    if (propTestState) {
+      propTestState.dataset.lastObstacleEat = JSON.stringify({
+        row,
+        oldCol,
+        oldLen,
+        newCol,
+        newLen,
+        dir,
+        startX,
+        targetX,
+      });
     }
+
+    const move = (now: number) => {
+      if (!anim.parent) return;
+      const elapsed = now - startTime;
+      const growT = Math.min(1, elapsed / growDuration);
+      const growEased = 1 - Math.pow(1 - growT, 3);
+      const scale = startScale + (normalScale - startScale) * growEased;
+      const moveT = Math.min(1, Math.max(0, (elapsed - growDuration) / movementDuration));
+      const moveEased = 1 - Math.pow(1 - moveT, 3);
+      anim.x = startX + (targetX - startX) * moveEased;
+      anim.y = baseY;
+      anim.scale.set(approachSign * scale, scale);
+      if (moveT < 1) requestAnimationFrame(move);
+    };
+    requestAnimationFrame(move);
+
+    const cleanupDelay = Math.max(movementDuration, duration) + lingerDuration;
+    const shrinkStart = cleanupDelay - lingerDuration;
+    const shrinkStartTime = startTime + shrinkStart;
+    const finish = (now: number) => {
+      if (!anim.parent) return;
+      const t = Math.min(1, Math.max(0, (now - shrinkStartTime) / lingerDuration));
+      const eased = t * t * (3 - 2 * t);
+      const endScale = normalScale * 0.2;
+      const currentScale = normalScale + (endScale - normalScale) * eased;
+      anim.scale.set(approachSign * currentScale, currentScale);
+      anim.alpha = 1 - eased;
+      if (t < 1) {
+        requestAnimationFrame(finish);
+      } else {
+        anim.parent.removeChild(anim);
+        anim.destroy({ children: true });
+      }
+    };
+    window.setTimeout(() => requestAnimationFrame(finish), shrinkStart);
   };
-  window.setTimeout(() => requestAnimationFrame(finish), shrinkStart);
+
+  const prepareFrames = customPropFramesHydrationPromise
+    .then(() => {
+      if (customPropEatFrameImages.length > 0) return customPropEatFrameImages;
+      if (customPropEatFrames.length > 0) return loadCustomPropEatFrameImages();
+      return [];
+    })
+    .catch(error => {
+      console.warn('Failed to prepare obstacle eater frames.', error);
+      return [];
+    });
+
+  void prepareFrames.then(startAnimation);
 }
 
 function animatePropShrink(
@@ -20810,7 +20895,9 @@ function animatePropShrink(
   lockMachineHeadSize();
 
   if (machineSprite instanceof PIXI.AnimatedSprite) {
-    machineSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    machineSprite.animationSpeed = animationState === 'idle'
+      ? CUSTOM_PROP_IDLE_ANIMATION_SPEED
+      : CUSTOM_FRAME_ANIMATION_SPEED;
     machineSprite.loop = true;
     machineSprite.play();
   }
@@ -20896,7 +20983,7 @@ function animatePropShrink(
           if (idleTextures.length > 0) {
             sprite.stop();
             sprite.textures = idleTextures;
-            sprite.animationSpeed = 0.2;
+            sprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
             propAnimationStates.set(sprite, 'idle');
             sprite.gotoAndPlay(0);
           }
@@ -20951,6 +21038,8 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
 
 
   const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
 
 
@@ -21406,7 +21495,10 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
       const tileCanvas = document.createElement('canvas');
       tileCanvas.width = tileW;
       tileCanvas.height = h;
-      tileCanvas.getContext('2d')!.drawImage(customPropCandyImg, 0, 0, tileW, h);
+      const tileCtx = tileCanvas.getContext('2d')!;
+      tileCtx.imageSmoothingEnabled = true;
+      tileCtx.imageSmoothingQuality = 'high';
+      tileCtx.drawImage(customPropCandyImg, 0, 0, tileW, h);
       ctx.save();
       ctx.beginPath();
       ctx.roundRect(stickStartX - 2, stickY - 2, stickW + 4, stickH + 4, cornerRadius + 2);
@@ -21482,7 +21574,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
     const propTextures = getPropAnimationTextures(length, propDir, 'idle');
     if (customPropMachineFrameImages.length > 0) {
       const animSprite = new PIXI.AnimatedSprite(propTextures);
-      animSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+      animSprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
       animSprite.loop = true;
       propAnimationStates.set(animSprite, 'idle');
       animSprite.play();
@@ -22073,6 +22165,21 @@ if (new URLSearchParams(window.location.search).has('prop-test')) {
   stateNode.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;';
 
   document.body.appendChild(stateNode);
+
+  const enableEaterButton = document.createElement('button');
+  enableEaterButton.id = 'prop-test-enable-eater';
+  enableEaterButton.style.cssText = 'position:fixed;left:40px;top:0;width:16px;height:6px;padding:0;opacity:0.001;';
+  enableEaterButton.addEventListener('click', async () => {
+    const testFrame = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Ys5Z7sAAAAASUVORK5CYII=';
+    const image = new Image();
+    image.src = testFrame;
+    await image.decode();
+    obstacleEaterEnabled = true;
+    customPropEatFrames = [testFrame];
+    customPropEatFrameImages = [image];
+    stateNode.setAttribute('data-eater-enabled', 'true');
+  });
+  document.body.appendChild(enableEaterButton);
 
   window.setInterval(() => {
 
@@ -24991,8 +25098,11 @@ function checkEliminations() {
         const dir = b.propDir || 'left';
         const oldCol = b.col;
         const oldLen = b.length;
-        b.col = damage.col;
-        b.length = damage.length;
+        const targetRow = b.row;
+        const newCol = damage.col;
+        const newLen = damage.length;
+        b.col = newCol;
+        b.length = newLen;
 
         // Calculate hit distance: 0 for direct hit, 1 for adjacent hit
         const hitDistance = fullRows.includes(b.row) ? 0 : 1;
@@ -25003,9 +25113,17 @@ function checkEliminations() {
 
         setTimeout(() => {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
-          playObstacleEatAnimation(b.row, oldCol, oldLen, dir, b.length <= 0 ? 650 : 500);
+          playObstacleEatAnimation(
+            b.row,
+            oldCol,
+            oldLen,
+            newCol,
+            newLen,
+            dir,
+            newLen <= 0 ? 650 : 500,
+          );
           
-          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, true, () => {
+          animatePropShrink(b.sprite, dir, targetRow, oldCol, oldLen, newCol, b.length, true, () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
               blocksContainer.removeChild(b.sprite);
             }
