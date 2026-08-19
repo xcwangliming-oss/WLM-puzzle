@@ -20565,7 +20565,7 @@ function initPropStylePanel(): void {
       <input id='input-prop-eat' type='file' accept='image/*' multiple hidden/>
       <label style='display:flex;align-items:center;gap:5px;padding:5px 6px;background:#1e1e2e;border:1px solid #555;border-radius:5px;cursor:pointer;font-size:10px;color:#ddd;'><input id='toggle-obstacle-eater' type='checkbox' style='margin:0;accent-color:#7c3aed;'/><span>启用吃障碍角色（消除时间×2）</span></label>
       <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
-      <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会平铺重复；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
+      <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会保持整图缩放；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
     </div>`;
   panel.appendChild(sec);
   const bindFrameInput = (role: 'machine' | 'machine_attack' | 'eat', inputId: string, countId: string) => {
@@ -21488,32 +21488,24 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
 
 
   if (customPropCandyImg) {
-    const candyW = Math.max(0, w - cellSize);
-    const candyStartX = dir === 'left' ? 0 : cellSize;
+    const candyW = Math.max(0, machineImg ? w - cellSize / 2 : w - cellSize);
+    const candyStartX = machineImg
+      ? (dir === 'left' ? 0 : cellSize / 2)
+      : (dir === 'left' ? 0 : cellSize);
     if (candyW > 0 && customPropCandyImg.naturalWidth > 0 && customPropCandyImg.naturalHeight > 0) {
-      const tileW = Math.max(1, Math.ceil(customPropCandyImg.naturalWidth * (h / customPropCandyImg.naturalHeight)));
-      const tileCanvas = document.createElement('canvas');
-      tileCanvas.width = tileW;
-      tileCanvas.height = h;
-      const tileCtx = tileCanvas.getContext('2d')!;
-      tileCtx.imageSmoothingEnabled = true;
-      tileCtx.imageSmoothingQuality = 'high';
-      tileCtx.drawImage(customPropCandyImg, 0, 0, tileW, h);
       ctx.save();
       ctx.beginPath();
-      ctx.roundRect(stickStartX - 2, stickY - 2, stickW + 4, stickH + 4, cornerRadius + 2);
+      ctx.rect(candyStartX, 0, candyW, h);
       ctx.clip();
-      ctx.clearRect(stickStartX - 3, stickY - 3, stickW + 6, stickH + 6);
+      ctx.clearRect(candyStartX, 0, candyW, h);
+      const bodyScale = h / customPropCandyImg.naturalHeight;
+      const bodyW = customPropCandyImg.naturalWidth * bodyScale;
       if (dir === 'right') {
         ctx.translate(candyStartX + candyW, 0);
         ctx.scale(-1, 1);
-        for (let dx = 0; dx < candyW; dx += tileW) {
-          ctx.drawImage(tileCanvas, dx, 0, tileW, h);
-        }
+        ctx.drawImage(customPropCandyImg, 0, 0, bodyW, h);
       } else {
-        for (let dx = candyStartX; dx < candyStartX + candyW; dx += tileW) {
-          ctx.drawImage(tileCanvas, dx, 0, tileW, h);
-        }
+        ctx.drawImage(customPropCandyImg, candyStartX, 0, bodyW, h);
       }
       ctx.restore();
     }
@@ -21522,10 +21514,10 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
   if (machineImg && machineImg.naturalWidth > 0 && machineImg.naturalHeight > 0) {
     ctx.save();
     ctx.beginPath();
-    ctx.arc(machineCenterX, machineCenterY, machineRadius + 2, 0, Math.PI * 2);
+    const machineCellX = dir === 'left' ? w - cellSize : 0;
+    ctx.rect(machineCellX, 0, cellSize, h);
     ctx.clip();
-    ctx.clearRect(machineCenterX - machineRadius - 3, machineCenterY - machineRadius - 3, (machineRadius + 3) * 2, (machineRadius + 3) * 2);
-    const scale = Math.min((machineRadius * 2) / machineImg.naturalWidth, (machineRadius * 2) / machineImg.naturalHeight);
+    const scale = Math.min(cellSize / machineImg.naturalWidth, h / machineImg.naturalHeight);
     const imgW = machineImg.naturalWidth * scale;
     const imgH = machineImg.naturalHeight * scale;
     if (dir === 'right') {
