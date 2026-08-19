@@ -31,8 +31,8 @@ assert.match(
 );
 assert.match(
   source,
-  /const approachSign = dir === 'left' \? 1 : -1;[\s\S]*?const targetX = dir === 'left'[\s\S]*?\(oldCol \+ oldLen\) \* cellSz;/,
-  'the eater mouth must face the obstacle body and align with its next cell',
+  /const getFreeEndCenterX = \(col: number, length: number\) => dir === 'left'[\s\S]*?\(col - 1\) \* cellSz[\s\S]*?\(col \+ length \+ 1\) \* cellSz;[\s\S]*?const startX = getFreeEndCenterX\(oldCol, oldLen\);[\s\S]*?const targetX = getFreeEndCenterX\(newCol, newLen\);/,
+  'the eater must start outside the obstacle free end and follow it toward the machine head',
 );
 assert.match(
   source,
@@ -51,7 +51,7 @@ assert.match(
 );
 assert.match(
   source,
-  /playObstacleEatAnimation\(b\.row, oldCol, oldLen, dir, b\.length <= 0 \? 650 : 500\)/,
+  /playObstacleEatAnimation\(\s*b\.row,\s*oldCol,\s*oldLen,\s*newCol,\s*newLen,\s*dir,\s*newLen <= 0 \? 650 : 500,\s*\)/,
   'each damaged obstacle must independently trigger the eater animation',
 );
 

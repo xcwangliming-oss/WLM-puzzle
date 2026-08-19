@@ -20710,6 +20710,8 @@ function playObstacleEatAnimation(
   row: number,
   oldCol: number,
   oldLen: number,
+  newCol: number,
+  newLen: number,
   dir: 'left' | 'right',
   duration = 760,
 ): void {
@@ -20729,27 +20731,23 @@ function playObstacleEatAnimation(
     const firstTexture = textures[0];
     const frameW = Math.max(1, firstTexture.width || cellSz);
     const frameH = Math.max(1, firstTexture.height || cellSz);
-  // Reserve a fixed 2x2-cell area (four cells) for the eater regardless of
-  // the uploaded frame dimensions. The image remains aspect-ratio correct.
+    // Reserve a fixed 2x2-cell area (four cells) for the eater regardless of
+    // the uploaded frame dimensions. The image remains aspect-ratio correct.
     const eaterW = cellSz * 2;
     const eaterH = cellSz * 2;
     const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
     const startScale = normalScale * 0.2;
-  // The machine head is on the right for `left` props and on the left for
-  // `right` props. Place the eater in front of that head, rather than in
-  // front of the body's first cell. The sprite is centered, so the 1.5-cell
-  // offset puts its inner edge against the head cell.
-    const headCol = dir === 'left' ? oldCol + oldLen - 1 : oldCol;
-    const eatingSide = dir === 'left' ? 1 : -1;
+    // The eater starts outside the obstacle's free end, then advances one
+    // cell with that end as the obstacle shortens toward its machine head.
+    const getFreeEndCenterX = (col: number, length: number) => dir === 'left'
+      ? (col - 1) * cellSz
+      : (col + length + 1) * cellSz;
     const approachSign = dir === 'left' ? 1 : -1;
-    const targetX = dir === 'left'
-      ? (oldCol + oldLen) * cellSz
-      : oldCol * cellSz;
-    const targetXBoundary = (oldCol + oldLen) * cellSz;
-    const startX = (dir === 'left' ? targetXBoundary : targetX) + eatingSide * cellSz;
+    const startX = getFreeEndCenterX(oldCol, oldLen);
+    const targetX = getFreeEndCenterX(newCol, newLen);
     const baseY = (row + 0.5) * cellSz;
-  // Keep the eater moving for the whole shrink window, so it visually tracks
-  // the obstacle instead of arriving early and freezing beside the head.
+    // Keep the eater moving for the whole shrink window, so it visually tracks
+    // the obstacle instead of arriving early and freezing beside the head.
     const growDuration = Math.min(260, Math.max(160, duration * 0.35));
     const movementDuration = Math.max(300, duration - growDuration);
     const lingerDuration = 260;
@@ -20760,9 +20758,8 @@ function playObstacleEatAnimation(
     const animationLayer = blocksContainer;
 
     anim.anchor.set(0.5);
-  // Keep the uploaded character at a fixed aspect ratio. The eater must face
-  // the machine head: a left-facing prop needs a mirrored eater because the
-  // uploaded eating artwork faces right by default.
+    // Keep the uploaded character at a fixed aspect ratio. The eater must face
+    // the machine head: a left-facing prop uses the artwork's default direction.
     anim.scale.set(approachSign * startScale, startScale);
     anim.x = startX;
     anim.y = baseY;
@@ -20774,7 +20771,16 @@ function playObstacleEatAnimation(
 
     const propTestState = document.getElementById('prop-test-state');
     if (propTestState) {
-      propTestState.dataset.lastObstacleEat = JSON.stringify({ row, oldCol, oldLen, dir });
+      propTestState.dataset.lastObstacleEat = JSON.stringify({
+        row,
+        oldCol,
+        oldLen,
+        newCol,
+        newLen,
+        dir,
+        startX,
+        targetX,
+      });
     }
 
     const move = (now: number) => {
@@ -22159,6 +22165,21 @@ if (new URLSearchParams(window.location.search).has('prop-test')) {
   stateNode.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;';
 
   document.body.appendChild(stateNode);
+
+  const enableEaterButton = document.createElement('button');
+  enableEaterButton.id = 'prop-test-enable-eater';
+  enableEaterButton.style.cssText = 'position:fixed;left:40px;top:0;width:16px;height:6px;padding:0;opacity:0.001;';
+  enableEaterButton.addEventListener('click', async () => {
+    const testFrame = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Ys5Z7sAAAAASUVORK5CYII=';
+    const image = new Image();
+    image.src = testFrame;
+    await image.decode();
+    obstacleEaterEnabled = true;
+    customPropEatFrames = [testFrame];
+    customPropEatFrameImages = [image];
+    stateNode.setAttribute('data-eater-enabled', 'true');
+  });
+  document.body.appendChild(enableEaterButton);
 
   window.setInterval(() => {
 
@@ -25092,7 +25113,15 @@ function checkEliminations() {
 
         setTimeout(() => {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
-          playObstacleEatAnimation(b.row, oldCol, oldLen, dir, b.length <= 0 ? 650 : 500);
+          playObstacleEatAnimation(
+            b.row,
+            oldCol,
+            oldLen,
+            newCol,
+            newLen,
+            dir,
+            newLen <= 0 ? 650 : 500,
+          );
           
           animatePropShrink(b.sprite, dir, targetRow, oldCol, oldLen, newCol, b.length, true, () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
