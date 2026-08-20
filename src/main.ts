@@ -17469,7 +17469,7 @@ type ClearTextEffect = {
   word?: PraiseWord;
 };
 
-const COMBO_TEXT_EFFECT_DURATION_MS = 760;
+const COMBO_TEXT_EFFECT_DURATION_MS = 1050;
 const PRAISE_TEXT_EFFECT_DURATION_MS = 920;
 const COMBO_TEXT_BASE_URL = '/assets/ui/clear-text/combo';
 const PRAISE_TEXT_BASE_URL = '/assets/ui/clear-text/praise';
@@ -17757,8 +17757,8 @@ function appendComboTextEffectAtPoint(
   comboWordUrl: string,
   digitUrls: string[]
 ) {
-  const wordWidth = Math.min(178, boardWidth * 0.26);
-  const digitWidth = Math.min(41, boardWidth * 0.065);
+  const wordWidth = Math.min(205, boardWidth * 0.3);
+  const digitWidth = Math.min(47, boardWidth * 0.075);
   const digitHeight = digitWidth * 1.24;
   const digitGap = digitWidth * 1.05;
   const digitGroupWidth = digitWidth + Math.max(0, digitUrls.length - 1) * digitGap;
@@ -30876,8 +30876,8 @@ function drawRecordingClearTextEffects(
       const rowY = boardBox.y + ((effect.row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY - 20;
       const wordImage = getClearTextImage(getComboWordUrl(effect.comboCount));
       const wordMotion = getClearTextPopMotion(elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
-      const wordWidth = Math.min(178, boardBox.w * 0.26);
-      const digitWidth = Math.min(41, boardBox.w * 0.065);
+      const wordWidth = Math.min(205, boardBox.w * 0.3);
+      const digitWidth = Math.min(47, boardBox.w * 0.075);
       const digitHeight = digitWidth * 1.24;
       const digitGap = digitWidth * 1.05;
       const digitUrls = getComboDigitUrls(effect.comboCount);
