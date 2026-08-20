@@ -20,8 +20,8 @@ assert.match(
 
 assert.match(
   body,
-  /function getPreviewRendererGameHeight\(\)[\s\S]*?return PARAMS\.viewportRows \* PARAMS\.cellSize \* BOARD_FRAME_VERTICAL_SCALE;/,
-  'preview renderer should fill the phone frame with fractional vertical overscan'
+  /function getPreviewRendererGameHeight\(\)[\s\S]*?const contentWidth = PARAMS\.gridCols \* PARAMS\.cellSize \+ PADDING \* 2;[\s\S]*?const boardAspect = MASTER_UI\.board\.h \/ MASTER_UI\.board\.w;[\s\S]*?return Math\.max\(PARAMS\.cellSize, contentWidth \* boardAspect - PADDING \* 2\);/,
+  'preview renderer height should match the fixed board frame aspect so every column count fits without cropping'
 );
 
 assert.match(
@@ -74,32 +74,38 @@ assert.match(
 
 assert.match(
   body,
-  /function fitRectCoverPreserveAspect\([\s\S]*?const scale = Math\.max\(target\.w \/ contentW, target\.h \/ contentH\);[\s\S]*?const w = contentW \* scale;[\s\S]*?const h = contentH \* scale;/,
-  'preview canvas should cover the fixed board frame without leaving top, bottom, or side gaps'
+  /function fitRectContainPreserveAspect\([\s\S]*?const scale = Math\.min\(target\.w \/ contentW, target\.h \/ contentH\);[\s\S]*?const w = contentW \* scale;[\s\S]*?const h = contentH \* scale;/,
+  'preview canvas should fit completely inside the fixed board frame without cropping blocks'
 );
 
 assert.match(
   body,
   /x: target\.x \+ \(target\.w - w\) \/ 2,/,
-  'preview canvas should keep horizontal overflow centered after aspect-preserving cover scaling'
+  'preview canvas should remain centered if there is any subpixel aspect difference'
 );
 
 assert.match(
   body,
-  /y: target\.y,/,
-  'preview canvas should be top-aligned so extra height continues downward instead of opening a top gap'
+  /y: target\.y \+ \(target\.h - h\) \/ 2,/,
+  'preview canvas should remain vertically centered if there is any subpixel aspect difference'
 );
 
 assert.match(
   body,
-  /const rect = fitRectCoverPreserveAspect\([\s\S]*?\{ x: 0, y: 0, w: targetWidth, h: targetHeight \},[\s\S]*?contentSize\.w,[\s\S]*?contentSize\.h[\s\S]*?\);/,
-  'editor preview should use cover fitting inside the fixed master board frame'
+  /const rect = fitRectContainPreserveAspect\([\s\S]*?\{ x: 0, y: 0, w: targetWidth, h: targetHeight \},[\s\S]*?contentSize\.w,[\s\S]*?contentSize\.h[\s\S]*?\);/,
+  'editor preview should use non-cropping fitting inside the fixed master board frame'
 );
 
 assert.match(
   body,
-  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectCoverPreserveAspect\(boardBox, contentSize\.w, contentSize\.h\);/,
-  'recording should use the same cover-fitted canvas rect as the editor preview'
+  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectContainPreserveAspect\(boardBox, contentSize\.w, contentSize\.h\);/,
+  'recording should use the same non-cropping canvas rect as the editor preview'
+);
+
+assert.doesNotMatch(
+  body,
+  /Math\.max\(target\.w \/ contentW, target\.h \/ contentH\)/,
+  'preview fitting must not cover-scale because cover scaling crops blocks at some column counts'
 );
 
 assert.doesNotMatch(

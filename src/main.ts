@@ -16455,10 +16455,12 @@ async function preloadStandaloneSelectedShatterEffects() {
 
 function getPreviewRendererGameHeight(): number {
 
-  // The phone frame is slightly taller than an exact viewport-row multiple.
-  // Render that fractional overscan so the board reaches the lower inner edge
-  // without changing the logical scroll viewport or stretching block cells.
-  return PARAMS.viewportRows * PARAMS.cellSize * BOARD_FRAME_VERTICAL_SCALE;
+  // Match the fixed phone board frame aspect. The logical viewport height stays
+  // unchanged; this only controls how much render surface is visible inside the
+  // frame so the canvas can touch all four edges without cropping blocks.
+  const contentWidth = PARAMS.gridCols * PARAMS.cellSize + PADDING * 2;
+  const boardAspect = MASTER_UI.board.h / MASTER_UI.board.w;
+  return Math.max(PARAMS.cellSize, contentWidth * boardAspect - PADDING * 2);
 
 }
 
@@ -29905,7 +29907,7 @@ function getBoardCanvasContentSize() {
 function getMasterBoardCanvasRect(width: number, height: number) {
   const boardBox = getMasterBoardContentRect(width, height);
   const contentSize = getBoardCanvasContentSize();
-  return fitRectCoverPreserveAspect(boardBox, contentSize.w, contentSize.h);
+  return fitRectContainPreserveAspect(boardBox, contentSize.w, contentSize.h);
 }
 
 function mapBoardWrapperRectToRecordingRect(
@@ -30143,7 +30145,7 @@ function fitRectToWidthPreserveAspect(
 
 }
 
-function fitRectCoverPreserveAspect(
+function fitRectContainPreserveAspect(
 
 
 
@@ -30175,7 +30177,7 @@ function fitRectCoverPreserveAspect(
 
 
 
-  const scale = Math.max(target.w / contentW, target.h / contentH);
+  const scale = Math.min(target.w / contentW, target.h / contentH);
 
   const w = contentW * scale;
 
@@ -30191,7 +30193,7 @@ function fitRectCoverPreserveAspect(
 
 
 
-    y: target.y,
+    y: target.y + (target.h - h) / 2,
 
 
 
@@ -30263,7 +30265,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-  const rect = fitRectCoverPreserveAspect(
+  const rect = fitRectContainPreserveAspect(
 
 
 
