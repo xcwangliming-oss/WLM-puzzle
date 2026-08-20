@@ -325,7 +325,14 @@ function queueCustomPropStyle(style: unknown): void {
         background: {
             enabled: recordingBackgroundEnabled,
             dataUrl: recordingBackgroundDataUrl,
-            activeId: recordingBackgroundActiveId
+            activeId: recordingBackgroundActiveId,
+            mode: recordingBackgroundMode,
+            solidVariant: solidBackgroundVariant,
+            solidColorId: solidBackgroundColorId,
+            marqueeBorder: marqueeBorderEnabled
+        },
+        topUi: {
+            mode: topUiMode
         },
         audio: {
             vocalPack: activeVocalPack,
@@ -389,14 +396,41 @@ function queueCustomPropStyle(style: unknown): void {
     isNoGravityMode = loadedGameRule === 'no-gravity';
 
     const savedBackground = saveData.background;
-    if (savedBackground && typeof savedBackground.dataUrl === 'string') {
-        recordingBackgroundEnabled = savedBackground.enabled === true && savedBackground.dataUrl.length > 0;
-        recordingBackgroundDataUrl = recordingBackgroundEnabled ? savedBackground.dataUrl : '';
-        recordingBackgroundActiveId = recordingBackgroundEnabled
-            ? (typeof savedBackground.activeId === 'string' ? savedBackground.activeId : 'playable-background')
-            : NO_BACKGROUND_ID;
-        loadRecordingBackgroundImage(recordingBackgroundDataUrl);
+    if (savedBackground) {
+        const savedMode = savedBackground.mode === 'solid' ? 'solid' : 'image';
+        recordingBackgroundMode = savedMode;
+        if (savedBackground.solidVariant === 'animated' || savedBackground.solidVariant === 'solid') {
+            solidBackgroundVariant = savedBackground.solidVariant;
+        }
+        if (
+            typeof savedBackground.solidColorId === 'string' &&
+            SOLID_BACKGROUND_COLORS.some(color => color.id === savedBackground.solidColorId)
+        ) {
+            solidBackgroundColorId = savedBackground.solidColorId;
+        }
+        if (typeof savedBackground.marqueeBorder === 'boolean') {
+            marqueeBorderEnabled = savedBackground.marqueeBorder;
+        }
+        if (savedMode === 'solid') {
+            recordingBackgroundEnabled = savedBackground.enabled === true;
+            recordingBackgroundDataUrl = '';
+            recordingBackgroundActiveId = recordingBackgroundEnabled ? SOLID_BACKGROUND_ID : NO_BACKGROUND_ID;
+        } else if (typeof savedBackground.dataUrl === 'string') {
+            recordingBackgroundEnabled = savedBackground.enabled === true && savedBackground.dataUrl.length > 0;
+            recordingBackgroundDataUrl = recordingBackgroundEnabled ? savedBackground.dataUrl : '';
+            recordingBackgroundActiveId = recordingBackgroundEnabled
+                ? (typeof savedBackground.activeId === 'string' ? savedBackground.activeId : 'playable-background')
+                : NO_BACKGROUND_ID;
+        }
+        persistRecordingBackgroundState();
+        loadRecordingBackgroundImage(recordingBackgroundMode === 'image' ? recordingBackgroundDataUrl : '');
         syncRecordingBackgroundUI();
+    }
+
+    if (saveData.topUi?.mode === 'heart' || saveData.topUi?.mode === 'classic') {
+        topUiMode = saveData.topUi.mode;
+        localStorage.setItem('topUiMode', topUiMode);
+        syncTopUiMode();
     }
 
     const savedAudio = saveData.audio;
@@ -564,7 +598,7 @@ const PARAMS = {
 
 
 
-  shatterMode: 2,
+  shatterMode: 1,
 
 
 
@@ -592,6 +626,12 @@ const PROBS = {
 
 
 };
+
+let previewRenderRows = DEFAULT_BOARD_ROWS;
+
+function getPreviewRenderRows(): number {
+  return Math.max(1, Math.min(PARAMS.totalRows, previewRenderRows || PARAMS.viewportRows));
+}
 
 
 
@@ -1158,6 +1198,8 @@ let activeRecordingStepIndex: number | null = null;
 
 
 let activeEliminationWaveIndex = 0;
+
+let pendingSequentialClearBlockIds: number[][] = [];
 
 
 
@@ -9340,9 +9382,11 @@ async function showMaterialMapperDialog(files: File[]): Promise<Record<string, s
 
         slot.appendChild(emptyText);
 
-      }
+  }
 
-    }
+  syncTopUiMode();
+
+}
 
 
 
@@ -10723,6 +10767,8 @@ function updateHeaderUI() {
 
   const currentLevel = levelInput ? levelInput.value : '284';
 
+  gameHeaderEl.classList.toggle('heart-header-mode', topUiMode === 'heart');
+
 
 
 
@@ -10746,6 +10792,7 @@ function updateHeaderUI() {
 
 
     headerItemEl.innerHTML = `<span class="collect-score-hud"><span class="collect-score-label">SCORE</span><span id="score-val" class="collect-score-value">${currentScore.toLocaleString()}</span></span><span id="level-val" style="display:none;">${currentLevel}</span>`;
+    setScoreTextEverywhere(currentScore.toLocaleString());
 
 
 
@@ -10886,6 +10933,7 @@ function updateHeaderUI() {
 
 
     scoreHeaderItemEl.innerHTML = `SCORE: <span id="score-val">${currentScore.toLocaleString()}</span>`;
+    setScoreTextEverywhere(currentScore.toLocaleString());
 
 
 
@@ -12679,7 +12727,7 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-  } else if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
+  } else if (isRecordingBackgroundActive()) {
 
     const recordingBoardBox = { x: 0, y: 0, w: MASTER_UI.width, h: MASTER_UI.height };
 
@@ -16434,10 +16482,7 @@ async function preloadStandaloneSelectedShatterEffects() {
 
 function getPreviewRendererGameHeight(): number {
 
-  // The phone frame is slightly taller than an exact viewport-row multiple.
-  // Render that fractional overscan so the board reaches the lower inner edge
-  // without changing the logical scroll viewport or stretching block cells.
-  return PARAMS.viewportRows * PARAMS.cellSize * BOARD_FRAME_VERTICAL_SCALE;
+  return getPreviewRenderRows() * PARAMS.cellSize;
 
 }
 
@@ -16915,6 +16960,10 @@ interface ManagedRecordingBackground {
 
 
 
+  kind?: 'image' | 'solid';
+
+
+
   builtin?: boolean;
 
 
@@ -16922,6 +16971,29 @@ interface ManagedRecordingBackground {
 }
 
 const NO_BACKGROUND_ID = 'none';
+
+const SOLID_BACKGROUND_ID = 'solid';
+
+type RecordingBackgroundMode = 'image' | 'solid';
+
+type SolidBackgroundVariant = 'solid' | 'animated';
+
+type TopUiMode = 'classic' | 'heart';
+
+const HEART_IDLE_URL = '/assets/ui/heart-idle.webm';
+
+const HEART_CLEAR_URL = '/assets/ui/heart-clear.webm';
+
+const SOLID_BACKGROUND_COLORS = [
+  { id: 'deep-blue', name: '深蓝紫', from: '#344372', to: '#563762' },
+  { id: 'royal-violet', name: '皇家紫', from: '#3a356f', to: '#6b3c7f' },
+  { id: 'berry', name: '莓果', from: '#5b315d', to: '#8a3f66' },
+  { id: 'teal-night', name: '青夜', from: '#24546b', to: '#34416c' },
+  { id: 'slate-indigo', name: '灰靛', from: '#3d4d78', to: '#3e3a68' },
+  { id: 'rose-dusk', name: '玫瑰暮色', from: '#7b4265', to: '#4d3a6b' }
+];
+
+const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'deep-blue';
 
 
 
@@ -17057,6 +17129,20 @@ let recordingBackgroundDataUrl = localStorage.getItem('recordingBackgroundDataUr
 
 let recordingBackgroundActiveId = localStorage.getItem('recordingBackgroundActiveId') || NO_BACKGROUND_ID;
 
+let recordingBackgroundMode: RecordingBackgroundMode =
+  localStorage.getItem('recordingBackgroundMode') === 'solid' ? 'solid' : 'image';
+
+let solidBackgroundVariant: SolidBackgroundVariant =
+  localStorage.getItem('solidBackgroundVariant') === 'animated' ? 'animated' : 'solid';
+
+let solidBackgroundColorId = localStorage.getItem('solidBackgroundColorId') || DEFAULT_SOLID_BACKGROUND_COLOR_ID;
+
+let topUiMode: TopUiMode = localStorage.getItem('topUiMode') === 'heart' ? 'heart' : 'classic';
+
+let marqueeBorderEnabled = localStorage.getItem('marqueeBorderEnabled') === 'true';
+
+let heartClearTimer: number | null = null;
+
 
 
 let recordingBackgroundImage: HTMLImageElement | null = null;
@@ -17064,6 +17150,127 @@ let recordingBackgroundImage: HTMLImageElement | null = null;
 
 
 let recordingBackgroundImageLoaded = false;
+
+function getSolidBackgroundColor() {
+  return SOLID_BACKGROUND_COLORS.find(color => color.id === solidBackgroundColorId) || SOLID_BACKGROUND_COLORS[0];
+}
+
+function isSolidRecordingBackgroundActive() {
+  return recordingBackgroundEnabled && recordingBackgroundMode === 'solid';
+}
+
+function isImageRecordingBackgroundActive() {
+  return recordingBackgroundEnabled && recordingBackgroundMode === 'image' && !!recordingBackgroundDataUrl;
+}
+
+function isRecordingBackgroundActive() {
+  return isSolidRecordingBackgroundActive() || isImageRecordingBackgroundActive();
+}
+
+function persistRecordingBackgroundState() {
+  localStorage.setItem('recordingBackgroundActiveId', recordingBackgroundActiveId);
+  localStorage.setItem('recordingBackgroundDataUrl', recordingBackgroundDataUrl);
+  localStorage.setItem('recordingBackgroundEnabled', String(recordingBackgroundEnabled));
+  localStorage.setItem('recordingBackgroundMode', recordingBackgroundMode);
+  localStorage.setItem('solidBackgroundVariant', solidBackgroundVariant);
+  localStorage.setItem('solidBackgroundColorId', solidBackgroundColorId);
+  localStorage.setItem('marqueeBorderEnabled', String(marqueeBorderEnabled));
+}
+
+function setScoreTextEverywhere(value: string) {
+  const scoreEl = document.getElementById('score-val');
+  const heartScoreEl = document.getElementById('heart-score-val');
+  if (scoreEl) scoreEl.innerText = value;
+  if (heartScoreEl) heartScoreEl.innerText = value;
+}
+
+function syncTopUiModeButtons() {
+  document.querySelectorAll<HTMLButtonElement>('[data-top-ui-mode]').forEach(button => {
+    const active = button.dataset.topUiMode === topUiMode;
+    button.classList.toggle('active', active);
+    button.style.background = active ? '#3b6bdc' : '#4a4a5e';
+  });
+}
+
+function syncTopUiMode() {
+  const gameHeaderEl = document.getElementById('game-header');
+  const boardWrapperEl = document.getElementById('board-wrapper');
+  const scoreEl = document.getElementById('score-val');
+  const heartScoreEl = document.getElementById('heart-score-val');
+  const heartGifEl = document.getElementById('heart-score-gif') as HTMLVideoElement | null;
+  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
+
+  gameHeaderEl?.classList.toggle('heart-header-mode', topUiMode === 'heart');
+  boardWrapperEl?.classList.toggle('heart-top-ui-live', topUiMode === 'heart');
+  if (heartScoreEl && scoreEl) heartScoreEl.innerText = scoreEl.innerText;
+  if (heartGifEl && !heartGifEl.src.endsWith(HEART_IDLE_URL)) heartGifEl.src = HEART_IDLE_URL;
+  if (heartBurstEl && !heartBurstEl.src.endsWith(HEART_CLEAR_URL)) heartBurstEl.src = HEART_CLEAR_URL;
+  heartGifEl?.play().catch(() => {});
+  syncTopUiModeButtons();
+}
+
+function setTopUiMode(mode: TopUiMode) {
+  topUiMode = mode;
+  localStorage.setItem('topUiMode', topUiMode);
+  updateHeaderUI();
+  syncTopUiMode();
+}
+
+function triggerHeartClearHud() {
+  if (topUiMode !== 'heart') return;
+  const heartHudEl = document.getElementById('heart-score-hud');
+  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
+  if (!heartHudEl || !heartBurstEl) return;
+
+  if (heartClearTimer !== null) window.clearTimeout(heartClearTimer);
+  heartBurstEl.currentTime = 0;
+  heartHudEl.classList.remove('clearing');
+  void heartHudEl.offsetWidth;
+  heartHudEl.classList.add('clearing');
+  heartBurstEl.play().catch(() => {});
+  heartClearTimer = window.setTimeout(() => {
+    heartHudEl.classList.remove('clearing');
+    heartBurstEl.pause();
+    heartClearTimer = null;
+  }, 1600);
+}
+
+function syncMarqueeBorderUI() {
+  const checkbox = document.getElementById('input-marquee-border') as HTMLInputElement | null;
+  const boardWrapper = document.getElementById('board-wrapper');
+  if (checkbox) checkbox.checked = marqueeBorderEnabled;
+  boardWrapper?.classList.toggle('marquee-border-live', marqueeBorderEnabled);
+}
+
+function setMarqueeBorderEnabled(enabled: boolean) {
+  marqueeBorderEnabled = enabled;
+  persistRecordingBackgroundState();
+  syncMarqueeBorderUI();
+}
+
+function createSolidBackgroundGradient(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number
+) {
+  const current = getSolidBackgroundColor();
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+
+  gradient.addColorStop(0, current.from);
+  gradient.addColorStop(1, current.to);
+
+  return gradient;
+}
+
+function advanceSolidBackgroundColorOnElimination() {
+  if (!isSolidRecordingBackgroundActive() || solidBackgroundVariant !== 'animated') return;
+
+  const currentIndex = Math.max(0, SOLID_BACKGROUND_COLORS.findIndex(color => color.id === solidBackgroundColorId));
+  const next = SOLID_BACKGROUND_COLORS[(currentIndex + 1) % SOLID_BACKGROUND_COLORS.length];
+  solidBackgroundColorId = next.id;
+  persistRecordingBackgroundState();
+  syncRecordingBackgroundUI();
+}
 
 
 
@@ -17291,7 +17498,7 @@ async function init() {
 
 
 
-    height: PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2,
+    height: getPreviewRendererGameHeight() + PADDING * 2,
 
 
 
@@ -18413,10 +18620,8 @@ function drawGrid() {
 
   const lineWidth = 1 / fitScale;
 
-  const useGeneratedBackgroundUI =
-    recordingBackgroundEnabled &&
-    recordingBackgroundActiveId !== MASTER_BACKGROUND_ID &&
-    recordingBackgroundActiveId !== NO_BACKGROUND_ID;
+  const useGeneratedBackgroundUI = isRecordingBackgroundActive();
+  const useSolidBackgroundUI = isSolidRecordingBackgroundActive();
 
   const gridStart = 0;
   const gridColEnd = PARAMS.gridCols;
@@ -18462,8 +18667,8 @@ function drawGrid() {
 
   gridGraphics.stroke({
     width: lineWidth,
-    color: useGeneratedBackgroundUI ? 0x9aa4d3 : 0xffffff,
-    alpha: useGeneratedBackgroundUI ? 0.2 : 0.05
+    color: useSolidBackgroundUI ? 0x151f43 : (useGeneratedBackgroundUI ? 0x9aa4d3 : 0xffffff),
+    alpha: useSolidBackgroundUI ? 0.58 : (useGeneratedBackgroundUI ? 0.2 : 0.05)
   });
 
 
@@ -22138,6 +22343,8 @@ function clearAllBlocks() {
 
   blocks = [];
 
+  pendingSequentialClearBlockIds = [];
+
 
 
   nextBlockId = 1; // Reset block ID counter to keep IDs fully deterministic across restores
@@ -24981,6 +25188,12 @@ function changeSingleColor() {
 
 
 
+function getRowsForLockedSequentialBlocks(ids: number[] | null): number[] {
+  if (!ids || ids.length === 0) return [];
+  const idSet = new Set(ids);
+  return Array.from(new Set(blocks.filter(block => idSet.has(block.id)).map(block => block.row)));
+}
+
 function checkEliminations() {
 
 
@@ -24989,7 +25202,20 @@ function checkEliminations() {
 
 
 
-  const fullRows: number[] = [];
+  let fullRows: number[] = [];
+  let lockedSequentialBlockIds: number[] | null = null;
+
+  const startLockedSequentialClear = (rows: number[]) => {
+    pendingSequentialClearBlockIds = [...rows]
+      .sort((a, b) => b - a)
+      .map(row => blocks
+        .filter(block => !block.isProp && block.row === row)
+        .map(block => block.id)
+      )
+      .filter(ids => ids.length > 0);
+    lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
+    fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+  };
 
 
 
@@ -24997,7 +25223,10 @@ function checkEliminations() {
 
 
 
-  if (activeSimulatingStepIndex !== null && !isRepairingScript) {
+  if (pendingSequentialClearBlockIds.length > 0) {
+    lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
+    fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+  } else if (activeSimulatingStepIndex !== null && !isRepairingScript) {
 
 
 
@@ -25060,6 +25289,15 @@ function checkEliminations() {
 
 
 
+
+  if (
+    lockedSequentialBlockIds === null &&
+    PARAMS.rowClearOrder === 'bottom-up' &&
+    fullRows.length > 1 &&
+    activeSimulatingStepIndex === null
+  ) {
+    startLockedSequentialClear(fullRows);
+  }
 
   if (fullRows.length > 0) {
     // TRACK ELIMINATIONS FOR PLAYABLE
@@ -25172,6 +25410,9 @@ function checkEliminations() {
 
 
     comboCount += 1;
+
+    advanceSolidBackgroundColorOnElimination();
+    triggerHeartClearHud();
 
     if (isRisingAdvanceActive()) {
       risingEliminationWavesThisMove += 1;
@@ -25300,7 +25541,7 @@ function checkEliminations() {
 
 
 
-          scoreEl.innerText = Math.round(counter.val).toLocaleString();
+          setScoreTextEverywhere(Math.round(counter.val).toLocaleString());
 
 
 
@@ -25320,7 +25561,10 @@ function checkEliminations() {
 
 
 
-    const blocksToRemove = blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    const lockedSequentialIdSet = lockedSequentialBlockIds ? new Set(lockedSequentialBlockIds) : null;
+    const blocksToRemove = lockedSequentialIdSet
+      ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
+      : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
 
 
 
@@ -25408,7 +25652,9 @@ function checkEliminations() {
         });
 
 
-        blocks = blocks.filter(b => b.isProp || !fullRows.includes(b.row));
+        blocks = lockedSequentialIdSet
+          ? blocks.filter(b => b.isProp || !lockedSequentialIdSet.has(b.id))
+          : blocks.filter(b => b.isProp || !fullRows.includes(b.row));
 
 
 
@@ -28875,6 +29121,8 @@ function getManagedRecordingBackgrounds(): ManagedRecordingBackground[] {
 
 
 
+    { id: SOLID_BACKGROUND_ID, name: '纯色', src: '', kind: 'solid', builtin: true },
+
     ...customItems
 
 
@@ -28899,7 +29147,7 @@ function saveCustomRecordingBackgrounds(items: ManagedRecordingBackground[]) {
 
 
 
-    .filter(item => !item.builtin && item.id !== MASTER_BACKGROUND_ID && item.id !== NO_BACKGROUND_ID)
+    .filter(item => !item.builtin && item.id !== MASTER_BACKGROUND_ID && item.id !== NO_BACKGROUND_ID && item.id !== SOLID_BACKGROUND_ID)
 
 
 
@@ -28925,29 +29173,23 @@ function selectRecordingBackground(item: ManagedRecordingBackground) {
 
   recordingBackgroundActiveId = item.id;
 
-
-
-  recordingBackgroundDataUrl = item.src;
-
-
-
-  recordingBackgroundEnabled = item.id !== NO_BACKGROUND_ID && !!item.src;
+  recordingBackgroundMode = item.id === SOLID_BACKGROUND_ID || item.kind === 'solid' ? 'solid' : 'image';
 
 
 
-  localStorage.setItem('recordingBackgroundActiveId', recordingBackgroundActiveId);
+  recordingBackgroundDataUrl = recordingBackgroundMode === 'image' ? item.src : '';
 
 
 
-  localStorage.setItem('recordingBackgroundDataUrl', recordingBackgroundDataUrl);
+  recordingBackgroundEnabled = item.id === SOLID_BACKGROUND_ID || (item.id !== NO_BACKGROUND_ID && !!item.src);
 
 
 
-  localStorage.setItem('recordingBackgroundEnabled', String(recordingBackgroundEnabled));
+  persistRecordingBackgroundState();
 
 
 
-  loadRecordingBackgroundImage(recordingBackgroundDataUrl);
+  loadRecordingBackgroundImage(recordingBackgroundMode === 'image' ? recordingBackgroundDataUrl : '');
 
 
 
@@ -29115,11 +29357,16 @@ function renderRecordingBackgroundList() {
 
 
 
-    thumb.className = `record-bg-card-thumb${item.id === NO_BACKGROUND_ID ? ' no-bg' : ''}`;
+    thumb.className = `record-bg-card-thumb${item.id === NO_BACKGROUND_ID ? ' no-bg' : ''}${item.id === SOLID_BACKGROUND_ID ? ' solid-bg' : ''}`;
 
 
 
-    if (item.src) thumb.style.backgroundImage = `url("${item.src}")`;
+    if (item.id === SOLID_BACKGROUND_ID) {
+      const color = getSolidBackgroundColor();
+      thumb.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+    } else if (item.src) {
+      thumb.style.backgroundImage = `url("${item.src}")`;
+    }
 
 
 
@@ -29299,6 +29546,55 @@ function renderRecordingBackgroundList() {
 
 
 
+function setSolidBackgroundVariant(variant: SolidBackgroundVariant) {
+  solidBackgroundVariant = variant;
+  recordingBackgroundMode = 'solid';
+  recordingBackgroundActiveId = SOLID_BACKGROUND_ID;
+  recordingBackgroundDataUrl = '';
+  recordingBackgroundEnabled = true;
+  persistRecordingBackgroundState();
+  loadRecordingBackgroundImage('');
+  syncRecordingBackgroundUI();
+}
+
+function setSolidBackgroundColor(id: string) {
+  if (!SOLID_BACKGROUND_COLORS.some(color => color.id === id)) return;
+  solidBackgroundColorId = id;
+  recordingBackgroundMode = 'solid';
+  recordingBackgroundActiveId = SOLID_BACKGROUND_ID;
+  recordingBackgroundDataUrl = '';
+  recordingBackgroundEnabled = true;
+  persistRecordingBackgroundState();
+  loadRecordingBackgroundImage('');
+  syncRecordingBackgroundUI();
+}
+
+function renderSolidBackgroundControls() {
+  const panel = document.getElementById('record-solid-bg-controls');
+  const modeButtons = document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-variant]');
+  const palette = document.getElementById('record-solid-bg-palette');
+  if (!panel || !palette) return;
+
+  const showSolidControls = recordingBackgroundActiveId === SOLID_BACKGROUND_ID || recordingBackgroundMode === 'solid';
+  panel.classList.toggle('active', showSolidControls);
+
+  modeButtons.forEach(button => {
+    const variant = button.dataset.solidBgVariant as SolidBackgroundVariant | undefined;
+    button.classList.toggle('active', variant === solidBackgroundVariant);
+  });
+
+  palette.innerHTML = '';
+  SOLID_BACKGROUND_COLORS.forEach(color => {
+    const swatch = document.createElement('button');
+    swatch.type = 'button';
+    swatch.className = `solid-bg-swatch${color.id === solidBackgroundColorId ? ' active' : ''}`;
+    swatch.title = color.name;
+    swatch.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+    swatch.addEventListener('click', () => setSolidBackgroundColor(color.id));
+    palette.appendChild(swatch);
+  });
+}
+
 function syncRecordingBackgroundUI() {
 
 
@@ -29339,13 +29635,29 @@ function syncRecordingBackgroundUI() {
 
 
 
-    if (recordingBackgroundDataUrl) {
+    if (isSolidRecordingBackgroundActive()) {
+
+      const color = getSolidBackgroundColor();
+
+      preview.textContent = '';
+
+      preview.style.backgroundImage = '';
+
+      preview.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+
+      preview.style.backgroundSize = '100% 100%';
+
+
+
+    } else if (recordingBackgroundDataUrl) {
 
 
 
       preview.textContent = '';
 
 
+
+      preview.style.background = '';
 
       preview.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
 
@@ -29365,6 +29677,8 @@ function syncRecordingBackgroundUI() {
 
       preview.style.backgroundImage = '';
 
+      preview.style.background = '';
+
 
 
       preview.style.backgroundSize = '100% 100%';
@@ -29383,11 +29697,17 @@ function syncRecordingBackgroundUI() {
 
 
 
-    status.classList.toggle('active', recordingBackgroundEnabled && !!recordingBackgroundDataUrl);
+    status.classList.toggle('active', isRecordingBackgroundActive());
 
 
 
-    if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
+    if (isSolidRecordingBackgroundActive()) {
+
+      status.textContent = solidBackgroundVariant === 'animated' ? '已启用变色纯色背景' : '已启用纯色背景';
+
+
+
+    } else if (isImageRecordingBackgroundActive()) {
 
 
 
@@ -29423,7 +29743,9 @@ function syncRecordingBackgroundUI() {
 
 
 
-    const showLiveBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+    const showLiveBackground = isRecordingBackgroundActive();
+
+    const showSolidBackground = isSolidRecordingBackgroundActive();
 
     const useGeneratedBackgroundUI = showLiveBackground;
 
@@ -29433,11 +29755,27 @@ function syncRecordingBackgroundUI() {
 
       boardWrapper.classList.toggle('generated-board-ui', useGeneratedBackgroundUI);
 
+      boardWrapper.classList.toggle('solid-bg-live', showSolidBackground);
 
 
-    if (showLiveBackground) {
+
+    if (showSolidBackground) {
+
+      const color = getSolidBackgroundColor();
+
+      boardWrapper.style.backgroundImage = '';
+
+      boardWrapper.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+
+      boardWrapper.style.backgroundSize = '100% 100%';
 
 
+
+    } else if (showLiveBackground) {
+
+
+
+      boardWrapper.style.background = '';
 
       boardWrapper.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
 
@@ -29452,6 +29790,8 @@ function syncRecordingBackgroundUI() {
 
 
       boardWrapper.style.backgroundImage = '';
+
+      boardWrapper.style.background = '';
 
 
 
@@ -29471,6 +29811,10 @@ function syncRecordingBackgroundUI() {
 
   positionPreviewCanvasInMaster();
 
+  renderSolidBackgroundControls();
+
+  syncMarqueeBorderUI();
+
 
 
   renderRecordingBackgroundList();
@@ -29489,11 +29833,18 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
 
 
 
-  ctx.fillStyle = '#2e3764';
+  ctx.fillStyle = isSolidRecordingBackgroundActive()
+    ? createSolidBackgroundGradient(ctx, width, height)
+    : '#2e3764';
 
 
 
   ctx.fillRect(0, 0, width, height);
+
+  if (isSolidRecordingBackgroundActive() && topUiMode !== 'heart') {
+    drawSolidRecordingFrame(ctx, width, height);
+    return;
+  }
 
 
 
@@ -29519,6 +29870,67 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
 
 }
 
+function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const headerBox = {
+    x: MASTER_UI.header.x * width,
+    y: MASTER_UI.header.y * height,
+    w: MASTER_UI.header.w * width,
+    h: MASTER_UI.header.h * height
+  };
+  const boardBox = getMasterBoardCanvasRect(width, height);
+  const radius = Math.max(4, width * 0.011);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(30, 40, 86, 0.86)';
+  ctx.strokeStyle = '#202b61';
+  ctx.lineWidth = Math.max(4, width * 0.008);
+  drawRoundedRectPath(ctx, headerBox.x, headerBox.y, headerBox.w, headerBox.h, radius);
+  ctx.fill();
+  ctx.stroke();
+
+  drawSolidRecordingBoardFrame(ctx, boardBox, width);
+  ctx.restore();
+}
+
+function drawSolidRecordingBoardFrame(
+  ctx: CanvasRenderingContext2D,
+  boardBox: { x: number; y: number; w: number; h: number },
+  width: number
+) {
+  const radius = Math.max(4, width * 0.011);
+
+  ctx.save();
+  ctx.fillStyle = '#232d5c';
+  ctx.strokeStyle = '#1c2655';
+  ctx.lineWidth = Math.max(5, width * 0.009);
+  drawRoundedRectPath(ctx, boardBox.x, boardBox.y, boardBox.w, boardBox.h, radius);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRoundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
 
 
 
@@ -29533,7 +29945,7 @@ function drawRecordingVerticalGrid(ctx: CanvasRenderingContext2D, boardBox: { x:
 
 
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.strokeStyle = isSolidRecordingBackgroundActive() ? 'rgba(18,27,65,0.62)' : 'rgba(255,255,255,0.12)';
 
 
 
@@ -29565,6 +29977,18 @@ function drawRecordingVerticalGrid(ctx: CanvasRenderingContext2D, boardBox: { x:
 
 
 
+  }
+
+  if (isSolidRecordingBackgroundActive()) {
+    const contentSize = getBoardCanvasContentSize();
+    const rowCount = Math.max(1, Math.round((contentSize.h - PADDING * 2) / PARAMS.cellSize));
+    for (let r = 1; r < rowCount; r++) {
+      const y = Math.round(boardBox.y + (boardBox.h * r) / rowCount) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(boardBox.x, y);
+      ctx.lineTo(boardBox.x + boardBox.w, y);
+      ctx.stroke();
+    }
   }
 
 
@@ -29642,7 +30066,22 @@ function getBoardCanvasContentSize() {
 function getMasterBoardCanvasRect(width: number, height: number) {
   const boardBox = getMasterBoardContentRect(width, height);
   const contentSize = getBoardCanvasContentSize();
-  return fitRectCoverPreserveAspect(boardBox, contentSize.w, contentSize.h);
+  return fitRectToFixedWidthPreserveAspect(boardBox, contentSize.w, contentSize.h);
+}
+
+function positionBoardClipInMaster() {
+  const boardClip = document.getElementById('board-clip');
+  const boardWrapper = document.getElementById('board-wrapper');
+  if (!boardClip || !boardWrapper) return null;
+
+  const boardBox = getMasterBoardContentRect(boardWrapper.clientWidth, boardWrapper.clientHeight);
+
+  boardClip.style.left = `${boardBox.x}px`;
+  boardClip.style.top = `${boardBox.y}px`;
+  boardClip.style.width = `${boardBox.w}px`;
+  boardClip.style.height = `${boardBox.h}px`;
+
+  return boardBox;
 }
 
 function mapBoardWrapperRectToRecordingRect(
@@ -29673,6 +30112,37 @@ function mapBoardWrapperRectToRecordingRect(
 
 }
 
+function getDomMappedRecordingRect(
+  element: HTMLElement | null,
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const elementRect = element?.getBoundingClientRect();
+  if (!boardRect || !elementRect) return null;
+  return mapBoardWrapperRectToRecordingRect(elementRect, boardRect, { x: 0, y: 0, w: width, h: height });
+}
+
+function getRecordingBoardClipRect(
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const domBox = getDomMappedRecordingRect(document.getElementById('board-clip'), boardWrapper, width, height);
+  return domBox || getMasterBoardContentRect(width, height);
+}
+
+function getRecordingPixiCanvasRect(
+  canvas: HTMLCanvasElement,
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const domBox = getDomMappedRecordingRect(canvas, boardWrapper, width, height);
+  return domBox || getMasterBoardCanvasRect(width, height);
+}
+
 
 
 function drawRecordingImageContained(
@@ -29694,6 +30164,115 @@ function drawRecordingImageContained(
     drawWidth,
     drawHeight
   );
+}
+
+function drawRecordingVideoContained(
+  context: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  box: { x: number; y: number; w: number; h: number }
+): void {
+  const sourceWidth = video.videoWidth || video.clientWidth;
+  const sourceHeight = video.videoHeight || video.clientHeight;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || box.w <= 0 || box.h <= 0) return;
+
+  const scale = Math.min(box.w / sourceWidth, box.h / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  context.drawImage(
+    video,
+    box.x + (box.w - drawWidth) / 2,
+    box.y + (box.h - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  );
+}
+
+function drawRecordingHeartHud(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  headerBox: { x: number; y: number; w: number; h: number },
+  boardWrapper: HTMLElement | null
+) {
+  const scoreText = document.getElementById('heart-score-val')?.innerText
+    || document.getElementById('score-val')?.innerText
+    || '0';
+  const heartHud = document.getElementById('heart-score-hud');
+  const heartImage = document.getElementById('heart-score-gif') as HTMLVideoElement | null;
+  const heartBurstImage = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const hudRect = heartHud?.getBoundingClientRect();
+  const heartRect = heartImage?.getBoundingClientRect();
+  const burstRect = heartBurstImage?.getBoundingClientRect();
+  const scoreEl = document.getElementById('heart-score-val') as HTMLElement | null;
+  const wrapperScaleX = boardRect ? width / Math.max(1, boardRect.width) : 1;
+  const hudBox = boardRect && hudRect
+    ? mapBoardWrapperRectToRecordingRect(hudRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: headerBox.x + headerBox.w * 0.33, y: headerBox.y, w: headerBox.w * 0.34, h: headerBox.h };
+  const heartBox = boardRect && heartRect
+    ? mapBoardWrapperRectToRecordingRect(heartRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: hudBox.x, y: hudBox.y + height * (10 / MASTER_UI.height), w: hudBox.w, h: hudBox.h };
+  const burstBox = boardRect && burstRect
+    ? mapBoardWrapperRectToRecordingRect(burstRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: heartBox.x - heartBox.w * 0.25, y: heartBox.y - heartBox.h * 0.25, w: heartBox.w * 1.5, h: heartBox.h * 1.5 };
+  const centerX = hudBox.x + hudBox.w / 2;
+  const centerY = hudBox.y + hudBox.h / 2;
+
+  context.save();
+  if (heartHud?.classList.contains('clearing') && heartBurstImage && heartBurstImage.readyState >= 2 && heartBurstImage.videoWidth > 0) {
+    drawRecordingVideoContained(context, heartBurstImage, burstBox);
+  }
+  if (heartImage && heartImage.readyState >= 2 && heartImage.videoWidth > 0) {
+    drawRecordingVideoContained(context, heartImage, heartBox);
+  }
+  const cssFontSize = scoreEl ? parseFloat(getComputedStyle(scoreEl).fontSize) : 58;
+  const fontSize = Math.round(cssFontSize * wrapperScaleX);
+  context.font = `900 ${fontSize}px 'Arial Black', 'Impact', sans-serif`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.lineWidth = width * 0.006;
+  context.strokeStyle = 'rgba(91, 45, 128, 0.65)';
+  context.fillStyle = '#ffffff';
+  context.shadowColor = 'rgba(230, 86, 255, 0.8)';
+  context.shadowBlur = width * 0.025;
+  context.strokeText(scoreText, centerX, centerY);
+  context.fillText(scoreText, centerX, centerY);
+  context.restore();
+}
+
+function drawRecordingMarqueeBorder(
+  context: CanvasRenderingContext2D,
+  boardBox: { x: number; y: number; w: number; h: number },
+  timeMs: number
+) {
+  if (!marqueeBorderEnabled) return;
+
+  const phase = (timeMs / 1000) % 1;
+  const gradient = context.createLinearGradient(boardBox.x, boardBox.y, boardBox.x + boardBox.w, boardBox.y + boardBox.h);
+  gradient.addColorStop(0, '#ff36f2');
+  gradient.addColorStop(0.25, '#22f8ff');
+  gradient.addColorStop(0.52, '#2767ff');
+  gradient.addColorStop(0.78, '#26ff83');
+  gradient.addColorStop(1, '#fff34d');
+
+  context.save();
+  context.lineWidth = Math.max(7, boardBox.w * 0.014);
+  context.strokeStyle = gradient;
+  context.shadowColor = '#22f8ff';
+  context.shadowBlur = boardBox.w * 0.025;
+  context.strokeRect(boardBox.x + context.lineWidth / 2, boardBox.y + context.lineWidth / 2, boardBox.w - context.lineWidth, boardBox.h - context.lineWidth);
+
+  context.shadowColor = '#fff34d';
+  context.shadowBlur = boardBox.w * 0.018;
+  context.strokeStyle = '#fff34d';
+  context.lineWidth = Math.max(3, boardBox.w * 0.006);
+  const runnerW = boardBox.w * 0.26;
+  const runnerX = boardBox.x + ((boardBox.w + runnerW) * phase) - runnerW;
+  context.beginPath();
+  context.moveTo(Math.max(boardBox.x, runnerX), boardBox.y + boardBox.h - 12);
+  context.lineTo(Math.min(boardBox.x + boardBox.w, runnerX + runnerW), boardBox.y + boardBox.h - 12);
+  context.stroke();
+  context.restore();
 }
 
 function getRecordingCollectIconRect(width: number, height: number) {
@@ -29880,7 +30459,7 @@ function fitRectToWidthPreserveAspect(
 
 }
 
-function fitRectCoverPreserveAspect(
+function fitRectToFixedWidthPreserveAspect(
 
 
 
@@ -29912,11 +30491,11 @@ function fitRectCoverPreserveAspect(
 
 
 
-  const scale = Math.max(target.w / contentW, target.h / contentH);
+  const scale = target.w / contentW;
 
   const w = contentW * scale;
 
-  const h = contentH * scale;
+  const h = Math.max(target.h, contentH * scale);
 
 
 
@@ -29924,7 +30503,7 @@ function fitRectCoverPreserveAspect(
 
 
 
-    x: target.x + (target.w - w) / 2,
+    x: target.x,
 
 
 
@@ -29948,10 +30527,6 @@ function fitRectCoverPreserveAspect(
 
 
 
-
-
-
-
 function getPreviewContentSize() {
 
 
@@ -29972,11 +30547,12 @@ function positionPreviewCanvasInMaster() {
 
 
 
+  const boardClipRect = positionBoardClipInMaster();
+
   const boardClip = document.getElementById('board-clip');
 
 
-
-  if (!boardClip || !app?.canvas) return;
+  if (!boardClipRect || !boardClip || !app?.canvas) return;
 
 
 
@@ -29986,53 +30562,27 @@ function positionPreviewCanvasInMaster() {
 
   const canvas = app.canvas as HTMLCanvasElement;
 
-
-
-  const contentSize = getPreviewContentSize();
-
-
-
   const targetWidth = boardClip.clientWidth;
 
+  const cssScale = targetWidth / Math.max(1, canvas.width);
 
-
-  const targetHeight = boardClip.clientHeight;
-
-
-
-  const rect = fitRectCoverPreserveAspect(
+  const targetHeight = canvas.height * cssScale;
 
 
 
-    { x: 0, y: 0, w: targetWidth, h: targetHeight },
+  canvas.style.left = '0px';
 
 
 
-    contentSize.w,
+  canvas.style.top = '0px';
 
 
 
-    contentSize.h
+  canvas.style.width = `${targetWidth}px`;
 
 
 
-  );
-
-
-
-  canvas.style.left = `${rect.x}px`;
-
-
-
-  canvas.style.top = `${rect.y}px`;
-
-
-
-  canvas.style.width = `${rect.w}px`;
-
-
-
-  canvas.style.height = `${rect.h}px`;
+  canvas.style.height = `${targetHeight}px`;
 
 
 
@@ -30214,6 +30764,29 @@ function setupDOMUI() {
 
   const recordBgClear = document.getElementById('btn-record-bg-clear') as HTMLButtonElement | null;
 
+  document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-variant]').forEach(button => {
+    button.addEventListener('click', () => {
+      const variant = button.dataset.solidBgVariant;
+      if (variant === 'solid' || variant === 'animated') {
+        setSolidBackgroundVariant(variant);
+      }
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-top-ui-mode]').forEach(button => {
+    button.addEventListener('click', () => {
+      const mode = button.dataset.topUiMode;
+      if (mode === 'classic' || mode === 'heart') {
+        setTopUiMode(mode);
+      }
+    });
+  });
+
+  const marqueeBorderCheckbox = document.getElementById('input-marquee-border') as HTMLInputElement | null;
+  marqueeBorderCheckbox?.addEventListener('change', () => {
+    setMarqueeBorderEnabled(marqueeBorderCheckbox.checked);
+  });
+
 
 
 
@@ -30248,11 +30821,11 @@ function setupDOMUI() {
 
 
 
-    const activeItem = items.find(item => item.id === recordingBackgroundActiveId && item.src);
+    const activeItem = items.find(item => item.id === recordingBackgroundActiveId && (item.src || item.id === SOLID_BACKGROUND_ID));
 
 
 
-    selectRecordingBackground(activeItem || items.find(item => item.id !== NO_BACKGROUND_ID && item.src) || items[0]);
+    selectRecordingBackground(activeItem || items.find(item => item.id === SOLID_BACKGROUND_ID) || items.find(item => item.id !== NO_BACKGROUND_ID && item.src) || items[0]);
 
 
 
@@ -30354,6 +30927,9 @@ function setupDOMUI() {
 
   });
 
+  syncTopUiMode();
+  syncMarqueeBorderUI();
+
 
 
 
@@ -30408,11 +30984,7 @@ function setupDOMUI() {
 
 
 
-      const scoreVal = document.getElementById('score-val');
-
-
-
-      if (scoreVal) scoreVal.innerText = parseInt(inputScore.value).toLocaleString();
+      setScoreTextEverywhere(parseInt(inputScore.value).toLocaleString());
 
 
 
@@ -30549,6 +31121,7 @@ function setupDOMUI() {
 
 
     syncBoardFrameToGrid();
+    previewRenderRows = Math.max(1, Math.min(PARAMS.totalRows, PARAMS.viewportRows));
 
 
 
@@ -30656,15 +31229,7 @@ function setupDOMUI() {
 
 
 
-      const cellH = maxH / PARAMS.viewportRows;
-
-
-
-      
-
-
-
-      const autoCellSize = Math.max(10, Math.floor(Math.min(cellW, cellH)));
+      const autoCellSize = Math.max(10, Math.floor(cellW));
 
 
 
@@ -30741,6 +31306,8 @@ function setupDOMUI() {
 
 
     let fitScale = 1;
+    let boardFrameW = 0;
+    let boardFrameH = 0;
 
 
 
@@ -30761,6 +31328,8 @@ function setupDOMUI() {
 
 
       const maxW = boardRect.w;
+      boardFrameW = boardRect.w;
+      boardFrameH = boardRect.h;
 
 
 
@@ -30794,8 +31363,19 @@ function setupDOMUI() {
 
     const displayCellSize = Math.max(1, Math.round(PARAMS.cellSize * fitScale));
     const displayW = PARAMS.gridCols * displayCellSize + Math.round(PADDING * 2 * fitScale);
+    const boardClipBorderPx = 5;
+    const boardFrameInnerW = Math.max(1, boardFrameW - boardClipBorderPx * 2);
+    const boardFrameInnerH = Math.max(1, boardFrameH - boardClipBorderPx * 2);
+    if (boardFrameInnerH > 0) {
+      const rowsToCoverFrame = Math.ceil(boardFrameInnerH / displayCellSize) + 1;
+      previewRenderRows = Math.max(PARAMS.viewportRows, Math.min(PARAMS.totalRows, rowsToCoverFrame));
+    }
     const previewGameHeight = getPreviewRendererGameHeight();
-    const displayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
+    const contentDisplayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
+    const frameDisplayH = boardFrameInnerW > 0 && boardFrameInnerH > 0
+      ? Math.ceil(boardFrameInnerH * (displayW / boardFrameInnerW))
+      : 0;
+    const displayH = Math.max(contentDisplayH, frameDisplayH);
     app.renderer.resize(displayW, displayH);
 
 
@@ -39231,7 +39811,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-  const useRecordingBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+  const useRecordingBackground = isRecordingBackgroundActive();
 
 
 
@@ -39243,7 +39823,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-  if (recordingBackgroundEnabled && recordingBackgroundDataUrl && !recordingBackgroundImage) {
+  if (isImageRecordingBackgroundActive() && !recordingBackgroundImage) {
 
 
 
@@ -39927,6 +40507,11 @@ function startRecording(): Promise<boolean> {
 
 
 
+      if (topUiMode === 'heart') {
+        recordingCtx!.restore();
+        drawRecordingHeartHud(recordingCtx!, width, height, headerBox, boardWrapper || null);
+        recordingCtx!.save();
+      } else {
       const leftText = `LEVEL: ${document.getElementById('level-val')?.innerText || '284'}`;
 
 
@@ -40013,6 +40598,7 @@ function startRecording(): Promise<boolean> {
 
 
       }
+      }
 
 
 
@@ -40028,7 +40614,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-      if (isCollectMode) {
+      if (isCollectMode && topUiMode !== 'heart') {
 
 
 
@@ -40261,8 +40847,13 @@ function startRecording(): Promise<boolean> {
 
 
 
-      const boardClipBox = getMasterBoardContentRect(width, height);
-      const boardCanvasBox = getMasterBoardCanvasRect(width, height);
+      const boardClipBox = getRecordingBoardClipRect(boardWrapper || null, width, height);
+
+      const boardCanvasBox = getRecordingPixiCanvasRect(pixiCanvas, boardWrapper || null, width, height);
+
+      if (isSolidRecordingBackgroundActive() && topUiMode === 'heart') {
+        drawSolidRecordingBoardFrame(recordingCtx!, boardClipBox, width);
+      }
 
 
 
@@ -40271,7 +40862,6 @@ function startRecording(): Promise<boolean> {
 
 
       recordingCtx!.beginPath();
-
 
 
       recordingCtx!.rect(boardClipBox.x, boardClipBox.y, boardClipBox.w, boardClipBox.h);
@@ -40331,6 +40921,8 @@ function startRecording(): Promise<boolean> {
 
 
       recordingCtx!.restore();
+
+      drawRecordingMarqueeBorder(recordingCtx!, boardClipBox, performance.now());
 
 
 
@@ -41026,7 +41618,7 @@ function stopRecording() {
 
 
 
-  const useRecordingBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+  const useRecordingBackground = isRecordingBackgroundActive();
 
 
 

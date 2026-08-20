@@ -47,8 +47,8 @@ assert.match(
 
 assert.match(
   source,
-  /const boardCanvasBox = getMasterBoardCanvasRect\(width, height\);[\s\S]*?drawRecordingVerticalGrid\(recordingCtx!, boardCanvasBox\);[\s\S]*?boardCanvasBox\.x,[\s\S]*?boardCanvasBox\.y,[\s\S]*?boardCanvasBox\.w,[\s\S]*?boardCanvasBox\.h/,
-  'recording should draw the Pixi canvas into the same cover-fitted rect as the editor preview'
+  /const boardCanvasBox = getRecordingPixiCanvasRect\(pixiCanvas, boardWrapper \|\| null, width, height\);[\s\S]*?drawRecordingVerticalGrid\(recordingCtx!, boardCanvasBox\);[\s\S]*?boardCanvasBox\.x,[\s\S]*?boardCanvasBox\.y,[\s\S]*?boardCanvasBox\.w,[\s\S]*?boardCanvasBox\.h/,
+  'recording should draw the Pixi canvas into the live editor preview rect so blocks are not compressed or enlarged'
 );
 
 console.log('recording collect coordinate regression checks passed');

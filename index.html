@@ -92,6 +92,11 @@
         padding: 0 4px !important;
         text-align: center !important;
       }
+      body.is-playable #game-header.heart-header-mode {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+      }
       body.is-playable .header-item {
         min-width: 0 !important;
         overflow: hidden !important;
@@ -173,6 +178,118 @@
       body:not(.is-playable) #script-steps-panel {
         grid-column: 6 !important;
         width: 158px !important;
+      }
+      #heart-score-hud {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        width: 210px;
+        height: 150px;
+        pointer-events: none;
+        z-index: 3;
+      }
+      #heart-score-gif {
+        position: absolute;
+        left: 50%;
+        top: calc(50% + 10px);
+        width: 120%;
+        height: 120%;
+        object-fit: contain;
+        transform: translate(-50%, -50%);
+        filter: drop-shadow(0 0 18px rgba(229, 74, 255, 0.72));
+      }
+      #heart-score-burst {
+        position: absolute;
+        left: 50%;
+        top: calc(50% + 10px);
+        width: 180%;
+        height: 180%;
+        object-fit: contain;
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.62);
+        transform-origin: center;
+        pointer-events: none;
+        filter: drop-shadow(0 0 24px rgba(255, 70, 245, 0.9));
+      }
+      #heart-score-hud.clearing #heart-score-burst {
+        opacity: 1;
+        animation: heart-burst-expand 1600ms ease-out both;
+      }
+      #heart-score-val {
+        position: relative;
+        z-index: 2;
+        color: #fff;
+        font: 900 58px/1 'Arial Black', 'Impact', sans-serif;
+        text-shadow: 0 4px 0 rgba(89, 43, 125, 0.55), 0 0 18px rgba(255, 255, 255, 0.85);
+      }
+      #game-header.heart-header-mode {
+        justify-content: center !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+      }
+      #game-header.heart-header-mode .header-item {
+        display: none !important;
+      }
+      #game-header.heart-header-mode #heart-score-hud {
+        display: flex;
+      }
+      @keyframes heart-burst-expand {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.62); }
+        12% { opacity: 1; }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(1.18); }
+      }
+      #board-clip {
+        position: absolute;
+      }
+      #marquee-border {
+        position: absolute;
+        inset: 0;
+        display: none;
+        pointer-events: none;
+        border-radius: 9px;
+        z-index: 9;
+        overflow: hidden;
+      }
+      #marquee-border::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        padding: 8px;
+        border-radius: inherit;
+        background: conic-gradient(from var(--marquee-angle, 0deg), #ff36f2, #22f8ff, #2767ff, #26ff83, #fff34d, #ff36f2);
+        -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        filter: drop-shadow(0 0 12px rgba(39, 248, 255, 0.95)) drop-shadow(0 0 18px rgba(255, 55, 243, 0.65));
+        animation: marquee-border-spin 2.2s linear infinite;
+      }
+      #marquee-border::after {
+        content: "";
+        position: absolute;
+        left: 8%;
+        right: 8%;
+        bottom: 14px;
+        height: 5px;
+        border-radius: 99px;
+        background: linear-gradient(90deg, #29f8ff, #1836ff 35%, #f6ff4e 70%, #2effc8);
+        box-shadow: 0 0 14px rgba(41, 248, 255, 0.9), 0 0 18px rgba(246, 255, 78, 0.75);
+        animation: marquee-border-slide 1.4s linear infinite;
+      }
+      #board-wrapper.marquee-border-live #marquee-border {
+        display: block;
+      }
+      @keyframes marquee-border-spin {
+        to { --marquee-angle: 360deg; }
+      }
+      @keyframes marquee-border-slide {
+        0% { transform: translateX(-10%); opacity: 0.75; }
+        50% { transform: translateX(10%); opacity: 1; }
+        100% { transform: translateX(-10%); opacity: 0.75; }
       }
       #tab-level #playable-export-column {
         grid-column: 4 !important;
@@ -400,6 +517,14 @@
           <div id="record-bg-preview" class="record-bg-preview">未选择背景</div>
           <input type="file" id="input-record-bg-file" accept="image/*" class="record-bg-file-input">
           <div id="record-bg-list" class="record-bg-list"></div>
+          <div id="record-solid-bg-controls" class="record-solid-bg-controls">
+            <div class="solid-bg-mode-row">
+              <button type="button" class="solid-bg-mode-btn" data-solid-bg-variant="solid">纯色</button>
+              <button type="button" class="solid-bg-mode-btn" data-solid-bg-variant="animated">变色</button>
+            </div>
+            <div id="record-solid-bg-palette" class="solid-bg-palette"></div>
+            <label class="record-bg-toggle"><input type="checkbox" id="input-marquee-border"><span>跑马灯边框</span></label>
+          </div>
           <button type="button" id="btn-record-bg-clear" class="menu-btn gray wide">清除录制背景</button>
           <div id="record-bg-status" class="record-bg-status">未启用背景图</div>
         </div>
@@ -425,9 +550,14 @@
               <div id="collection-avatar-hud" aria-hidden="true">
                 <img id="collection-avatar-image" alt="">
               </div>
+              <div id="heart-score-hud" aria-hidden="true">
+                <video id="heart-score-burst" src="/assets/ui/heart-clear.webm" muted playsinline preload="auto"></video>
+                <video id="heart-score-gif" src="/assets/ui/heart-idle.webm" muted playsinline autoplay loop preload="auto"></video>
+                <span id="heart-score-val">854,682</span>
+              </div>
               <div class="header-item">SCORE: <span id="score-val">854,682</span></div>
             </div>
-            <div id="board-clip"></div>
+            <div id="board-clip"><div id="marquee-border" aria-hidden="true"></div></div>
             <!-- Canvas is inserted here via JS -->
             <div id="game-failure-overlay" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; z-index:12; pointer-events:none; overflow:hidden;">
               <img id="game-failure-icon" alt="" style="width:58%; max-width:330px; height:auto; filter:drop-shadow(0 15px 12px rgba(0, 0, 0, 0.55));">
@@ -601,6 +731,12 @@
           <label class="vc-toggle" title="开启后录制的视频背景为纯绿"><input type="checkbox" id="input-greenscreen"><span>绿幕</span></label>
           <label class="vc-toggle" title="开启后隐藏顶部的关卡与积分文案"><input type="checkbox" id="input-hidetext"><span>隐藏文案</span></label>
           <label class="vc-toggle" title="开启后消除方块时不播放破碎动画"><input type="checkbox" id="input-hideshatter"><span>隐藏破碎</span></label>
+        </div>
+        <div class="vocal-controls">
+          <div id="top-ui-mode-group" role="group" aria-label="顶部UI样式">
+            <button type="button" class="voice-pack-btn" data-top-ui-mode="classic">经典顶框</button>
+            <button type="button" class="voice-pack-btn" data-top-ui-mode="heart">爱心底框</button>
+          </div>
         </div>
         <div class="vocal-controls">
           <div id="voice-pack-group" role="group" aria-label="人声音效选择">

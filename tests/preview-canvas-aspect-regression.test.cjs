@@ -20,8 +20,8 @@ assert.match(
 
 assert.match(
   body,
-  /function getPreviewRendererGameHeight\(\)[\s\S]*?return PARAMS\.viewportRows \* PARAMS\.cellSize \* BOARD_FRAME_VERTICAL_SCALE;/,
-  'preview renderer should fill the phone frame with fractional vertical overscan'
+  /let previewRenderRows = DEFAULT_BOARD_ROWS;[\s\S]*?function getPreviewRenderRows\(\)[\s\S]*?return Math\.max\(1, Math\.min\(PARAMS\.totalRows, previewRenderRows \|\| PARAMS\.viewportRows\)\);[\s\S]*?function getPreviewRendererGameHeight\(\)[\s\S]*?return getPreviewRenderRows\(\) \* PARAMS\.cellSize;/,
+  'preview renderer should extend far enough for the fixed board clip to crop the bottom without stretching cells'
 );
 
 assert.match(
@@ -62,8 +62,8 @@ assert.match(
 
 assert.match(
   body,
-  /const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const displayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);/,
-  'renderer height should include frame overscan without stretching square blocks'
+  /const rowsToCoverFrame = Math\.ceil\(boardFrameInnerH \/ displayCellSize\) \+ 1;[\s\S]*?previewRenderRows = Math\.max\(PARAMS\.viewportRows, Math\.min\(PARAMS\.totalRows, rowsToCoverFrame\)\);[\s\S]*?const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const contentDisplayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);[\s\S]*?const displayH = Math\.max\(contentDisplayH, frameDisplayH\);/,
+  'renderer height should cover the fixed frame plus one crop row without changing square-cell scaling'
 );
 
 assert.match(
@@ -74,38 +74,50 @@ assert.match(
 
 assert.match(
   body,
-  /function fitRectCoverPreserveAspect\([\s\S]*?const scale = Math\.max\(target\.w \/ contentW, target\.h \/ contentH\);[\s\S]*?const w = contentW \* scale;[\s\S]*?const h = contentH \* scale;/,
-  'preview canvas should cover the fixed board frame without leaving top, bottom, or side gaps'
+  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectToFixedWidthPreserveAspect\(boardBox, contentSize\.w, contentSize\.h\);/,
+  'recording should keep the board x/y/width fixed and let the drawn canvas continue downward with content height'
 );
 
 assert.match(
   body,
-  /x: target\.x \+ \(target\.w - w\) \/ 2,/,
-  'preview canvas should keep horizontal overflow centered after aspect-preserving cover scaling'
+  /function fitRectToFixedWidthPreserveAspect\([\s\S]*?const scale = target\.w \/ contentW;[\s\S]*?const h = Math\.max\(target\.h, contentH \* scale\);[\s\S]*?x: target\.x,[\s\S]*?y: target\.y,/,
+  'fixed-width board fitting should fill the fixed frame when the visible row content is shorter'
 );
 
 assert.match(
   body,
-  /y: target\.y,/,
-  'preview canvas should be top-aligned so extra height continues downward instead of opening a top gap'
+  /canvas\.style\.left = '0px';[\s\S]*?canvas\.style\.top = '0px';/,
+  'editor preview canvas should keep the left and top edges fixed to the board frame'
 );
 
 assert.match(
   body,
-  /const rect = fitRectCoverPreserveAspect\([\s\S]*?\{ x: 0, y: 0, w: targetWidth, h: targetHeight \},[\s\S]*?contentSize\.w,[\s\S]*?contentSize\.h[\s\S]*?\);/,
-  'editor preview should use cover fitting inside the fixed master board frame'
+  /positionBoardClipInMaster\(\)[\s\S]*?const boardBox = getMasterBoardContentRect\(boardWrapper\.clientWidth, boardWrapper\.clientHeight\);[\s\S]*?boardClip\.style\.left = `\$\{boardBox\.x\}px`;[\s\S]*?boardClip\.style\.top = `\$\{boardBox\.y\}px`;[\s\S]*?boardClip\.style\.width = `\$\{boardBox\.w\}px`;[\s\S]*?boardClip\.style\.height = `\$\{boardBox\.h\}px`;/,
+  'editor board clip should stay in the fixed template area even when the drawn canvas continues downward'
 );
 
 assert.match(
   body,
-  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectCoverPreserveAspect\(boardBox, contentSize\.w, contentSize\.h\);/,
-  'recording should use the same cover-fitted canvas rect as the editor preview'
+  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = canvas\.height \* cssScale;[\s\S]*?canvas\.style\.top = '0px';[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
+  'editor canvas should use one CSS scale for square cells while the board clip crops the bottom'
+);
+
+assert.match(
+  body,
+  /const boardClipBox = getRecordingBoardClipRect\(boardWrapper \|\| null, width, height\);[\s\S]*?recordingCtx!\.rect\(boardClipBox\.x, boardClipBox\.y, boardClipBox\.w, boardClipBox\.h\);/,
+  'recording should clip the downward-extending canvas to the same live board area shown in the editor'
 );
 
 assert.doesNotMatch(
   body,
-  /const h = target\.h;/,
-  'preview canvas must not use independent target height because that makes square blocks look stretched'
+  /fitRectCoverPreserveAspect|fitRectContainPreserveAspect/,
+  'preview fitting should not use cover or contain helpers because they either crop or leave inner bands'
+);
+
+assert.doesNotMatch(
+  body,
+  /Math\.max\(target\.w \/ contentW, target\.h \/ contentH\)/,
+  'preview fitting must not cover-scale because cover scaling crops blocks at some column counts'
 );
 
 console.log('preview canvas aspect regression passed');
