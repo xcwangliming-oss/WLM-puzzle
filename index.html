@@ -14,6 +14,11 @@
       });
     </script>
     <style>
+      @property --marquee-angle {
+        syntax: "<angle>";
+        inherits: false;
+        initial-value: 0deg;
+      }
       body.is-playable #top-navbar,
       body.is-playable #material-panel,
       body.is-playable #editor-panel,
@@ -248,48 +253,91 @@
       }
       #marquee-border {
         position: absolute;
-        inset: 0;
+        left: 5.4167%;
+        top: 12.5%;
+        width: 89.1667%;
+        height: 85%;
         display: none;
         pointer-events: none;
-        border-radius: 9px;
+        border-radius: 11px;
         z-index: 9;
-        overflow: hidden;
+        overflow: visible;
       }
-      #marquee-border::before {
+      #marquee-border::before,
+      .marquee-border-bevel {
         content: "";
         position: absolute;
-        inset: 0;
-        padding: 8px;
+        inset: -10px;
+        padding: 10px;
         border-radius: inherit;
-        background: conic-gradient(from var(--marquee-angle, 0deg), #ff36f2, #22f8ff, #2767ff, #26ff83, #fff34d, #ff36f2);
         -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
         -webkit-mask-composite: xor;
         mask-composite: exclude;
-        filter: drop-shadow(0 0 12px rgba(39, 248, 255, 0.95)) drop-shadow(0 0 18px rgba(255, 55, 243, 0.65));
-        animation: marquee-border-spin 2.2s linear infinite;
+        opacity: 0;
+      }
+      #marquee-border::before {
+        background: conic-gradient(from var(--marquee-angle, 0deg), #ff3030 0deg, #ff21df 52deg, #763cff 104deg, #19eaff 158deg, #2dff6a 214deg, #fff238 270deg, #ff8a18 322deg, #ff3030 360deg);
+        filter: drop-shadow(0 0 10px rgba(35, 247, 255, 1)) drop-shadow(0 0 20px rgba(255, 36, 208, 0.88)) drop-shadow(0 0 30px rgba(255, 234, 56, 0.62)) brightness(1.2) saturate(1.35);
+        z-index: 2;
+      }
+      .marquee-border-bevel {
+        background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.5) 16%, rgba(255,255,255,0.08) 38%, rgba(0,0,0,0.34) 72%, rgba(0,0,0,0.68) 100%);
+        mix-blend-mode: overlay;
+        z-index: 3;
+      }
+      .marquee-border-bevel.shadow {
+        background: linear-gradient(135deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.18) 42%, rgba(0,0,0,0.62) 100%);
+        mix-blend-mode: multiply;
+        transform: translate(2px, 2px);
+        z-index: 1;
       }
       #marquee-border::after {
         content: "";
         position: absolute;
-        left: 8%;
-        right: 8%;
-        bottom: 14px;
-        height: 5px;
-        border-radius: 99px;
-        background: linear-gradient(90deg, #29f8ff, #1836ff 35%, #f6ff4e 70%, #2effc8);
-        box-shadow: 0 0 14px rgba(41, 248, 255, 0.9), 0 0 18px rgba(246, 255, 78, 0.75);
-        animation: marquee-border-slide 1.4s linear infinite;
+        inset: -18px;
+        padding: 0;
+        border-radius: inherit;
+        border: 10px solid rgba(34, 236, 255, 0.3);
+        box-shadow: 0 0 10px 4px rgba(34, 236, 255, 0.56), 0 0 19px 8px rgba(255, 36, 208, 0.4), 0 0 28px 12px rgba(255, 234, 56, 0.2);
+        filter: blur(7px) saturate(1.35);
+        opacity: 0;
+        z-index: 0;
+      }
+      .marquee-flow {
+        display: none;
       }
       #board-wrapper.marquee-border-live #marquee-border {
         display: block;
       }
-      @keyframes marquee-border-spin {
-        to { --marquee-angle: 360deg; }
+      #marquee-border.clearing::before {
+        animation: marquee-border-spin 0.58s linear infinite, marquee-border-underlay 1350ms ease-out both;
       }
-      @keyframes marquee-border-slide {
-        0% { transform: translateX(-10%); opacity: 0.75; }
-        50% { transform: translateX(10%); opacity: 1; }
-        100% { transform: translateX(-10%); opacity: 0.75; }
+      #marquee-border.clearing .marquee-border-bevel {
+        animation: marquee-border-flash 1350ms ease-out both;
+      }
+      #marquee-border.clearing::after {
+        animation: marquee-border-glow 1350ms ease-out both;
+      }
+      @keyframes marquee-border-spin {
+        to { --marquee-angle: -360deg; }
+      }
+      @keyframes marquee-border-flash {
+        0% { opacity: 0; transform: scale(0.997); }
+        10% { opacity: 0.82; transform: scale(1); }
+        84% { opacity: 0.82; }
+        100% { opacity: 0; transform: scale(1.002); }
+      }
+      @keyframes marquee-border-underlay {
+        0% { opacity: 0; transform: scale(0.997); }
+        10% { opacity: 1; transform: scale(1); }
+        84% { opacity: 1; }
+        100% { opacity: 0; transform: scale(1.002); }
+      }
+      @keyframes marquee-border-glow {
+        0% { opacity: 0; transform: scale(0.99); }
+        10% { opacity: 0.82; transform: scale(1); }
+        84% { opacity: 0.78; }
+        100% { opacity: 0; transform: scale(1.006); }
       }
       #tab-level #playable-export-column {
         grid-column: 4 !important;
@@ -523,7 +571,6 @@
               <button type="button" class="solid-bg-mode-btn" data-solid-bg-variant="animated">变色</button>
             </div>
             <div id="record-solid-bg-palette" class="solid-bg-palette"></div>
-            <label class="record-bg-toggle"><input type="checkbox" id="input-marquee-border"><span>跑马灯边框</span></label>
           </div>
           <button type="button" id="btn-record-bg-clear" class="menu-btn gray wide">清除录制背景</button>
           <div id="record-bg-status" class="record-bg-status">未启用背景图</div>
@@ -557,7 +604,15 @@
               </div>
               <div class="header-item">SCORE: <span id="score-val">854,682</span></div>
             </div>
-            <div id="board-clip"><div id="marquee-border" aria-hidden="true"></div></div>
+            <div id="board-clip"></div>
+            <div id="marquee-border" aria-hidden="true">
+              <span class="marquee-flow top"></span>
+              <span class="marquee-flow right"></span>
+              <span class="marquee-flow bottom"></span>
+              <span class="marquee-flow left"></span>
+              <div class="marquee-border-bevel"></div>
+              <div class="marquee-border-bevel shadow"></div>
+            </div>
             <!-- Canvas is inserted here via JS -->
             <div id="game-failure-overlay" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; z-index:12; pointer-events:none; overflow:hidden;">
               <img id="game-failure-icon" alt="" style="width:58%; max-width:330px; height:auto; filter:drop-shadow(0 15px 12px rgba(0, 0, 0, 0.55));">
@@ -737,6 +792,10 @@
             <button type="button" class="voice-pack-btn" data-top-ui-mode="classic">经典顶框</button>
             <button type="button" class="voice-pack-btn" data-top-ui-mode="heart">爱心底框</button>
           </div>
+          <label class="vc-toggle marquee-border-toggle" title="打开后棋盘边框显示流动跑马灯，消除时触发底部光带">
+            <input type="checkbox" id="input-marquee-border">
+            <span>跑马灯边框</span>
+          </label>
         </div>
         <div class="vocal-controls">
           <div id="voice-pack-group" role="group" aria-label="人声音效选择">

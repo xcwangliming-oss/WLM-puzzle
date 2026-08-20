@@ -17143,6 +17143,12 @@ let marqueeBorderEnabled = localStorage.getItem('marqueeBorderEnabled') === 'tru
 
 let heartClearTimer: number | null = null;
 
+const MARQUEE_CLEAR_DURATION_MS = 1350;
+
+let marqueeClearStartedAt = 0;
+
+let marqueeClearTimer: number | null = null;
+
 
 
 let recordingBackgroundImage: HTMLImageElement | null = null;
@@ -17235,9 +17241,34 @@ function triggerHeartClearHud() {
   }, 1600);
 }
 
+function ensureMarqueeEffectDom() {
+  const marqueeEl = document.getElementById('marquee-border');
+  if (!marqueeEl) return null;
+
+  return marqueeEl;
+}
+
+function triggerMarqueeClearEffect() {
+  if (!marqueeBorderEnabled) return;
+
+  const marqueeEl = ensureMarqueeEffectDom();
+  marqueeClearStartedAt = performance.now();
+  if (!marqueeEl) return;
+
+  if (marqueeClearTimer !== null) window.clearTimeout(marqueeClearTimer);
+  marqueeEl.classList.remove('clearing');
+  void marqueeEl.offsetWidth;
+  marqueeEl.classList.add('clearing');
+  marqueeClearTimer = window.setTimeout(() => {
+    marqueeEl.classList.remove('clearing');
+    marqueeClearTimer = null;
+  }, MARQUEE_CLEAR_DURATION_MS);
+}
+
 function syncMarqueeBorderUI() {
   const checkbox = document.getElementById('input-marquee-border') as HTMLInputElement | null;
   const boardWrapper = document.getElementById('board-wrapper');
+  ensureMarqueeEffectDom();
   if (checkbox) checkbox.checked = marqueeBorderEnabled;
   boardWrapper?.classList.toggle('marquee-border-live', marqueeBorderEnabled);
 }
@@ -25413,6 +25444,7 @@ function checkEliminations() {
 
     advanceSolidBackgroundColorOnElimination();
     triggerHeartClearHud();
+    triggerMarqueeClearEffect();
 
     if (isRisingAdvanceActive()) {
       risingEliminationWavesThisMove += 1;
@@ -30246,31 +30278,71 @@ function drawRecordingMarqueeBorder(
   timeMs: number
 ) {
   if (!marqueeBorderEnabled) return;
+  if (!marqueeClearStartedAt) return;
 
-  const phase = (timeMs / 1000) % 1;
-  const gradient = context.createLinearGradient(boardBox.x, boardBox.y, boardBox.x + boardBox.w, boardBox.y + boardBox.h);
-  gradient.addColorStop(0, '#ff36f2');
-  gradient.addColorStop(0.25, '#22f8ff');
-  gradient.addColorStop(0.52, '#2767ff');
-  gradient.addColorStop(0.78, '#26ff83');
-  gradient.addColorStop(1, '#fff34d');
+  const elapsed = timeMs - marqueeClearStartedAt;
+  if (elapsed < 0 || elapsed > MARQUEE_CLEAR_DURATION_MS) return;
+
+  const progress = Math.max(0, Math.min(1, elapsed / MARQUEE_CLEAR_DURATION_MS));
+  const alpha = Math.sin(progress * Math.PI);
+  const borderWidth = Math.max(8, Math.min(12, boardBox.w * 0.011));
+  const radius = Math.max(14, boardBox.w * 0.03);
+  const outward = borderWidth;
+  const strokeX = boardBox.x - outward + borderWidth / 2;
+  const strokeY = boardBox.y - outward + borderWidth / 2;
+  const strokeW = boardBox.w + outward * 2 - borderWidth;
+  const strokeH = boardBox.h + outward * 2 - borderWidth;
+  const phase = (timeMs / 580) % 1;
+  const glowPulse = 0.9 + 0.12 * Math.sin(timeMs / 580 * Math.PI * 2);
+  const centerX = boardBox.x + boardBox.w / 2;
+  const centerY = boardBox.y + boardBox.h / 2;
+  const maybeConicGradient = (context as CanvasRenderingContext2D & {
+    createConicGradient?: (startAngle: number, x: number, y: number) => CanvasGradient;
+  }).createConicGradient;
+  const gradient = maybeConicGradient
+    ? maybeConicGradient.call(context, phase * Math.PI * 2, centerX, centerY)
+    : context.createLinearGradient(boardBox.x, boardBox.y + boardBox.h, boardBox.x + boardBox.w, boardBox.y);
+  gradient.addColorStop(0, '#24ff47');
+  gradient.addColorStop(0.18, '#23f7ff');
+  gradient.addColorStop(0.36, '#255bff');
+  gradient.addColorStop(0.57, '#ff24d0');
+  gradient.addColorStop(0.76, '#ffea38');
+  gradient.addColorStop(0.91, '#ff8b12');
+  gradient.addColorStop(1, '#24ff47');
 
   context.save();
-  context.lineWidth = Math.max(7, boardBox.w * 0.014);
+  context.globalAlpha = alpha;
+  context.lineWidth = borderWidth;
   context.strokeStyle = gradient;
-  context.shadowColor = '#22f8ff';
-  context.shadowBlur = boardBox.w * 0.025;
-  context.strokeRect(boardBox.x + context.lineWidth / 2, boardBox.y + context.lineWidth / 2, boardBox.w - context.lineWidth, boardBox.h - context.lineWidth);
+  context.shadowColor = '#23f7ff';
+  context.shadowBlur = boardBox.w * 0.025 * glowPulse;
+  drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
+  context.stroke();
 
-  context.shadowColor = '#fff34d';
-  context.shadowBlur = boardBox.w * 0.018;
-  context.strokeStyle = '#fff34d';
-  context.lineWidth = Math.max(3, boardBox.w * 0.006);
-  const runnerW = boardBox.w * 0.26;
-  const runnerX = boardBox.x + ((boardBox.w + runnerW) * phase) - runnerW;
-  context.beginPath();
-  context.moveTo(Math.max(boardBox.x, runnerX), boardBox.y + boardBox.h - 12);
-  context.lineTo(Math.min(boardBox.x + boardBox.w, runnerX + runnerW), boardBox.y + boardBox.h - 12);
+  context.lineWidth = borderWidth;
+  context.strokeStyle = gradient;
+  context.shadowColor = '#23f7ff';
+  context.shadowBlur = boardBox.w * 0.014 * glowPulse;
+  drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
+  context.stroke();
+
+  const bevelGradient = context.createLinearGradient(strokeX, strokeY, strokeX + strokeW, strokeY + strokeH);
+  bevelGradient.addColorStop(0, `rgba(255, 255, 255, ${0.92 * alpha})`);
+  bevelGradient.addColorStop(0.28, `rgba(255, 255, 255, ${0.34 * alpha})`);
+  bevelGradient.addColorStop(0.52, 'rgba(255, 255, 255, 0)');
+  bevelGradient.addColorStop(0.78, `rgba(0, 0, 0, ${0.42 * alpha})`);
+  bevelGradient.addColorStop(1, `rgba(0, 0, 0, ${0.72 * alpha})`);
+  context.lineWidth = Math.max(4, borderWidth * 0.42);
+  context.strokeStyle = bevelGradient;
+  context.shadowBlur = 0;
+  drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
+  context.stroke();
+
+  context.lineWidth = Math.max(1.5, borderWidth * 0.18);
+  context.strokeStyle = `rgba(255, 255, 255, ${0.5 * alpha})`;
+  context.shadowColor = '#ffffff';
+  context.shadowBlur = boardBox.w * 0.006 * glowPulse;
+  drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
   context.stroke();
   context.restore();
 }

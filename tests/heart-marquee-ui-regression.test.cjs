@@ -28,8 +28,17 @@ assert.match(source, /shatterMode:\s*1,/, 'shatter mode should default to the fi
 assert.match(html, /data-top-ui-mode="classic"[\s\S]*?data-top-ui-mode="heart"/, 'editor should expose top UI mode buttons');
 
 assert.match(source, /let marqueeBorderEnabled = localStorage\.getItem\('marqueeBorderEnabled'\) === 'true';/, 'marquee border setting should persist');
-assert.match(source, /function drawRecordingMarqueeBorder\([\s\S]*?if \(!marqueeBorderEnabled\) return;[\s\S]*?strokeRect/, 'recording should render the marquee border');
+assert.match(source, /function triggerMarqueeClearEffect\(\)[\s\S]*?marqueeClearStartedAt = performance\.now\(\)[\s\S]*?classList\.add\('clearing'\)/, 'eliminations should replay the marquee clear effect');
+assert.match(source, /comboCount \+= 1;[\s\S]*?triggerHeartClearHud\(\);[\s\S]*?triggerMarqueeClearEffect\(\);/, 'eliminations should trigger the marquee clear animation alongside the heart HUD');
+assert.match(source, /function drawRecordingMarqueeBorder\([\s\S]*?if \(!marqueeBorderEnabled\) return;[\s\S]*?if \(!marqueeClearStartedAt\) return;[\s\S]*?createConicGradient/, 'recording should only render the animated marquee border during an elimination');
+assert.match(source, /const borderWidth = Math\.max\(8, Math\.min\(12, boardBox\.w \* 0\.011\)\);[\s\S]*?const outward = borderWidth;/, 'recording marquee border should match the live thin outside ring instead of drawing an oversized frame');
+assert.doesNotMatch(source, /rgba\(12, 28, 90, 0\.82\)/, 'recording marquee border should not add a separate dark inner frame that changes the live look');
+assert.doesNotMatch(source, /drawRecordingMarqueeClearEffect|marquee-clear-band|marquee-clear-particles/, 'marquee clear should not add a separate bottom band or particle effect');
 assert.match(html, /id="input-marquee-border"/, 'solid background panel should expose the marquee toggle');
 assert.match(html, /#board-wrapper\.marquee-border-live #marquee-border[\s\S]*?display:\s*block/, 'live board should show marquee border when enabled');
+assert.match(html, /@property --marquee-angle[\s\S]*?syntax:\s*"<angle>"/, 'marquee angle should be registered so the conic gradient rotates continuously');
+assert.match(html, /#marquee-border\.clearing::before[\s\S]*?marquee-border-spin 0\.58s linear infinite/, 'live board should rotate the whole conic border during an elimination');
+assert.match(html, /\.marquee-flow\s*\{[\s\S]*?display:\s*none;/, 'live board should not use four separate side bands that create visible seams');
+assert.match(html, /#marquee-border::after[\s\S]*?box-shadow:[\s\S]*?filter:\s*blur\(7px\)[\s\S]*?#marquee-border\.clearing::after/, 'live board should include a soft glow layer for the marquee border');
 
 console.log('heart and marquee UI regression checks passed');
