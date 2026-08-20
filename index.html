@@ -200,21 +200,46 @@
         object-fit: contain;
         filter: drop-shadow(0 0 18px rgba(229, 74, 255, 0.72));
       }
+      #heart-score-burst {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 150%;
+        height: 150%;
+        object-fit: contain;
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.62);
+        transform-origin: center;
+        pointer-events: none;
+        filter: drop-shadow(0 0 24px rgba(255, 70, 245, 0.9));
+      }
+      #heart-score-hud.clearing #heart-score-burst {
+        opacity: 1;
+        animation: heart-burst-expand 900ms ease-out both;
+      }
       #heart-score-val {
         position: relative;
-        z-index: 1;
+        z-index: 2;
         color: #fff;
         font: 900 58px/1 'Arial Black', 'Impact', sans-serif;
         text-shadow: 0 4px 0 rgba(89, 43, 125, 0.55), 0 0 18px rgba(255, 255, 255, 0.85);
       }
       #game-header.heart-header-mode {
         justify-content: center !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
       }
       #game-header.heart-header-mode .header-item {
         display: none !important;
       }
       #game-header.heart-header-mode #heart-score-hud {
         display: flex;
+      }
+      @keyframes heart-burst-expand {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.62); }
+        12% { opacity: 1; }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(1.18); }
       }
       #board-clip {
         position: absolute;
@@ -524,7 +549,8 @@
                 <img id="collection-avatar-image" alt="">
               </div>
               <div id="heart-score-hud" aria-hidden="true">
-                <img id="heart-score-gif" src="/assets/ui/heart-idle.gif" alt="">
+                <img id="heart-score-burst" src="/assets/ui/heart-clear-transparent.gif" alt="">
+                <img id="heart-score-gif" src="/assets/ui/heart-idle-transparent.gif" alt="">
                 <span id="heart-score-val">854,682</span>
               </div>
               <div class="header-item">SCORE: <span id="score-val">854,682</span></div>

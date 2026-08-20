@@ -16977,9 +16977,9 @@ type SolidBackgroundVariant = 'solid' | 'animated';
 
 type TopUiMode = 'classic' | 'heart';
 
-const HEART_IDLE_URL = '/assets/ui/heart-idle.gif';
+const HEART_IDLE_URL = '/assets/ui/heart-idle-transparent.gif';
 
-const HEART_CLEAR_URL = '/assets/ui/heart-clear.gif';
+const HEART_CLEAR_URL = '/assets/ui/heart-clear-transparent.gif';
 
 const SOLID_BACKGROUND_COLORS = [
   { id: 'deep-blue', name: '深蓝紫', from: '#344372', to: '#563762' },
@@ -17194,10 +17194,12 @@ function syncTopUiMode() {
   const scoreEl = document.getElementById('score-val');
   const heartScoreEl = document.getElementById('heart-score-val');
   const heartGifEl = document.getElementById('heart-score-gif') as HTMLImageElement | null;
+  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLImageElement | null;
 
   gameHeaderEl?.classList.toggle('heart-header-mode', topUiMode === 'heart');
   if (heartScoreEl && scoreEl) heartScoreEl.innerText = scoreEl.innerText;
-  if (heartGifEl && !heartGifEl.src.endsWith(HEART_CLEAR_URL)) heartGifEl.src = HEART_IDLE_URL;
+  if (heartGifEl) heartGifEl.src = HEART_IDLE_URL;
+  if (heartBurstEl) heartBurstEl.src = HEART_CLEAR_URL;
   syncTopUiModeButtons();
 }
 
@@ -17210,13 +17212,17 @@ function setTopUiMode(mode: TopUiMode) {
 
 function triggerHeartClearHud() {
   if (topUiMode !== 'heart') return;
-  const heartGifEl = document.getElementById('heart-score-gif') as HTMLImageElement | null;
-  if (!heartGifEl) return;
+  const heartHudEl = document.getElementById('heart-score-hud');
+  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLImageElement | null;
+  if (!heartHudEl || !heartBurstEl) return;
 
   if (heartClearTimer !== null) window.clearTimeout(heartClearTimer);
-  heartGifEl.src = `${HEART_CLEAR_URL}?t=${Date.now()}`;
+  heartBurstEl.src = `${HEART_CLEAR_URL}?t=${Date.now()}`;
+  heartHudEl.classList.remove('clearing');
+  void heartHudEl.offsetWidth;
+  heartHudEl.classList.add('clearing');
   heartClearTimer = window.setTimeout(() => {
-    heartGifEl.src = HEART_IDLE_URL;
+    heartHudEl.classList.remove('clearing');
     heartClearTimer = null;
   }, 900);
 }
@@ -30118,13 +30124,18 @@ function drawRecordingHeartHud(
   const scoreText = document.getElementById('heart-score-val')?.innerText
     || document.getElementById('score-val')?.innerText
     || '0';
+  const heartHud = document.getElementById('heart-score-hud');
   const heartImage = document.getElementById('heart-score-gif') as HTMLImageElement | null;
+  const heartBurstImage = document.getElementById('heart-score-burst') as HTMLImageElement | null;
   const centerX = headerBox.x + headerBox.w / 2;
   const centerY = headerBox.y + headerBox.h * 0.62;
   const heartW = width * 0.30;
   const heartH = height * 0.12;
 
   context.save();
+  if (heartHud?.classList.contains('clearing') && heartBurstImage?.complete && heartBurstImage.naturalWidth > 0) {
+    context.drawImage(heartBurstImage, centerX - heartW * 0.75, centerY - heartH * 0.75, heartW * 1.5, heartH * 1.5);
+  }
   if (heartImage?.complete && heartImage.naturalWidth > 0) {
     context.drawImage(heartImage, centerX - heartW / 2, centerY - heartH / 2, heartW, heartH);
   }
