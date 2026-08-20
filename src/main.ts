@@ -17681,7 +17681,7 @@ function getBoardFixedPraisePoint() {
   };
 }
 
-function appendClearTextImage(className: string, url: string, x: number, y: number, delayMs = 0, widthPx?: number) {
+function appendClearTextImage(className: string, url: string, x: number, y: number, delayMs = 0, widthPx?: number, heightPx?: number) {
   const layer = document.getElementById('clear-text-effects');
   if (!layer) return;
 
@@ -17693,6 +17693,10 @@ function appendClearTextImage(className: string, url: string, x: number, y: numb
   img.style.left = `${x}px`;
   img.style.top = `${y}px`;
   if (typeof widthPx === 'number') img.style.width = `${widthPx}px`;
+  if (typeof heightPx === 'number') {
+    img.style.height = `${heightPx}px`;
+    img.style.objectFit = 'contain';
+  }
   if (delayMs > 0) img.style.animationDelay = `${delayMs}ms`;
   layer.appendChild(img);
   window.setTimeout(() => img.remove(), (className === 'praise-word' ? PRAISE_TEXT_EFFECT_DURATION_MS : COMBO_TEXT_EFFECT_DURATION_MS) + delayMs + 80);
@@ -17755,6 +17759,7 @@ function appendComboTextEffectAtPoint(
 ) {
   const wordWidth = Math.min(178, boardWidth * 0.26);
   const digitWidth = Math.min(41, boardWidth * 0.065);
+  const digitHeight = digitWidth * 1.24;
   const digitGap = digitWidth * 1.05;
   const digitGroupWidth = digitWidth + Math.max(0, digitUrls.length - 1) * digitGap;
   const groupGap = Math.max(18, boardWidth * 0.035);
@@ -17765,7 +17770,7 @@ function appendComboTextEffectAtPoint(
 
   appendClearTextImage('combo-word', comboWordUrl, wordCenterX, centerY, 0, wordWidth);
   digitUrls.forEach((url, index) => {
-    appendClearTextImage('combo-digit', url, firstDigitX + index * digitGap, centerY + 3, 160, digitWidth);
+    appendClearTextImage('combo-digit', url, firstDigitX + index * digitGap, centerY + 3, 160, digitWidth, digitHeight);
   });
   appendClearTextSparks(centerX, centerY, boardWidth * 0.2, COMBO_TEXT_EFFECT_DURATION_MS);
 }
@@ -30763,6 +30768,33 @@ function drawRecordingImageCentered(
   context.restore();
 }
 
+function drawRecordingImageContainedCentered(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  centerX: number,
+  centerY: number,
+  targetW: number,
+  targetH: number,
+  alpha: number,
+  scale: number
+) {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || targetW <= 0 || targetH <= 0 || alpha <= 0) return;
+
+  const boxW = targetW * scale;
+  const boxH = targetH * scale;
+  const fit = Math.min(boxW / sourceWidth, boxH / sourceHeight);
+  const drawW = sourceWidth * fit;
+  const drawH = sourceHeight * fit;
+  context.save();
+  context.globalAlpha = alpha;
+  context.shadowColor = 'rgba(0, 0, 0, 0.38)';
+  context.shadowBlur = targetW * 0.045;
+  context.drawImage(image, centerX - drawW / 2, centerY - drawH / 2, drawW, drawH);
+  context.restore();
+}
+
 function getClearTextPopMotion(elapsed: number, duration: number) {
   const progress = Math.max(0, Math.min(1, elapsed / duration));
   if (progress < 0.12) return { alpha: progress / 0.12, scale: 0.25 + (1.28 - 0.25) * (progress / 0.12), yShift: 0 };
@@ -30846,6 +30878,7 @@ function drawRecordingClearTextEffects(
       const wordMotion = getClearTextPopMotion(elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
       const wordWidth = Math.min(178, boardBox.w * 0.26);
       const digitWidth = Math.min(41, boardBox.w * 0.065);
+      const digitHeight = digitWidth * 1.24;
       const digitGap = digitWidth * 1.05;
       const digitUrls = getComboDigitUrls(effect.comboCount);
       const digitGroupWidth = digitWidth + Math.max(0, digitUrls.length - 1) * digitGap;
@@ -30861,7 +30894,7 @@ function drawRecordingClearTextEffects(
         const digitMotion = getClearTextPopMotion(digitElapsed, 560);
         digitUrls.forEach((url, index) => {
           const image = getClearTextImage(url);
-          drawRecordingImageCentered(context, image, firstDigitX + index * digitGap, rowY + 3 + digitMotion.yShift, digitWidth, digitMotion.alpha, digitMotion.scale);
+          drawRecordingImageContainedCentered(context, image, firstDigitX + index * digitGap, rowY + 3 + digitMotion.yShift, digitWidth, digitHeight, digitMotion.alpha, digitMotion.scale);
         });
       }
       drawRecordingClearTextSparks(context, centerX, rowY, boardBox.w * 0.2, elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
