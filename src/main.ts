@@ -29642,7 +29642,7 @@ function getBoardCanvasContentSize() {
 function getMasterBoardCanvasRect(width: number, height: number) {
   const boardBox = getMasterBoardContentRect(width, height);
   const contentSize = getBoardCanvasContentSize();
-  return fitRectToWidthPreserveAspect(boardBox, contentSize.w, contentSize.h, 'bottom');
+  return fitRectCoverPreserveAspect(boardBox, contentSize.w, contentSize.h);
 }
 
 function mapBoardWrapperRectToRecordingRect(
@@ -29880,6 +29880,72 @@ function fitRectToWidthPreserveAspect(
 
 }
 
+function fitRectCoverPreserveAspect(
+
+
+
+  target: { x: number; y: number; w: number; h: number },
+
+
+
+  contentW: number,
+
+
+
+  contentH: number
+
+
+
+) {
+
+
+
+  if (contentW <= 0 || contentH <= 0 || target.w <= 0 || target.h <= 0) {
+
+
+
+    return target;
+
+
+
+  }
+
+
+
+  const scale = Math.max(target.w / contentW, target.h / contentH);
+
+  const w = contentW * scale;
+
+  const h = contentH * scale;
+
+
+
+  return {
+
+
+
+    x: target.x + (target.w - w) / 2,
+
+
+
+    y: target.y,
+
+
+
+    w,
+
+
+
+    h
+
+
+
+  };
+
+
+
+}
+
 
 
 
@@ -29934,7 +30000,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-  const rect = fitRectToWidthPreserveAspect(
+  const rect = fitRectCoverPreserveAspect(
 
 
 
@@ -29946,11 +30012,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-    contentSize.h,
-
-
-
-    'bottom'
+    contentSize.h
 
 
 

@@ -74,26 +74,32 @@ assert.match(
 
 assert.match(
   body,
-  /if \(h > target\.h\) \{[\s\S]*?w = h \* \(contentW \/ contentH\);[\s\S]*?\}/,
-  'preview canvas should fall back to height fitting while preserving aspect'
+  /function fitRectCoverPreserveAspect\([\s\S]*?const scale = Math\.max\(target\.w \/ contentW, target\.h \/ contentH\);[\s\S]*?const w = contentW \* scale;[\s\S]*?const h = contentH \* scale;/,
+  'preview canvas should cover the fixed board frame without leaving top, bottom, or side gaps'
 );
 
 assert.match(
   body,
   /x: target\.x \+ \(target\.w - w\) \/ 2,/,
-  'preview canvas should be centered after aspect-preserving scaling'
+  'preview canvas should keep horizontal overflow centered after aspect-preserving cover scaling'
 );
 
 assert.match(
   body,
-  /fitRectToWidthPreserveAspect\([\s\S]*?'bottom'[\s\S]*?\);/,
-  'preview canvas should be bottom-aligned inside the fixed master board frame'
+  /y: target\.y,/,
+  'preview canvas should be top-aligned so extra height continues downward instead of opening a top gap'
 );
 
 assert.match(
   body,
-  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectToWidthPreserveAspect\(boardBox, contentSize\.w, contentSize\.h, 'bottom'\);/,
-  'recording should use the same bottom-aligned canvas rect as the editor preview'
+  /const rect = fitRectCoverPreserveAspect\([\s\S]*?\{ x: 0, y: 0, w: targetWidth, h: targetHeight \},[\s\S]*?contentSize\.w,[\s\S]*?contentSize\.h[\s\S]*?\);/,
+  'editor preview should use cover fitting inside the fixed master board frame'
+);
+
+assert.match(
+  body,
+  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectCoverPreserveAspect\(boardBox, contentSize\.w, contentSize\.h\);/,
+  'recording should use the same cover-fitted canvas rect as the editor preview'
 );
 
 assert.doesNotMatch(
