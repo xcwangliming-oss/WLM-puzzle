@@ -98,7 +98,7 @@ assert.match(
 
 assert.match(
   body,
-  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = canvas\.height \* cssScale;[\s\S]*?const targetTop = Math\.min\(0, boardClip\.clientHeight - targetHeight\);[\s\S]*?canvas\.style\.top = `\$\{targetTop\}px`;[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
+  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = canvas\.height \* cssScale;[\s\S]*?const targetTop = boardClip\.clientHeight - targetHeight;[\s\S]*?canvas\.style\.top = `\$\{targetTop\}px`;[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
   'editor canvas should use one CSS scale for square cells and bottom-align short content inside the fixed frame'
 );
 

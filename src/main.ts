@@ -30571,7 +30571,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-  const targetTop = Math.min(0, boardClip.clientHeight - targetHeight);
+  const targetTop = boardClip.clientHeight - targetHeight;
 
   canvas.style.top = `${targetTop}px`;
 
