@@ -30563,7 +30563,7 @@ function positionPreviewCanvasInMaster() {
 
   const cssScale = targetWidth / Math.max(1, canvas.width);
 
-  const targetHeight = Math.max(boardClip.clientHeight, canvas.height * cssScale);
+  const targetHeight = canvas.height * cssScale;
 
 
 

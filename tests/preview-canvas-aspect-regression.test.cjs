@@ -98,7 +98,7 @@ assert.match(
 
 assert.match(
   body,
-  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = Math\.max\(boardClip\.clientHeight, canvas\.height \* cssScale\);[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
+  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = canvas\.height \* cssScale;[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
   'editor canvas should use one CSS scale for width and height so 1x1 cells stay square'
 );
 
