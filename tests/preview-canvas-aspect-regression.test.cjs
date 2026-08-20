@@ -14,8 +14,8 @@ assert.match(
 
 assert.match(
   style,
-  /#board-clip\s*\{[\s\S]*?height:\s*auto;[\s\S]*?aspect-ratio:\s*var\(--board-grid-aspect,\s*11\s*\/\s*18\);[\s\S]*?overflow:\s*hidden;/,
-  'board clip should use the playable grid aspect so the frame cannot show a bottom band'
+  /#board-clip\s*\{[\s\S]*?top:\s*12\.5%;[\s\S]*?width:\s*89\.1667%;[\s\S]*?height:\s*85%;[\s\S]*?overflow:\s*hidden;/,
+  'board clip should stay fixed to the master phone background for every column count'
 );
 
 assert.match(
@@ -26,8 +26,8 @@ assert.match(
 
 assert.match(
   body,
-  /function syncBoardFrameToGrid\(\)[\s\S]*?const gameHeight = getPreviewRendererGameHeight\(\) \+ PADDING \* 2;[\s\S]*?--board-grid-aspect/,
-  'board clip aspect should use the same fractional preview height as the renderer'
+  /function getMasterBoardRect\(width: number, height: number\)[\s\S]*?w: MASTER_UI\.board\.w \* width,[\s\S]*?h: MASTER_UI\.board\.h \* height/,
+  'master board rect should use the fixed template position instead of changing with grid columns'
 );
 
 assert.match(
@@ -68,8 +68,8 @@ assert.match(
 
 assert.match(
   body,
-  /let h = w \* \(contentH \/ contentW\);/,
-  'preview canvas height should be derived from renderer aspect, not stretched to the clip height'
+  /function getBoardCanvasContentSize\(\)[\s\S]*?w: PARAMS\.gridCols \* PARAMS\.cellSize \+ PADDING \* 2,[\s\S]*?h: getPreviewRendererGameHeight\(\) \+ PADDING \* 2/,
+  'preview and recording should share the same square-cell canvas content size'
 );
 
 assert.match(
@@ -86,8 +86,14 @@ assert.match(
 
 assert.match(
   body,
-  /fitRectToWidthPreserveAspect\([\s\S]*?'top'[\s\S]*?\);/,
-  'preview canvas should start at the top after the renderer height covers the extended frame'
+  /fitRectToWidthPreserveAspect\([\s\S]*?'bottom'[\s\S]*?\);/,
+  'preview canvas should be bottom-aligned inside the fixed master board frame'
+);
+
+assert.match(
+  body,
+  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectToWidthPreserveAspect\(boardBox, contentSize\.w, contentSize\.h, 'bottom'\);/,
+  'recording should use the same bottom-aligned canvas rect as the editor preview'
 );
 
 assert.doesNotMatch(

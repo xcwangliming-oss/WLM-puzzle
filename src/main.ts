@@ -10765,7 +10765,7 @@ function updateHeaderUI() {
 
 
 
-    scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:36px; height:36px; vertical-align:middle; margin-right:8px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
+    scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:72px; height:72px; vertical-align:middle; margin-right:10px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
 
 
 
@@ -12681,7 +12681,7 @@ function playCollectibleFlyAnimation(b: Block) {
 
   } else if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
 
-    const recordingBoardBox = getMasterBoardContentRect(MASTER_UI.width, MASTER_UI.height);
+    const recordingBoardBox = { x: 0, y: 0, w: MASTER_UI.width, h: MASTER_UI.height };
 
     const recordingIconBox = getRecordingCollectIconRect(MASTER_UI.width, MASTER_UI.height);
 
@@ -16963,7 +16963,7 @@ const MASTER_UI = {
 
 };
 
-const RECORDING_COLLECT_ICON_SIZE = 44;
+const RECORDING_COLLECT_ICON_SIZE = 88;
 
 const RECORDING_COLLECT_ICON_X_RATIO = 0.71;
 
@@ -29583,12 +29583,6 @@ function drawRecordingVerticalGrid(ctx: CanvasRenderingContext2D, boardBox: { x:
 
 function getMasterBoardRect(width: number, height: number) {
 
-  const boardWidth = MASTER_UI.board.w * width;
-  const gameWidth = PARAMS.gridCols * PARAMS.cellSize + PADDING * 2;
-  const gameHeight = PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2;
-  const boardHeight = boardWidth * (gameHeight * BOARD_FRAME_VERTICAL_SCALE / Math.max(1, gameWidth));
-
-
 
   return {
 
@@ -29602,11 +29596,11 @@ function getMasterBoardRect(width: number, height: number) {
 
 
 
-    w: boardWidth,
+    w: MASTER_UI.board.w * width,
 
 
 
-    h: boardHeight
+    h: MASTER_UI.board.h * height
 
 
 
@@ -29637,6 +29631,19 @@ function getMasterBoardContentRect(width: number, height: number) {
 
 
 
+
+function getBoardCanvasContentSize() {
+  return {
+    w: PARAMS.gridCols * PARAMS.cellSize + PADDING * 2,
+    h: getPreviewRendererGameHeight() + PADDING * 2
+  };
+}
+
+function getMasterBoardCanvasRect(width: number, height: number) {
+  const boardBox = getMasterBoardContentRect(width, height);
+  const contentSize = getBoardCanvasContentSize();
+  return fitRectToWidthPreserveAspect(boardBox, contentSize.w, contentSize.h, 'bottom');
+}
 
 function mapBoardWrapperRectToRecordingRect(
 
@@ -29883,23 +29890,7 @@ function getPreviewContentSize() {
 
 
 
-  const rendererScreen = app?.renderer?.screen;
-
-
-
-  return {
-
-
-
-    w: rendererScreen?.width || PARAMS.gridCols * PARAMS.cellSize + PADDING * 2,
-
-
-
-    h: rendererScreen?.height || PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2
-
-
-
-  };
+  return getBoardCanvasContentSize();
 
 
 
@@ -29959,7 +29950,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-    'top'
+    'bottom'
 
 
 
@@ -40209,6 +40200,7 @@ function startRecording(): Promise<boolean> {
 
 
       const boardClipBox = getMasterBoardContentRect(width, height);
+      const boardCanvasBox = getMasterBoardCanvasRect(width, height);
 
 
 
@@ -40228,7 +40220,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-      drawRecordingVerticalGrid(recordingCtx!, boardClipBox);
+      drawRecordingVerticalGrid(recordingCtx!, boardCanvasBox);
 
 
 
@@ -40256,19 +40248,19 @@ function startRecording(): Promise<boolean> {
 
 
 
-        boardClipBox.x,
+        boardCanvasBox.x,
 
 
 
-        boardClipBox.y,
+        boardCanvasBox.y,
 
 
 
-        boardClipBox.w,
+        boardCanvasBox.w,
 
 
 
-        boardClipBox.h
+        boardCanvasBox.h
 
 
 
@@ -40330,7 +40322,7 @@ function startRecording(): Promise<boolean> {
 
       const boardRect = boardWrapper.getBoundingClientRect();
 
-      const recordingBoardBox = useRecordingBackground ? getMasterBoardContentRect(width, height) : null;
+      const recordingBoardBox = useRecordingBackground ? { x: 0, y: 0, w: width, h: height } : null;
 
 
 
