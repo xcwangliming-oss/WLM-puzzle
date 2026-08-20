@@ -17191,12 +17191,14 @@ function syncTopUiModeButtons() {
 
 function syncTopUiMode() {
   const gameHeaderEl = document.getElementById('game-header');
+  const boardWrapperEl = document.getElementById('board-wrapper');
   const scoreEl = document.getElementById('score-val');
   const heartScoreEl = document.getElementById('heart-score-val');
   const heartGifEl = document.getElementById('heart-score-gif') as HTMLVideoElement | null;
   const heartBurstEl = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
 
   gameHeaderEl?.classList.toggle('heart-header-mode', topUiMode === 'heart');
+  boardWrapperEl?.classList.toggle('heart-top-ui-live', topUiMode === 'heart');
   if (heartScoreEl && scoreEl) heartScoreEl.innerText = scoreEl.innerText;
   if (heartGifEl && !heartGifEl.src.endsWith(HEART_IDLE_URL)) heartGifEl.src = HEART_IDLE_URL;
   if (heartBurstEl && !heartBurstEl.src.endsWith(HEART_CLEAR_URL)) heartBurstEl.src = HEART_CLEAR_URL;
@@ -30149,6 +30151,27 @@ function drawRecordingImageContained(
   );
 }
 
+function drawRecordingVideoContained(
+  context: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  box: { x: number; y: number; w: number; h: number }
+): void {
+  const sourceWidth = video.videoWidth || video.clientWidth;
+  const sourceHeight = video.videoHeight || video.clientHeight;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || box.w <= 0 || box.h <= 0) return;
+
+  const scale = Math.min(box.w / sourceWidth, box.h / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  context.drawImage(
+    video,
+    box.x + (box.w - drawWidth) / 2,
+    box.y + (box.h - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  );
+}
+
 function drawRecordingHeartHud(
   context: CanvasRenderingContext2D,
   width: number,
@@ -30180,10 +30203,10 @@ function drawRecordingHeartHud(
 
   context.save();
   if (heartHud?.classList.contains('clearing') && heartBurstImage && heartBurstImage.readyState >= 2 && heartBurstImage.videoWidth > 0) {
-    context.drawImage(heartBurstImage, burstBox.x, burstBox.y, burstBox.w, burstBox.h);
+    drawRecordingVideoContained(context, heartBurstImage, burstBox);
   }
   if (heartImage && heartImage.readyState >= 2 && heartImage.videoWidth > 0) {
-    context.drawImage(heartImage, heartBox.x, heartBox.y, heartBox.w, heartBox.h);
+    drawRecordingVideoContained(context, heartImage, heartBox);
   }
   context.font = `900 ${Math.round(hudBox.h * 0.48)}px 'Arial Black', 'Impact', sans-serif`;
   context.textAlign = 'center';
