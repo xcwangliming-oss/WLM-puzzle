@@ -104,8 +104,8 @@ assert.match(
 
 assert.match(
   body,
-  /const boardClipBox = getMasterBoardContentRect\(width, height\);[\s\S]*?recordingCtx!\.rect\(boardClipBox\.x, boardClipBox\.y, boardClipBox\.w, boardClipBox\.h\);/,
-  'recording should clip the downward-extending canvas to the fixed board area'
+  /const boardClipBox = getRecordingBoardClipRect\(boardWrapper \|\| null, width, height\);[\s\S]*?recordingCtx!\.rect\(boardClipBox\.x, boardClipBox\.y, boardClipBox\.w, boardClipBox\.h\);/,
+  'recording should clip the downward-extending canvas to the same live board area shown in the editor'
 );
 
 assert.doesNotMatch(

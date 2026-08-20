@@ -598,7 +598,7 @@ const PARAMS = {
 
 
 
-  shatterMode: 2,
+  shatterMode: 1,
 
 
 
@@ -16977,9 +16977,9 @@ type SolidBackgroundVariant = 'solid' | 'animated';
 
 type TopUiMode = 'classic' | 'heart';
 
-const HEART_IDLE_URL = '/assets/ui/heart-idle-transparent.gif';
+const HEART_IDLE_URL = '/assets/ui/heart-idle.webm';
 
-const HEART_CLEAR_URL = '/assets/ui/heart-clear-transparent.gif';
+const HEART_CLEAR_URL = '/assets/ui/heart-clear.webm';
 
 const SOLID_BACKGROUND_COLORS = [
   { id: 'deep-blue', name: '深蓝紫', from: '#344372', to: '#563762' },
@@ -17193,13 +17193,14 @@ function syncTopUiMode() {
   const gameHeaderEl = document.getElementById('game-header');
   const scoreEl = document.getElementById('score-val');
   const heartScoreEl = document.getElementById('heart-score-val');
-  const heartGifEl = document.getElementById('heart-score-gif') as HTMLImageElement | null;
-  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLImageElement | null;
+  const heartGifEl = document.getElementById('heart-score-gif') as HTMLVideoElement | null;
+  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
 
   gameHeaderEl?.classList.toggle('heart-header-mode', topUiMode === 'heart');
   if (heartScoreEl && scoreEl) heartScoreEl.innerText = scoreEl.innerText;
-  if (heartGifEl) heartGifEl.src = HEART_IDLE_URL;
-  if (heartBurstEl) heartBurstEl.src = HEART_CLEAR_URL;
+  if (heartGifEl && !heartGifEl.src.endsWith(HEART_IDLE_URL)) heartGifEl.src = HEART_IDLE_URL;
+  if (heartBurstEl && !heartBurstEl.src.endsWith(HEART_CLEAR_URL)) heartBurstEl.src = HEART_CLEAR_URL;
+  heartGifEl?.play().catch(() => {});
   syncTopUiModeButtons();
 }
 
@@ -17213,18 +17214,20 @@ function setTopUiMode(mode: TopUiMode) {
 function triggerHeartClearHud() {
   if (topUiMode !== 'heart') return;
   const heartHudEl = document.getElementById('heart-score-hud');
-  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLImageElement | null;
+  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
   if (!heartHudEl || !heartBurstEl) return;
 
   if (heartClearTimer !== null) window.clearTimeout(heartClearTimer);
-  heartBurstEl.src = `${HEART_CLEAR_URL}?t=${Date.now()}`;
+  heartBurstEl.currentTime = 0;
   heartHudEl.classList.remove('clearing');
   void heartHudEl.offsetWidth;
   heartHudEl.classList.add('clearing');
+  heartBurstEl.play().catch(() => {});
   heartClearTimer = window.setTimeout(() => {
     heartHudEl.classList.remove('clearing');
+    heartBurstEl.pause();
     heartClearTimer = null;
-  }, 900);
+  }, 1600);
 }
 
 function syncMarqueeBorderUI() {
@@ -29833,7 +29836,7 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
 
   ctx.fillRect(0, 0, width, height);
 
-  if (isSolidRecordingBackgroundActive()) {
+  if (isSolidRecordingBackgroundActive() && topUiMode !== 'heart') {
     drawSolidRecordingFrame(ctx, width, height);
     return;
   }
@@ -30092,6 +30095,37 @@ function mapBoardWrapperRectToRecordingRect(
 
 }
 
+function getDomMappedRecordingRect(
+  element: HTMLElement | null,
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const elementRect = element?.getBoundingClientRect();
+  if (!boardRect || !elementRect) return null;
+  return mapBoardWrapperRectToRecordingRect(elementRect, boardRect, { x: 0, y: 0, w: width, h: height });
+}
+
+function getRecordingBoardClipRect(
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const domBox = getDomMappedRecordingRect(document.getElementById('board-clip'), boardWrapper, width, height);
+  return domBox || getMasterBoardContentRect(width, height);
+}
+
+function getRecordingPixiCanvasRect(
+  canvas: HTMLCanvasElement,
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const domBox = getDomMappedRecordingRect(canvas, boardWrapper, width, height);
+  return domBox || getMasterBoardCanvasRect(width, height);
+}
+
 
 
 function drawRecordingImageContained(
@@ -30119,27 +30153,39 @@ function drawRecordingHeartHud(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
-  headerBox: { x: number; y: number; w: number; h: number }
+  headerBox: { x: number; y: number; w: number; h: number },
+  boardWrapper: HTMLElement | null
 ) {
   const scoreText = document.getElementById('heart-score-val')?.innerText
     || document.getElementById('score-val')?.innerText
     || '0';
   const heartHud = document.getElementById('heart-score-hud');
-  const heartImage = document.getElementById('heart-score-gif') as HTMLImageElement | null;
-  const heartBurstImage = document.getElementById('heart-score-burst') as HTMLImageElement | null;
-  const centerX = headerBox.x + headerBox.w / 2;
-  const centerY = headerBox.y + headerBox.h * 0.62;
-  const heartW = width * 0.30;
-  const heartH = height * 0.12;
+  const heartImage = document.getElementById('heart-score-gif') as HTMLVideoElement | null;
+  const heartBurstImage = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const hudRect = heartHud?.getBoundingClientRect();
+  const heartRect = heartImage?.getBoundingClientRect();
+  const burstRect = heartBurstImage?.getBoundingClientRect();
+  const hudBox = boardRect && hudRect
+    ? mapBoardWrapperRectToRecordingRect(hudRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: headerBox.x + headerBox.w * 0.33, y: headerBox.y, w: headerBox.w * 0.34, h: headerBox.h };
+  const heartBox = boardRect && heartRect
+    ? mapBoardWrapperRectToRecordingRect(heartRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: hudBox.x, y: hudBox.y + height * (10 / MASTER_UI.height), w: hudBox.w, h: hudBox.h };
+  const burstBox = boardRect && burstRect
+    ? mapBoardWrapperRectToRecordingRect(burstRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: heartBox.x - heartBox.w * 0.25, y: heartBox.y - heartBox.h * 0.25, w: heartBox.w * 1.5, h: heartBox.h * 1.5 };
+  const centerX = hudBox.x + hudBox.w / 2;
+  const centerY = hudBox.y + hudBox.h / 2;
 
   context.save();
-  if (heartHud?.classList.contains('clearing') && heartBurstImage?.complete && heartBurstImage.naturalWidth > 0) {
-    context.drawImage(heartBurstImage, centerX - heartW * 0.75, centerY - heartH * 0.75, heartW * 1.5, heartH * 1.5);
+  if (heartHud?.classList.contains('clearing') && heartBurstImage && heartBurstImage.readyState >= 2 && heartBurstImage.videoWidth > 0) {
+    context.drawImage(heartBurstImage, burstBox.x, burstBox.y, burstBox.w, burstBox.h);
   }
-  if (heartImage?.complete && heartImage.naturalWidth > 0) {
-    context.drawImage(heartImage, centerX - heartW / 2, centerY - heartH / 2, heartW, heartH);
+  if (heartImage && heartImage.readyState >= 2 && heartImage.videoWidth > 0) {
+    context.drawImage(heartImage, heartBox.x, heartBox.y, heartBox.w, heartBox.h);
   }
-  context.font = `900 ${Math.round(width * 0.085)}px 'Arial Black', 'Impact', sans-serif`;
+  context.font = `900 ${Math.round(hudBox.h * 0.48)}px 'Arial Black', 'Impact', sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.lineWidth = width * 0.006;
@@ -40416,10 +40462,9 @@ function startRecording(): Promise<boolean> {
 
 
       if (topUiMode === 'heart') {
-        if (!useRecordingBackground) recordingCtx!.restore();
-        drawRecordingHeartHud(recordingCtx!, width, height, headerBox);
-        if (!useRecordingBackground) recordingCtx!.save();
-        if (!useRecordingBackground) recordingCtx!.scale(1, 1.3);
+        recordingCtx!.restore();
+        drawRecordingHeartHud(recordingCtx!, width, height, headerBox, boardWrapper || null);
+        recordingCtx!.save();
       } else {
       const leftText = `LEVEL: ${document.getElementById('level-val')?.innerText || '284'}`;
 
@@ -40756,7 +40801,9 @@ function startRecording(): Promise<boolean> {
 
 
 
-      const boardCanvasBox = getMasterBoardCanvasRect(width, height);
+      const boardClipBox = getRecordingBoardClipRect(boardWrapper || null, width, height);
+
+      const boardCanvasBox = getRecordingPixiCanvasRect(pixiCanvas, boardWrapper || null, width, height);
 
 
 
@@ -40766,9 +40813,6 @@ function startRecording(): Promise<boolean> {
 
       recordingCtx!.beginPath();
 
-
-
-      const boardClipBox = getMasterBoardContentRect(width, height);
 
       recordingCtx!.rect(boardClipBox.x, boardClipBox.y, boardClipBox.w, boardClipBox.h);
 

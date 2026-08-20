@@ -6,15 +6,22 @@ const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'src', 'main.ts'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-assert.ok(fs.existsSync(path.join(root, 'public', 'assets', 'ui', 'heart-idle-transparent.gif')), 'transparent idle heart gif should be bundled as a public asset');
-assert.ok(fs.existsSync(path.join(root, 'public', 'assets', 'ui', 'heart-clear-transparent.gif')), 'transparent clear heart gif should be bundled as a public asset');
+assert.ok(fs.existsSync(path.join(root, 'public', 'assets', 'ui', 'heart-idle.webm')), 'transparent idle heart video should be bundled as a public asset');
+assert.ok(fs.existsSync(path.join(root, 'public', 'assets', 'ui', 'heart-clear.webm')), 'transparent clear heart video should be bundled as a public asset');
 
 assert.match(source, /type TopUiMode = 'classic' \| 'heart';/, 'top UI should have classic and heart modes');
-assert.match(source, /function triggerHeartClearHud\(\)[\s\S]*?heart-score-burst[\s\S]*?classList\.add\('clearing'\)/, 'heart HUD should play the clear gif as an expanding burst layer');
+assert.match(source, /function triggerHeartClearHud\(\)[\s\S]*?heart-score-burst[\s\S]*?currentTime = 0[\s\S]*?classList\.add\('clearing'\)[\s\S]*?heartBurstEl\.play/, 'heart HUD should replay the clear video as an expanding burst layer');
 assert.match(source, /comboCount \+= 1;[\s\S]*?triggerHeartClearHud\(\);/, 'eliminations should trigger the heart clear animation');
 assert.match(source, /function drawRecordingHeartHud\([\s\S]*?heart-score-burst[\s\S]*?drawImage\(heartBurstImage[\s\S]*?drawImage\(heartImage/, 'recording should draw the expanding burst behind the base heart HUD');
-assert.match(html, /id="heart-score-hud"[\s\S]*?id="heart-score-burst"[\s\S]*?id="heart-score-gif"[\s\S]*?id="heart-score-val"/, 'editor DOM should include separate base and burst heart layers');
+assert.match(source, /function drawRecordingHeartHud\([\s\S]*?mapBoardWrapperRectToRecordingRect\(hudRect, boardRect, \{ x: 0, y: 0, w: width, h: height \}\)[\s\S]*?mapBoardWrapperRectToRecordingRect\(heartRect, boardRect, \{ x: 0, y: 0, w: width, h: height \}\)/, 'recording heart HUD should map the live DOM rectangles so exports match the editor preview');
+assert.match(source, /const boardClipBox = getRecordingBoardClipRect\(boardWrapper \|\| null, width, height\);[\s\S]*?const boardCanvasBox = getRecordingPixiCanvasRect\(pixiCanvas, boardWrapper \|\| null, width, height\);/, 'recording should draw and clip the board from the live preview DOM rectangles instead of compressing the full canvas into the fixed template');
+assert.match(source, /if \(isSolidRecordingBackgroundActive\(\) && topUiMode !== 'heart'\) \{[\s\S]*?drawSolidRecordingFrame/, 'heart top UI recordings should not draw the classic solid background frames');
+assert.match(html, /id="heart-score-hud"[\s\S]*?<video id="heart-score-burst"[\s\S]*?heart-clear\.webm[\s\S]*?<video id="heart-score-gif"[\s\S]*?heart-idle\.webm[\s\S]*?id="heart-score-val"/, 'editor DOM should include separate base and burst heart video layers');
 assert.match(html, /#game-header\.heart-header-mode \{[\s\S]*?background:\s*transparent !important;[\s\S]*?border:\s*0 !important;[\s\S]*?box-shadow:\s*none !important;/, 'heart top UI should remove the classic header frame');
+assert.match(html, /#heart-score-hud\s*\{[\s\S]*?top:\s*50%;[\s\S]*?width:\s*210px;[\s\S]*?height:\s*150px;/, 'heart score text container should keep its original centered position and size');
+assert.match(html, /#heart-score-gif\s*\{[\s\S]*?top:\s*calc\(50% \+ 10px\);[\s\S]*?width:\s*120%;[\s\S]*?height:\s*120%;/, 'only the base heart layer should move down and scale up');
+
+assert.match(source, /shatterMode:\s*1,/, 'shatter mode should default to the first option');
 assert.match(html, /data-top-ui-mode="classic"[\s\S]*?data-top-ui-mode="heart"/, 'editor should expose top UI mode buttons');
 
 assert.match(source, /let marqueeBorderEnabled = localStorage\.getItem\('marqueeBorderEnabled'\) === 'true';/, 'marquee border setting should persist');

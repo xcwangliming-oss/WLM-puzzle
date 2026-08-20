@@ -194,18 +194,20 @@
       }
       #heart-score-gif {
         position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
+        left: 50%;
+        top: calc(50% + 10px);
+        width: 120%;
+        height: 120%;
         object-fit: contain;
+        transform: translate(-50%, -50%);
         filter: drop-shadow(0 0 18px rgba(229, 74, 255, 0.72));
       }
       #heart-score-burst {
         position: absolute;
         left: 50%;
-        top: 50%;
-        width: 150%;
-        height: 150%;
+        top: calc(50% + 10px);
+        width: 180%;
+        height: 180%;
         object-fit: contain;
         opacity: 0;
         transform: translate(-50%, -50%) scale(0.62);
@@ -215,7 +217,7 @@
       }
       #heart-score-hud.clearing #heart-score-burst {
         opacity: 1;
-        animation: heart-burst-expand 900ms ease-out both;
+        animation: heart-burst-expand 1600ms ease-out both;
       }
       #heart-score-val {
         position: relative;
@@ -549,8 +551,8 @@
                 <img id="collection-avatar-image" alt="">
               </div>
               <div id="heart-score-hud" aria-hidden="true">
-                <img id="heart-score-burst" src="/assets/ui/heart-clear-transparent.gif" alt="">
-                <img id="heart-score-gif" src="/assets/ui/heart-idle-transparent.gif" alt="">
+                <video id="heart-score-burst" src="/assets/ui/heart-clear.webm" muted playsinline preload="auto"></video>
+                <video id="heart-score-gif" src="/assets/ui/heart-idle.webm" muted playsinline autoplay loop preload="auto"></video>
                 <span id="heart-score-val">854,682</span>
               </div>
               <div class="header-item">SCORE: <span id="score-val">854,682</span></div>
