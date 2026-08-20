@@ -20,8 +20,8 @@ assert.match(
 
 assert.match(
   body,
-  /function getPreviewRendererGameHeight\(\)[\s\S]*?const contentWidth = PARAMS\.gridCols \* PARAMS\.cellSize \+ PADDING \* 2;[\s\S]*?const boardAspect = MASTER_UI\.board\.h \/ MASTER_UI\.board\.w;[\s\S]*?return Math\.max\(PARAMS\.cellSize, contentWidth \* boardAspect - PADDING \* 2\);/,
-  'preview renderer height should match the fixed board frame aspect so every column count fits without cropping'
+  /function getPreviewRendererGameHeight\(\)[\s\S]*?return PARAMS\.viewportRows \* PARAMS\.cellSize;/,
+  'preview renderer height should stay tied to visible rows while CSS scaling lets the bottom continue downward'
 );
 
 assert.match(
@@ -74,44 +74,50 @@ assert.match(
 
 assert.match(
   body,
-  /function fitRectContainPreserveAspect\([\s\S]*?const scale = Math\.min\(target\.w \/ contentW, target\.h \/ contentH\);[\s\S]*?const w = contentW \* scale;[\s\S]*?const h = contentH \* scale;/,
-  'preview canvas should fit completely inside the fixed board frame without cropping blocks'
+  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectToFixedWidthPreserveAspect\(boardBox, contentSize\.w, contentSize\.h\);/,
+  'recording should keep the board x/y/width fixed and let the drawn canvas continue downward with content height'
 );
 
 assert.match(
   body,
-  /x: target\.x \+ \(target\.w - w\) \/ 2,/,
-  'preview canvas should remain centered if there is any subpixel aspect difference'
+  /function fitRectToFixedWidthPreserveAspect\([\s\S]*?const scale = target\.w \/ contentW;[\s\S]*?const h = contentH \* scale;[\s\S]*?x: target\.x,[\s\S]*?y: target\.y,/,
+  'fixed-width board fitting should not cap height against the old frame height'
 );
 
 assert.match(
   body,
-  /y: target\.y \+ \(target\.h - h\) \/ 2,/,
-  'preview canvas should remain vertically centered if there is any subpixel aspect difference'
+  /canvas\.style\.left = '0px';[\s\S]*?canvas\.style\.top = '0px';/,
+  'editor preview canvas should start exactly at the board frame top-left'
 );
 
 assert.match(
   body,
-  /const rect = fitRectContainPreserveAspect\([\s\S]*?\{ x: 0, y: 0, w: targetWidth, h: targetHeight \},[\s\S]*?contentSize\.w,[\s\S]*?contentSize\.h[\s\S]*?\);/,
-  'editor preview should use non-cropping fitting inside the fixed master board frame'
+  /positionBoardClipInMaster\(\)[\s\S]*?const boardBox = getMasterBoardContentRect\(boardWrapper\.clientWidth, boardWrapper\.clientHeight\);[\s\S]*?boardClip\.style\.left = `\$\{boardBox\.x\}px`;[\s\S]*?boardClip\.style\.top = `\$\{boardBox\.y\}px`;[\s\S]*?boardClip\.style\.width = `\$\{boardBox\.w\}px`;[\s\S]*?boardClip\.style\.height = `\$\{boardBox\.h\}px`;/,
+  'editor board clip should stay in the fixed template area even when the drawn canvas continues downward'
 );
 
 assert.match(
   body,
-  /function getMasterBoardCanvasRect\(width: number, height: number\)[\s\S]*?return fitRectContainPreserveAspect\(boardBox, contentSize\.w, contentSize\.h\);/,
-  'recording should use the same non-cropping canvas rect as the editor preview'
+  /const targetHeight = targetWidth \* \(contentSize\.h \/ contentSize\.w\);[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
+  'editor canvas should scale by fixed width and let extra height continue downward under the fixed clip'
+);
+
+assert.match(
+  body,
+  /const boardClipBox = getMasterBoardContentRect\(width, height\);[\s\S]*?recordingCtx!\.rect\(boardClipBox\.x, boardClipBox\.y, boardClipBox\.w, boardClipBox\.h\);/,
+  'recording should clip the downward-extending canvas to the fixed board area'
+);
+
+assert.doesNotMatch(
+  body,
+  /fitRectCoverPreserveAspect|fitRectContainPreserveAspect/,
+  'preview fitting should not use cover or contain helpers because they either crop or leave inner bands'
 );
 
 assert.doesNotMatch(
   body,
   /Math\.max\(target\.w \/ contentW, target\.h \/ contentH\)/,
   'preview fitting must not cover-scale because cover scaling crops blocks at some column counts'
-);
-
-assert.doesNotMatch(
-  body,
-  /const h = target\.h;/,
-  'preview canvas must not use independent target height because that makes square blocks look stretched'
 );
 
 console.log('preview canvas aspect regression passed');

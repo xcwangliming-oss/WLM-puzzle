@@ -16455,12 +16455,10 @@ async function preloadStandaloneSelectedShatterEffects() {
 
 function getPreviewRendererGameHeight(): number {
 
-  // Match the fixed phone board frame aspect. The logical viewport height stays
-  // unchanged; this only controls how much render surface is visible inside the
-  // frame so the canvas can touch all four edges without cropping blocks.
-  const contentWidth = PARAMS.gridCols * PARAMS.cellSize + PADDING * 2;
-  const boardAspect = MASTER_UI.board.h / MASTER_UI.board.w;
-  return Math.max(PARAMS.cellSize, contentWidth * boardAspect - PADDING * 2);
+  // Keep the render surface tied to the configured visible rows. Scaling is
+  // handled outside the Pixi renderer so generated blocks stay in the visible
+  // gameplay area and are not pushed into hidden overscan.
+  return PARAMS.viewportRows * PARAMS.cellSize;
 
 }
 
@@ -29730,7 +29728,7 @@ function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, h
     w: MASTER_UI.header.w * width,
     h: MASTER_UI.header.h * height
   };
-  const boardBox = getMasterBoardContentRect(width, height);
+  const boardBox = getMasterBoardCanvasRect(width, height);
   const radius = Math.max(4, width * 0.011);
 
   ctx.save();
@@ -29907,7 +29905,22 @@ function getBoardCanvasContentSize() {
 function getMasterBoardCanvasRect(width: number, height: number) {
   const boardBox = getMasterBoardContentRect(width, height);
   const contentSize = getBoardCanvasContentSize();
-  return fitRectContainPreserveAspect(boardBox, contentSize.w, contentSize.h);
+  return fitRectToFixedWidthPreserveAspect(boardBox, contentSize.w, contentSize.h);
+}
+
+function positionBoardClipInMaster() {
+  const boardClip = document.getElementById('board-clip');
+  const boardWrapper = document.getElementById('board-wrapper');
+  if (!boardClip || !boardWrapper) return null;
+
+  const boardBox = getMasterBoardContentRect(boardWrapper.clientWidth, boardWrapper.clientHeight);
+
+  boardClip.style.left = `${boardBox.x}px`;
+  boardClip.style.top = `${boardBox.y}px`;
+  boardClip.style.width = `${boardBox.w}px`;
+  boardClip.style.height = `${boardBox.h}px`;
+
+  return boardBox;
 }
 
 function mapBoardWrapperRectToRecordingRect(
@@ -30145,7 +30158,7 @@ function fitRectToWidthPreserveAspect(
 
 }
 
-function fitRectContainPreserveAspect(
+function fitRectToFixedWidthPreserveAspect(
 
 
 
@@ -30177,7 +30190,7 @@ function fitRectContainPreserveAspect(
 
 
 
-  const scale = Math.min(target.w / contentW, target.h / contentH);
+  const scale = target.w / contentW;
 
   const w = contentW * scale;
 
@@ -30189,11 +30202,11 @@ function fitRectContainPreserveAspect(
 
 
 
-    x: target.x + (target.w - w) / 2,
+    x: target.x,
 
 
 
-    y: target.y + (target.h - h) / 2,
+    y: target.y,
 
 
 
@@ -30210,10 +30223,6 @@ function fitRectContainPreserveAspect(
 
 
 }
-
-
-
-
 
 
 
@@ -30237,11 +30246,12 @@ function positionPreviewCanvasInMaster() {
 
 
 
+  const boardClipRect = positionBoardClipInMaster();
+
   const boardClip = document.getElementById('board-clip');
 
 
-
-  if (!boardClip || !app?.canvas) return;
+  if (!boardClipRect || !boardClip || !app?.canvas) return;
 
 
 
@@ -30251,8 +30261,6 @@ function positionPreviewCanvasInMaster() {
 
   const canvas = app.canvas as HTMLCanvasElement;
 
-
-
   const contentSize = getPreviewContentSize();
 
 
@@ -30261,43 +30269,23 @@ function positionPreviewCanvasInMaster() {
 
 
 
-  const targetHeight = boardClip.clientHeight;
+  const targetHeight = targetWidth * (contentSize.h / contentSize.w);
 
 
 
-  const rect = fitRectContainPreserveAspect(
+  canvas.style.left = '0px';
 
 
 
-    { x: 0, y: 0, w: targetWidth, h: targetHeight },
+  canvas.style.top = '0px';
 
 
 
-    contentSize.w,
+  canvas.style.width = `${targetWidth}px`;
 
 
 
-    contentSize.h
-
-
-
-  );
-
-
-
-  canvas.style.left = `${rect.x}px`;
-
-
-
-  canvas.style.top = `${rect.y}px`;
-
-
-
-  canvas.style.width = `${rect.w}px`;
-
-
-
-  canvas.style.height = `${rect.h}px`;
+  canvas.style.height = `${targetHeight}px`;
 
 
 
@@ -40535,7 +40523,6 @@ function startRecording(): Promise<boolean> {
 
 
 
-      const boardClipBox = getMasterBoardContentRect(width, height);
       const boardCanvasBox = getMasterBoardCanvasRect(width, height);
 
 
@@ -40547,6 +40534,8 @@ function startRecording(): Promise<boolean> {
       recordingCtx!.beginPath();
 
 
+
+      const boardClipBox = getMasterBoardContentRect(width, height);
 
       recordingCtx!.rect(boardClipBox.x, boardClipBox.y, boardClipBox.w, boardClipBox.h);
 
