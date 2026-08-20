@@ -21312,6 +21312,7 @@ function ensureStyleAssetsPanel(): HTMLElement | null {
 function initPropStylePanel(): void {
   const panel = ensureStyleAssetsPanel();
   if (!panel || document.getElementById('prop-style-section')) return;
+  const collectibleManagerSection = document.getElementById('collectible-manager-section');
   const sec = document.createElement('div');
   sec.id = 'prop-style-section';
   sec.style.cssText = 'display:flex;flex-direction:column;border-top:1px solid #444;padding-top:8px;margin-top:4px;';
@@ -21342,6 +21343,9 @@ function initPropStylePanel(): void {
       <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会保持整图缩放；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
     </div>`;
   panel.appendChild(sec);
+  if (collectibleManagerSection && collectibleManagerSection.parentElement !== panel) {
+    panel.appendChild(collectibleManagerSection);
+  }
   const bindFrameInput = (role: 'machine' | 'machine_attack' | 'eat', inputId: string, countId: string) => {
     const input = document.getElementById(inputId) as HTMLInputElement | null;
     if (!input) return;

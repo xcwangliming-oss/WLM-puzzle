@@ -14,12 +14,15 @@ test('multi collectible mode exposes independent controls and top header HUD', (
   assert.match(html, /id="select-multi-collectible-count"/);
   assert.match(html, /id="multi-collectible-slots"/);
   assert.match(html, /id="multi-collectible-hud"/);
+  assert.match(html, /id="collectible-manager-section"/);
 
   assert.match(css, /#multi-collectible-hud\s*\{[\s\S]*?position:\s*static/);
   assert.match(css, /#multi-collectible-hud\s*\{[\s\S]*?flex-direction:\s*row/);
   assert.match(css, /\.multi-collectible-target\s*\{[\s\S]*?flex-direction:\s*column/);
   assert.match(css, /\.multi-collectible-target-count/);
   assert.match(css, /\.multi-collectible-upload/);
+  assert.match(source, /const collectibleManagerSection = document\.getElementById\('collectible-manager-section'\)/);
+  assert.match(source, /panel\.appendChild\(collectibleManagerSection\)/);
 });
 
 test('multi collectible mode persists item identity through blocks and saves', () => {
