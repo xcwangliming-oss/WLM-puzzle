@@ -627,6 +627,12 @@ const PROBS = {
 
 };
 
+let previewRenderRows = DEFAULT_BOARD_ROWS;
+
+function getPreviewRenderRows(): number {
+  return Math.max(1, Math.min(PARAMS.totalRows, previewRenderRows || PARAMS.viewportRows));
+}
+
 
 
 
@@ -16476,10 +16482,7 @@ async function preloadStandaloneSelectedShatterEffects() {
 
 function getPreviewRendererGameHeight(): number {
 
-  // Keep the render surface tied to the configured visible rows. Scaling is
-  // handled outside the Pixi renderer so generated blocks stay in the visible
-  // gameplay area and are not pushed into hidden overscan.
-  return PARAMS.viewportRows * PARAMS.cellSize;
+  return getPreviewRenderRows() * PARAMS.cellSize;
 
 }
 
@@ -17495,7 +17498,7 @@ async function init() {
 
 
 
-    height: PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2,
+    height: getPreviewRendererGameHeight() + PADDING * 2,
 
 
 
@@ -30571,9 +30574,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-  const targetTop = boardClip.clientHeight - targetHeight;
-
-  canvas.style.top = `${targetTop}px`;
+  canvas.style.top = '0px';
 
 
 
@@ -31120,6 +31121,7 @@ function setupDOMUI() {
 
 
     syncBoardFrameToGrid();
+    previewRenderRows = Math.max(1, Math.min(PARAMS.totalRows, PARAMS.viewportRows));
 
 
 
@@ -31227,15 +31229,7 @@ function setupDOMUI() {
 
 
 
-      const cellH = maxH / PARAMS.viewportRows;
-
-
-
-      
-
-
-
-      const autoCellSize = Math.max(10, Math.floor(Math.min(cellW, cellH)));
+      const autoCellSize = Math.max(10, Math.floor(cellW));
 
 
 
@@ -31312,6 +31306,8 @@ function setupDOMUI() {
 
 
     let fitScale = 1;
+    let boardFrameW = 0;
+    let boardFrameH = 0;
 
 
 
@@ -31332,6 +31328,8 @@ function setupDOMUI() {
 
 
       const maxW = boardRect.w;
+      boardFrameW = boardRect.w;
+      boardFrameH = boardRect.h;
 
 
 
@@ -31365,8 +31363,19 @@ function setupDOMUI() {
 
     const displayCellSize = Math.max(1, Math.round(PARAMS.cellSize * fitScale));
     const displayW = PARAMS.gridCols * displayCellSize + Math.round(PADDING * 2 * fitScale);
+    const boardClipBorderPx = 5;
+    const boardFrameInnerW = Math.max(1, boardFrameW - boardClipBorderPx * 2);
+    const boardFrameInnerH = Math.max(1, boardFrameH - boardClipBorderPx * 2);
+    if (boardFrameInnerH > 0) {
+      const rowsToCoverFrame = Math.ceil(boardFrameInnerH / displayCellSize) + 1;
+      previewRenderRows = Math.max(PARAMS.viewportRows, Math.min(PARAMS.totalRows, rowsToCoverFrame));
+    }
     const previewGameHeight = getPreviewRendererGameHeight();
-    const displayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
+    const contentDisplayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
+    const frameDisplayH = boardFrameInnerW > 0 && boardFrameInnerH > 0
+      ? Math.ceil(boardFrameInnerH * (displayW / boardFrameInnerW))
+      : 0;
+    const displayH = Math.max(contentDisplayH, frameDisplayH);
     app.renderer.resize(displayW, displayH);
 
 

@@ -20,8 +20,8 @@ assert.match(
 
 assert.match(
   body,
-  /function getPreviewRendererGameHeight\(\)[\s\S]*?return PARAMS\.viewportRows \* PARAMS\.cellSize;/,
-  'preview renderer height should stay tied to visible rows while CSS scaling lets the bottom continue downward'
+  /let previewRenderRows = DEFAULT_BOARD_ROWS;[\s\S]*?function getPreviewRenderRows\(\)[\s\S]*?return Math\.max\(1, Math\.min\(PARAMS\.totalRows, previewRenderRows \|\| PARAMS\.viewportRows\)\);[\s\S]*?function getPreviewRendererGameHeight\(\)[\s\S]*?return getPreviewRenderRows\(\) \* PARAMS\.cellSize;/,
+  'preview renderer should extend far enough for the fixed board clip to crop the bottom without stretching cells'
 );
 
 assert.match(
@@ -62,8 +62,8 @@ assert.match(
 
 assert.match(
   body,
-  /const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const displayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);/,
-  'renderer height should include frame overscan without stretching square blocks'
+  /const rowsToCoverFrame = Math\.ceil\(boardFrameInnerH \/ displayCellSize\) \+ 1;[\s\S]*?previewRenderRows = Math\.max\(PARAMS\.viewportRows, Math\.min\(PARAMS\.totalRows, rowsToCoverFrame\)\);[\s\S]*?const previewGameHeight = getPreviewRendererGameHeight\(\);[\s\S]*?const contentDisplayH = Math\.round\(previewGameHeight \* fitScale \+ PADDING \* 2 \* fitScale\);[\s\S]*?const displayH = Math\.max\(contentDisplayH, frameDisplayH\);/,
+  'renderer height should cover the fixed frame plus one crop row without changing square-cell scaling'
 );
 
 assert.match(
@@ -86,8 +86,8 @@ assert.match(
 
 assert.match(
   body,
-  /canvas\.style\.left = '0px';[\s\S]*?canvas\.style\.top = `\$\{targetTop\}px`;/,
-  'editor preview canvas should keep the left edge fixed and bottom-align short content'
+  /canvas\.style\.left = '0px';[\s\S]*?canvas\.style\.top = '0px';/,
+  'editor preview canvas should keep the left and top edges fixed to the board frame'
 );
 
 assert.match(
@@ -98,8 +98,8 @@ assert.match(
 
 assert.match(
   body,
-  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = canvas\.height \* cssScale;[\s\S]*?const targetTop = boardClip\.clientHeight - targetHeight;[\s\S]*?canvas\.style\.top = `\$\{targetTop\}px`;[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
-  'editor canvas should use one CSS scale for square cells and bottom-align short content inside the fixed frame'
+  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = canvas\.height \* cssScale;[\s\S]*?canvas\.style\.top = '0px';[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
+  'editor canvas should use one CSS scale for square cells while the board clip crops the bottom'
 );
 
 assert.match(
