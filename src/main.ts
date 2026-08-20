@@ -17143,39 +17143,25 @@ function persistRecordingBackgroundState() {
 function createSolidBackgroundGradient(
   ctx: CanvasRenderingContext2D,
   width: number,
-  height: number,
-  timeMs = performance.now()
+  height: number
 ) {
   const current = getSolidBackgroundColor();
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
 
-  if (solidBackgroundVariant === 'animated') {
-    const currentIndex = Math.max(0, SOLID_BACKGROUND_COLORS.findIndex(color => color.id === current.id));
-    const next = SOLID_BACKGROUND_COLORS[(currentIndex + 1) % SOLID_BACKGROUND_COLORS.length];
-    const t = (Math.sin(timeMs / 1400) + 1) / 2;
-    gradient.addColorStop(0, mixHexColors(current.from, next.from, t));
-    gradient.addColorStop(1, mixHexColors(current.to, next.to, t));
-  } else {
-    gradient.addColorStop(0, current.from);
-    gradient.addColorStop(1, current.to);
-  }
+  gradient.addColorStop(0, current.from);
+  gradient.addColorStop(1, current.to);
 
   return gradient;
 }
 
-function mixHexColors(a: string, b: string, t: number) {
-  const parse = (value: string) => {
-    const hex = value.replace('#', '');
-    return {
-      r: parseInt(hex.slice(0, 2), 16),
-      g: parseInt(hex.slice(2, 4), 16),
-      b: parseInt(hex.slice(4, 6), 16)
-    };
-  };
-  const ca = parse(a);
-  const cb = parse(b);
-  const mix = (from: number, to: number) => Math.round(from + (to - from) * t);
-  return `rgb(${mix(ca.r, cb.r)}, ${mix(ca.g, cb.g)}, ${mix(ca.b, cb.b)})`;
+function advanceSolidBackgroundColorOnElimination() {
+  if (!isSolidRecordingBackgroundActive() || solidBackgroundVariant !== 'animated') return;
+
+  const currentIndex = Math.max(0, SOLID_BACKGROUND_COLORS.findIndex(color => color.id === solidBackgroundColorId));
+  const next = SOLID_BACKGROUND_COLORS[(currentIndex + 1) % SOLID_BACKGROUND_COLORS.length];
+  solidBackgroundColorId = next.id;
+  persistRecordingBackgroundState();
+  syncRecordingBackgroundUI();
 }
 
 
@@ -25284,6 +25270,8 @@ function checkEliminations() {
 
     comboCount += 1;
 
+    advanceSolidBackgroundColorOnElimination();
+
     if (isRisingAdvanceActive()) {
       risingEliminationWavesThisMove += 1;
       pendingRisingRows = getRisingRowsForCompletedMove(risingEliminationWavesThisMove);
@@ -29522,9 +29510,9 @@ function syncRecordingBackgroundUI() {
 
 
 
-      preview.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
-
       preview.style.background = '';
+
+      preview.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
 
 
 
@@ -29640,9 +29628,9 @@ function syncRecordingBackgroundUI() {
 
 
 
-      boardWrapper.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
-
       boardWrapper.style.background = '';
+
+      boardWrapper.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
 
 
 

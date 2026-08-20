@@ -44,6 +44,36 @@ assert.match(
 );
 
 assert.match(
+  source,
+  /function advanceSolidBackgroundColorOnElimination\(\)[\s\S]*?solidBackgroundVariant !== 'animated'[\s\S]*?solidBackgroundColorId = next\.id[\s\S]*?persistRecordingBackgroundState\(\)[\s\S]*?syncRecordingBackgroundUI\(\)/,
+  'animated solid background mode should advance to the next color only when an elimination occurs'
+);
+
+assert.match(
+  source,
+  /comboCount \+= 1;[\s\S]*?advanceSolidBackgroundColorOnElimination\(\);/,
+  'each elimination wave should trigger one solid background color step'
+);
+
+assert.doesNotMatch(
+  source,
+  /Math\.sin\(timeMs \/ 1400\)/,
+  'animated solid backgrounds should not change color continuously over time'
+);
+
+assert.match(
+  source,
+  /preview\.style\.background = '';[\s\S]*?preview\.style\.backgroundImage = `url\("\$\{recordingBackgroundDataUrl\}"\)`/,
+  'uploaded background preview should clear the solid shorthand before assigning the image'
+);
+
+assert.match(
+  source,
+  /boardWrapper\.style\.background = '';[\s\S]*?boardWrapper\.style\.backgroundImage = `url\("\$\{recordingBackgroundDataUrl\}"\)`/,
+  'uploaded live background should clear the solid shorthand before assigning the image'
+);
+
+assert.match(
   css,
   /#board-wrapper\.solid-bg-live #board-clip[\s\S]*?background:\s*#232d5c;[\s\S]*?border:\s*5px solid #1c2655;/,
   'editor preview should use the dark board frame style in solid background mode'
