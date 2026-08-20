@@ -598,6 +598,17 @@
         <div id="collectible-list" class="material-slots-container">
           <!-- Dynamic list will be rendered here -->
         </div>
+        <div id="multi-collectible-manager" class="multi-collectible-manager">
+          <div class="multi-collectible-title">多收集物</div>
+          <label class="multi-collectible-toggle"><input type="checkbox" id="input-multi-collectible-mode"><span>启用多收集物模式</span></label>
+          <label class="multi-collectible-count">数量 <select id="select-multi-collectible-count">
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+          </select></label>
+          <div id="multi-collectible-slots" class="multi-collectible-slots"></div>
+        </div>
         <div id="collection-avatar-manager" class="collection-avatar-manager">
           <div class="collection-avatar-manager-title">🧑 收集头像</div>
           <div class="collection-avatar-slots">
@@ -668,6 +679,7 @@
               <div class="header-item">SCORE: <span id="score-val">854,682</span></div>
             </div>
             <div id="board-clip"></div>
+            <div id="multi-collectible-hud" aria-hidden="true"></div>
             <div id="marquee-border" aria-hidden="true">
               <span class="marquee-flow top"></span>
               <span class="marquee-flow right"></span>
@@ -730,6 +742,9 @@
           </button>
           <button id="btn-collect-mode" class="menu-btn gray">
             <span class="icon">🎁</span>收集模式
+          </button>
+          <button id="btn-multi-collect-mode" class="menu-btn gray">
+            <span class="icon">🎁</span>多收集物
           </button>
           <button id="btn-nogravity-mode" class="menu-btn gray">
             <span class="icon">🎈</span>无重力模式

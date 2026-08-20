@@ -50,8 +50,8 @@ assert.match(
 );
 assert.match(
   source,
-  /const avatarTargetEl = getCollectionAvatarTargetElement\(\);[\s\S]*?const targetEl = avatarTargetEl \|\| document\.getElementById\('collectible-header-icon'\)/,
-  'collectibles must target the center avatar first and retain the old right-icon fallback',
+  /const avatarTargetEl = getCollectionAvatarTargetElement\(\);[\s\S]*?const multiTargetEl = multiItem[\s\S]*?const targetEl = multiTargetEl \|\| avatarTargetEl \|\| document\.getElementById\('collectible-header-icon'\)/,
+  'collectibles must target multi-collectible HUD first, then the center avatar, then the old right-icon fallback',
 );
 assert.match(
   source,
@@ -60,7 +60,7 @@ assert.match(
 );
 assert.match(
   source,
-  /if \(avatarTargetEl\) triggerCollectionAvatarCollectState\(\);/,
+  /else if \(avatarTargetEl\) \{[\s\S]*?triggerCollectionAvatarCollectState\(\);[\s\S]*?\}/,
   'arrival at the avatar must play the collect state',
 );
 assert.match(

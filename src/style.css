@@ -177,6 +177,122 @@ html, body {
   filter: drop-shadow(0 0 8px rgba(255, 218, 92, 0.9));
 }
 
+.multi-collectible-manager {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.multi-collectible-title {
+  margin-bottom: 6px;
+  color: #d7d7e5;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.multi-collectible-toggle,
+.multi-collectible-count {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: #d7d7e5;
+  font-size: 10px;
+}
+
+.multi-collectible-count select,
+.multi-collectible-slot select {
+  min-width: 0;
+  flex: 1;
+  background: #1a1a25;
+  border: 1px solid #555;
+  color: #fff;
+  border-radius: 4px;
+  padding: 3px 4px;
+  font-size: 10px;
+}
+
+.multi-collectible-upload {
+  flex: 0 0 auto;
+  border: 1px solid rgba(64, 210, 255, 0.55);
+  border-radius: 4px;
+  background: rgba(46, 111, 255, 0.24);
+  color: #fff;
+  padding: 3px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.multi-collectible-upload:hover {
+  background: rgba(46, 111, 255, 0.38);
+}
+
+.multi-collectible-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.multi-collectible-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.multi-collectible-slot img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+#multi-collectible-hud {
+  position: static;
+  margin-left: auto;
+  z-index: 3;
+  display: none;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  pointer-events: none;
+  transform: translateY(-2px);
+}
+
+#board-wrapper.multi-collectible-live #multi-collectible-hud {
+  display: flex;
+}
+
+.multi-collectible-target {
+  width: 54px;
+  min-height: 62px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.multi-collectible-target img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.42));
+}
+
+.multi-collectible-target-count {
+  color: #fff;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.45), 0 0 8px rgba(46,252,255,0.42);
+}
+
 .collection-avatar-manager {
   margin-top: 8px;
   padding-top: 8px;

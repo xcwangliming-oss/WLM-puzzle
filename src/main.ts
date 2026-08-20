@@ -281,6 +281,7 @@ function queueCustomPropStyle(style: unknown): void {
             color: block.color,
             noGravity: block.noGravity,
             isCollectible: block.isCollectible,
+            collectibleId: block.collectibleId,
             isProp: block.isProp,
             propType: block.propType,
             propDir: block.propDir,
@@ -312,6 +313,11 @@ function queueCustomPropStyle(style: unknown): void {
             boardMechanic: exportBoardMechanic,
             gameRule: exportGameRule,
             collectedCount
+        },
+        multiCollectible: {
+            enabled: multiCollectibleModeEnabled,
+            slotCount: multiCollectibleSlotCount,
+            slotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount)
         },
         isFixedBoardMode: exportBoardAdvanceMode === 'fixed',
         isFallingMode,
@@ -449,6 +455,17 @@ function queueCustomPropStyle(style: unknown): void {
         syncClearTextEffectUI();
     }
 
+    if (saveData.multiCollectible) {
+        multiCollectibleModeEnabled = saveData.multiCollectible.enabled === true;
+        if (Number.isFinite(Number(saveData.multiCollectible.slotCount))) {
+            multiCollectibleSlotCount = Math.max(2, Math.min(5, Number(saveData.multiCollectible.slotCount) || 2));
+        }
+        if (Array.isArray(saveData.multiCollectible.slotIds)) {
+            multiCollectibleSlotIds = saveData.multiCollectible.slotIds.map(String).slice(0, 5);
+        }
+        persistMultiCollectibleSettings();
+    }
+
     const savedAudio = saveData.audio;
     if (savedAudio) {
         if (savedAudio.vocalPack === 'female' || savedAudio.vocalPack === 'male') {
@@ -531,6 +548,7 @@ function queueCustomPropStyle(style: unknown): void {
         color: typeof sb.color === 'string' ? sb.color : 'red',
         noGravity: !!sb.noGravity,
         isCollectible: !!sb.isCollectible,
+        collectibleId: typeof sb.collectibleId === 'string' ? sb.collectibleId : undefined,
         isProp: !!sb.isProp,
         propType: sb.propType,
         propDir: sb.propDir || 'left'
@@ -546,7 +564,8 @@ function queueCustomPropStyle(style: unknown): void {
             sb.isCollectible,
             sb.isProp,
             sb.propType,
-            sb.propDir || 'left'
+            sb.propDir || 'left',
+            typeof sb.collectibleId === 'string' ? sb.collectibleId : undefined
         );
     });
 
@@ -889,6 +908,27 @@ let activeCollectibleTextures: PIXI.Texture[] | null = null;
 
 let customCollectibles: { id: number; name: string; texture: string }[] = [];
 
+type MultiCollectibleItem = {
+  id: string;
+  name: string;
+  src: string;
+  count: number;
+  texture: PIXI.Texture | null;
+};
+
+let multiCollectibleModeEnabled = localStorage.getItem('multiCollectibleModeEnabled') === 'true';
+let multiCollectibleSlotCount = Math.max(2, Math.min(5, parseInt(localStorage.getItem('multiCollectibleSlotCount') || '2', 10) || 2));
+let multiCollectibleSlotIds: string[] = (() => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('multiCollectibleSlotIds') || '[]');
+    return Array.isArray(parsed) ? parsed.map(String).slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+})();
+let multiCollectibleItems: MultiCollectibleItem[] = [];
+let nextMultiCollectibleIndex = 0;
+
 type CollectionAvatarState = 'idle' | 'collect';
 
 interface CollectionAvatarStylePayload {
@@ -1176,6 +1216,7 @@ interface BoardBlockState {
 
 
   isCollectible?: boolean;
+  collectibleId?: string;
 
 
 
@@ -4067,7 +4108,8 @@ function captureBoardState() {
 
     propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -4551,7 +4593,7 @@ function restoreBoardState(options: { preserveWorldY?: boolean } = {}) {
 
 
 
-    spawnBlock(ib.col, ib.row, ib.length, ib.color, ib.id, ib.noGravity, ib.isCollectible, ib.isProp, ib.propType, ib.propDir || 'left');
+    spawnBlock(ib.col, ib.row, ib.length, ib.color, ib.id, ib.noGravity, ib.isCollectible, ib.isProp, ib.propType, ib.propDir || 'left', ib.collectibleId);
 
 
 
@@ -5831,7 +5873,8 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
     propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -5883,7 +5926,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-      spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+      spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
 
 
 
@@ -6247,7 +6290,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-      spawnBlock(cb.col, cb.row, cb.length, cb.color, cb.id, cb.noGravity, cb.isCollectible, cb.isProp, cb.propType, cb.propDir || 'left');
+      spawnBlock(cb.col, cb.row, cb.length, cb.color, cb.id, cb.noGravity, cb.isCollectible, cb.isProp, cb.propType, cb.propDir || 'left', cb.collectibleId);
 
 
 
@@ -7524,7 +7567,8 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
       propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -7798,7 +7842,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
 
 
 
@@ -8274,6 +8318,8 @@ function initGameplayModeBoard() {
 
 
     collectedCount = 0;
+
+    resetMultiCollectibleCounts();
 
 
 
@@ -10428,6 +10474,227 @@ function getActiveCollectibleBase64(): string {
 
 }
 
+function getCollectibleSourceById(id: string): { id: string; name: string; src: string } | null {
+  const builtin = BUILTIN_COLLECTIBLES.find(item => item.id === id);
+  if (builtin) return { id: String(builtin.id), name: builtin.name, src: builtin.textureData };
+  const numericId = Number.parseInt(id, 10);
+  const custom = customCollectibles.find(item => item.id === numericId);
+  if (custom) return { id: String(custom.id), name: custom.name, src: custom.texture };
+  return null;
+}
+
+function getAvailableCollectibleSources() {
+  return [
+    ...BUILTIN_COLLECTIBLES.map(item => ({ id: String(item.id), name: item.name, src: item.textureData })),
+    ...customCollectibles.map(item => ({ id: String(item.id), name: item.name, src: item.texture }))
+  ];
+}
+
+function persistMultiCollectibleSettings() {
+  localStorage.setItem('multiCollectibleModeEnabled', String(multiCollectibleModeEnabled));
+  localStorage.setItem('multiCollectibleSlotCount', String(multiCollectibleSlotCount));
+  localStorage.setItem('multiCollectibleSlotIds', JSON.stringify(multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount)));
+}
+
+function normalizeMultiCollectibleSlotIds() {
+  const sources = getAvailableCollectibleSources();
+  while (multiCollectibleSlotIds.length < multiCollectibleSlotCount) {
+    multiCollectibleSlotIds.push(sources[multiCollectibleSlotIds.length % Math.max(1, sources.length)]?.id || 'coin');
+  }
+  multiCollectibleSlotIds = multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount);
+}
+
+function getMultiCollectibleItem(id?: string) {
+  if (!id) return null;
+  return multiCollectibleItems.find(item => item.id === String(id)) || null;
+}
+
+function getNextMultiCollectibleItem() {
+  if (!multiCollectibleModeEnabled || multiCollectibleItems.length === 0) return null;
+  const item = multiCollectibleItems[nextMultiCollectibleIndex % multiCollectibleItems.length];
+  nextMultiCollectibleIndex = (nextMultiCollectibleIndex + 1) % multiCollectibleItems.length;
+  return item;
+}
+
+function resetMultiCollectibleCounts() {
+  multiCollectibleItems.forEach(item => { item.count = 0; });
+  syncMultiCollectibleHudCounts();
+}
+
+function syncMultiCollectibleHudCounts() {
+  multiCollectibleItems.forEach(item => {
+    const countEl = Array.from(document.querySelectorAll<HTMLElement>('.multi-collectible-target-count'))
+      .find(el => el.dataset.multiCollectibleCount === item.id);
+    if (countEl) countEl.textContent = String(item.count);
+  });
+}
+
+function renderMultiCollectibleHud() {
+  const hud = document.getElementById('multi-collectible-hud');
+  const wrapper = document.getElementById('board-wrapper');
+  const header = document.getElementById('game-header');
+  if (!hud || !wrapper) return;
+  if (header && hud.parentElement !== header) {
+    header.appendChild(hud);
+  }
+  hud.innerHTML = '';
+  wrapper.classList.toggle('multi-collectible-live', isCollectMode && multiCollectibleModeEnabled && multiCollectibleItems.length > 0);
+  multiCollectibleItems.forEach(item => {
+    const target = document.createElement('div');
+    target.className = 'multi-collectible-target';
+    target.dataset.multiCollectibleId = item.id;
+    const img = document.createElement('img');
+    img.src = item.src;
+    img.alt = '';
+    const count = document.createElement('span');
+    count.className = 'multi-collectible-target-count';
+    count.dataset.multiCollectibleCount = item.id;
+    count.textContent = String(item.count);
+    target.append(img, count);
+    hud.appendChild(target);
+  });
+}
+
+function refreshExistingMultiCollectibleBlocks() {
+  if (!isCollectMode || !multiCollectibleModeEnabled || multiCollectibleItems.length === 0) return;
+  const collectibleBlocks = blocks.filter(b => b.isCollectible);
+  collectibleBlocks.forEach(b => {
+    const { col, row, length, color, id, noGravity } = b;
+    if (b.sprite.parent) {
+      blocksContainer.removeChild(b.sprite);
+    }
+    b.sprite.destroy();
+    blocks = blocks.filter(item => item.id !== id);
+    const item = getNextMultiCollectibleItem();
+    spawnBlock(col, row, length, color, id, noGravity, true, false, undefined, 'left', item?.id);
+  });
+}
+
+async function rebuildMultiCollectibleItems() {
+  normalizeMultiCollectibleSlotIds();
+  const selectedIds = multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount);
+  multiCollectibleItems = [];
+  for (const id of selectedIds) {
+    const source = getCollectibleSourceById(id);
+    if (!source) continue;
+    let texture: PIXI.Texture | null = null;
+    try {
+      texture = await PIXI.Assets.load<PIXI.Texture>(source.src);
+    } catch {
+      texture = PIXI.Texture.from(source.src);
+    }
+    multiCollectibleItems.push({ ...source, count: 0, texture });
+  }
+  if (multiCollectibleItems.length === 0) {
+    const fallback = getCollectibleSourceById(String(activeCollectibleId)) || getAvailableCollectibleSources()[0];
+    if (fallback) {
+      const texture = await PIXI.Assets.load<PIXI.Texture>(fallback.src);
+      multiCollectibleItems.push({ ...fallback, count: 0, texture });
+      multiCollectibleSlotIds[0] = fallback.id;
+    }
+  }
+  persistMultiCollectibleSettings();
+  renderMultiCollectibleManager();
+  renderMultiCollectibleHud();
+}
+
+function renderMultiCollectibleManager() {
+  const enabledInput = document.getElementById('input-multi-collectible-mode') as HTMLInputElement | null;
+  const countSelect = document.getElementById('select-multi-collectible-count') as HTMLSelectElement | null;
+  const slotsEl = document.getElementById('multi-collectible-slots');
+  if (enabledInput) enabledInput.checked = multiCollectibleModeEnabled;
+  if (countSelect) countSelect.value = String(multiCollectibleSlotCount);
+  if (!slotsEl) return;
+
+  const sources = getAvailableCollectibleSources();
+  normalizeMultiCollectibleSlotIds();
+  slotsEl.innerHTML = '';
+  for (let i = 0; i < multiCollectibleSlotCount; i++) {
+    const row = document.createElement('div');
+    row.className = 'multi-collectible-slot';
+
+    const selected = getCollectibleSourceById(multiCollectibleSlotIds[i]) || sources[0];
+    const img = document.createElement('img');
+    img.src = selected?.src || '';
+    img.alt = '';
+
+    const select = document.createElement('select');
+    select.dataset.multiCollectibleSlot = String(i);
+    sources.forEach(source => {
+      const option = document.createElement('option');
+      option.value = source.id;
+      option.textContent = `${i + 1}. ${source.name}`;
+      option.selected = source.id === selected?.id;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', async () => {
+      multiCollectibleSlotIds[i] = select.value;
+      persistMultiCollectibleSettings();
+      await rebuildMultiCollectibleItems();
+      refreshExistingMultiCollectibleBlocks();
+    });
+
+    const uploadBtn = document.createElement('button');
+    uploadBtn.type = 'button';
+    uploadBtn.className = 'multi-collectible-upload';
+    uploadBtn.textContent = '上传';
+    uploadBtn.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async event => {
+          const base64 = event.target?.result as string;
+          if (!base64) return;
+          const cleanName = file.name.replace(/\.[^.]+$/, '').trim() || `多收集物${i + 1}`;
+          try {
+            const newId = await collectibleDB.addCollectible(cleanName, base64);
+            customCollectibles = await collectibleDB.getAllCollectibles();
+            multiCollectibleSlotIds[i] = String(newId);
+            persistMultiCollectibleSettings();
+            await rebuildMultiCollectibleItems();
+            refreshExistingMultiCollectibleBlocks();
+            await renderCollectibleList();
+          } catch (error) {
+            console.error(error);
+            alert('上传多收集物失败，请检查图片文件。');
+          }
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+    });
+
+    row.append(img, select, uploadBtn);
+    slotsEl.appendChild(row);
+  }
+}
+
+function bindMultiCollectibleManager() {
+  const enabledInput = document.getElementById('input-multi-collectible-mode') as HTMLInputElement | null;
+  enabledInput?.addEventListener('change', async () => {
+    multiCollectibleModeEnabled = enabledInput.checked;
+    if (multiCollectibleModeEnabled) isCollectMode = true;
+    persistMultiCollectibleSettings();
+    await rebuildMultiCollectibleItems();
+    refreshExistingMultiCollectibleBlocks();
+    resetMultiCollectibleCounts();
+    updateHeaderUI();
+    syncModeButtonsUI();
+  });
+
+  const countSelect = document.getElementById('select-multi-collectible-count') as HTMLSelectElement | null;
+  countSelect?.addEventListener('change', async () => {
+    multiCollectibleSlotCount = Math.max(2, Math.min(5, parseInt(countSelect.value, 10) || 2));
+    persistMultiCollectibleSettings();
+    await rebuildMultiCollectibleItems();
+    refreshExistingMultiCollectibleBlocks();
+  });
+}
+
 
 
 
@@ -10452,6 +10719,7 @@ function hasCollectionAvatar(): boolean {
 }
 
 function getCollectionAvatarTargetElement(): HTMLElement | null {
+  if (multiCollectibleModeEnabled) return null;
   if (!isCollectMode || !hasCollectionAvatar()) return null;
   return document.getElementById('collection-avatar-hud');
 }
@@ -10481,7 +10749,7 @@ function syncCollectionAvatarHUD(): void {
   const hud = document.getElementById('collection-avatar-hud');
   const image = document.getElementById('collection-avatar-image') as HTMLImageElement | null;
   if (!hud || !image) return;
-  const visible = isCollectMode && hasCollectionAvatar();
+  const visible = isCollectMode && hasCollectionAvatar() && !multiCollectibleModeEnabled;
   hud.classList.toggle('visible', visible);
   if (!visible) {
     image.removeAttribute('src');
@@ -10816,19 +11084,15 @@ function updateHeaderUI() {
 
 
 
-    // Right side: Collectible Counter
-
-
-
-    const base64 = getActiveCollectibleBase64();
-
-
-
-    scoreHeaderItemEl.style.display = '';
-
-
-
-    scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:50px; height:50px; vertical-align:middle; margin-right:8px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
+    // Right side: single collectible counter. Multi-collectible mode uses the left HUD.
+    if (multiCollectibleModeEnabled) {
+      scoreHeaderItemEl.style.display = 'none';
+      scoreHeaderItemEl.innerHTML = `<span id="collect-val" style="display:none;">${collectedCount}</span>`;
+    } else {
+      const base64 = getActiveCollectibleBase64();
+      scoreHeaderItemEl.style.display = '';
+      scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:50px; height:50px; vertical-align:middle; margin-right:8px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
+    }
 
 
 
@@ -10914,6 +11178,8 @@ function updateHeaderUI() {
 
     if (inputCollect) inputCollect.value = String(collectedCount);
 
+    renderMultiCollectibleHud();
+
 
 
   } else {
@@ -10980,6 +11246,8 @@ function updateHeaderUI() {
 
 
     }
+
+    renderMultiCollectibleHud();
 
 
 
@@ -11833,6 +12101,8 @@ async function renderCollectibleList() {
 
   listContainer.appendChild(addCard);
 
+  await rebuildMultiCollectibleItems();
+
 
 
 }
@@ -12559,7 +12829,9 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-  const base64 = getActiveCollectibleBase64();
+  const multiItem = multiCollectibleModeEnabled ? getMultiCollectibleItem(b.collectibleId) : null;
+
+  const base64 = multiItem?.src || getActiveCollectibleBase64();
 
 
 
@@ -12709,9 +12981,12 @@ function playCollectibleFlyAnimation(b: Block) {
 
   const avatarTargetEl = getCollectionAvatarTargetElement();
 
+  const multiTargetEl = multiItem
+    ? Array.from(document.querySelectorAll<HTMLElement>('.multi-collectible-target'))
+      .find(el => el.dataset.multiCollectibleId === multiItem.id) || null
+    : null;
 
-
-  const targetEl = avatarTargetEl || document.getElementById('collectible-header-icon');
+  const targetEl = multiTargetEl || avatarTargetEl || document.getElementById('collectible-header-icon');
 
 
 
@@ -12731,7 +13006,11 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-    if (avatarTargetEl) {
+    if (multiTargetEl) {
+      targetSize = Math.max(42, Math.min(64, targetRect.width));
+      targetLeft = targetRect.left - boardRect.left + (targetRect.width - targetSize) / 2;
+      targetTop = targetRect.top - boardRect.top + (targetRect.height - targetSize) / 2;
+    } else if (avatarTargetEl) {
       targetSize = Math.max(36, Math.min(58, targetRect.width));
       targetLeft = targetRect.left - boardRect.left + (targetRect.width - targetSize) / 2;
       targetTop = targetRect.top - boardRect.top + (targetRect.height - targetSize) / 2;
@@ -12785,7 +13064,7 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-      const builtin = BUILTIN_COLLECTIBLES.find(c => c.id === activeCollectibleId);
+      const builtin = multiItem ? null : BUILTIN_COLLECTIBLES.find(c => c.id === activeCollectibleId);
 
 
 
@@ -12929,7 +13208,12 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-      if (avatarTargetEl) triggerCollectionAvatarCollectState();
+      if (multiItem) {
+        multiItem.count++;
+        syncMultiCollectibleHudCounts();
+      } else if (avatarTargetEl) {
+        triggerCollectionAvatarCollectState();
+      }
 
 
 
@@ -13090,6 +13374,10 @@ function deactivateCollectMode() {
 
 
     isCollectMode = false;
+
+    multiCollectibleModeEnabled = false;
+
+    persistMultiCollectibleSettings();
 
 
 
@@ -15470,6 +15758,8 @@ interface Block {
 
   isCollectible?: boolean;
 
+  collectibleId?: string;
+
 
 
   isProp?: boolean;
@@ -17185,6 +17475,7 @@ const COMBO_TEXT_BASE_URL = '/assets/ui/clear-text/combo';
 const PRAISE_TEXT_BASE_URL = '/assets/ui/clear-text/praise';
 const COMBO_WORD_URLS = Array.from({ length: 5 }, (_, index) => `${COMBO_TEXT_BASE_URL}/combo${index + 1}.png`);
 const COMBO_DIGIT_URLS = Array.from({ length: 10 }, (_, index) => `${COMBO_TEXT_BASE_URL}/${index}.png`);
+const COMBO_COLOR_DIGIT_URLS = Array.from({ length: 10 }, (_, index) => `${COMBO_TEXT_BASE_URL}/color/${index}.png`);
 const PRAISE_WORD_URLS: Record<PraiseWord, string> = {
   good: `${PRAISE_TEXT_BASE_URL}/good.png`,
   great: `${PRAISE_TEXT_BASE_URL}/great.png`,
@@ -17336,7 +17627,7 @@ function getClearTextImage(url: string) {
 }
 
 function preloadClearTextImages() {
-  [...COMBO_WORD_URLS, ...COMBO_DIGIT_URLS, ...Object.values(PRAISE_WORD_URLS)].forEach(getClearTextImage);
+  [...COMBO_WORD_URLS, ...COMBO_DIGIT_URLS, ...COMBO_COLOR_DIGIT_URLS, ...Object.values(PRAISE_WORD_URLS)].forEach(getClearTextImage);
 }
 
 function getComboWordUrl(combo: number) {
@@ -17345,6 +17636,11 @@ function getComboWordUrl(combo: number) {
   if (combo <= 5) return `${COMBO_TEXT_BASE_URL}/combo3.png`;
   if (combo <= 7) return `${COMBO_TEXT_BASE_URL}/combo4.png`;
   return `${COMBO_TEXT_BASE_URL}/combo5.png`;
+}
+
+function getComboDigitUrls(combo: number) {
+  const digitSet = combo >= 8 ? COMBO_COLOR_DIGIT_URLS : COMBO_DIGIT_URLS;
+  return String(Math.max(1, combo)).split('').map(digit => digitSet[Number(digit)] || digitSet[0]);
 }
 
 function getPraiseWordForCombo(combo: number): PraiseWord {
@@ -17438,8 +17734,7 @@ function triggerComboTextEffect(rows: number[], combo: number) {
 
   const comboValue = Math.max(1, combo);
   const comboWordUrl = getComboWordUrl(comboValue);
-  const digits = String(comboValue).split('');
-  const digitUrls = digits.map(digit => COMBO_DIGIT_URLS[Number(digit)] || COMBO_DIGIT_URLS[0]);
+  const digitUrls = getComboDigitUrls(comboValue);
   const sortedRows = rows.length > 0 ? [...rows].sort((a, b) => a - b) : [0];
   const targetRow = sortedRows[Math.floor((sortedRows.length - 1) / 2)];
   const point = getBoardRowEffectPoint(targetRow, 20);
@@ -18244,6 +18539,10 @@ async function init() {
 
 
     await renderCollectibleList();
+
+    bindMultiCollectibleManager();
+
+    await rebuildMultiCollectibleItems();
 
 
 
@@ -22014,7 +22313,7 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
 
 
 
-function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left') {
+function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left', collectibleId?: string) {
 
 
 
@@ -22040,6 +22339,14 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
     }
 
 
+
+  } else if (isCollectible && multiCollectibleModeEnabled) {
+
+    const item = collectibleId ? getMultiCollectibleItem(collectibleId) : getNextMultiCollectibleItem();
+    const source = item || (collectibleId ? getCollectibleSourceById(collectibleId) : null);
+    collectibleId = item?.id || source?.id || collectibleId;
+    const texture = item?.texture || (source ? PIXI.Texture.from(source.src) : null);
+    sprite = new PIXI.Sprite(texture || activeCollectibleTexture || PIXI.Texture.WHITE);
 
   } else if (isCollectible && activeCollectibleTextures && activeCollectibleTextures.length > 0) {
 
@@ -22568,7 +22875,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, isProp, propType, propDir };
+  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, collectibleId, isProp, propType, propDir };
 
 
 
@@ -25743,6 +26050,7 @@ function checkEliminations() {
 
 
     }
+    renderMultiCollectibleHud();
 
 
 
@@ -25849,7 +26157,7 @@ function checkEliminations() {
 
 
         blocksToRemove.forEach(b => {
-          if (isCollectMode && b.isCollectible) {
+          if (isCollectMode && b.isCollectible && !multiCollectibleModeEnabled) {
             const coin = new PIXI.Sprite(activeCollectibleTexture || PIXI.Texture.WHITE);
             coin.width = b.sprite.width;
             coin.height = b.sprite.height;
@@ -30539,8 +30847,8 @@ function drawRecordingClearTextEffects(
       const wordWidth = Math.min(178, boardBox.w * 0.26);
       const digitWidth = Math.min(41, boardBox.w * 0.065);
       const digitGap = digitWidth * 1.05;
-      const digits = String(Math.max(1, effect.comboCount)).split('');
-      const digitGroupWidth = digitWidth + Math.max(0, digits.length - 1) * digitGap;
+      const digitUrls = getComboDigitUrls(effect.comboCount);
+      const digitGroupWidth = digitWidth + Math.max(0, digitUrls.length - 1) * digitGap;
       const groupGap = Math.max(18, boardBox.w * 0.035);
       const groupWidth = wordWidth + groupGap + digitGroupWidth;
       const groupLeft = centerX - groupWidth / 2;
@@ -30551,8 +30859,8 @@ function drawRecordingClearTextEffects(
       const digitElapsed = elapsed - 160;
       if (digitElapsed >= 0) {
         const digitMotion = getClearTextPopMotion(digitElapsed, 560);
-        digits.forEach((digit, index) => {
-          const image = getClearTextImage(COMBO_DIGIT_URLS[Number(digit)] || COMBO_DIGIT_URLS[0]);
+        digitUrls.forEach((url, index) => {
+          const image = getClearTextImage(url);
           drawRecordingImageCentered(context, image, firstDigitX + index * digitGap, rowY + 3 + digitMotion.yShift, digitWidth, digitMotion.alpha, digitMotion.scale);
         });
       }
@@ -33234,7 +33542,8 @@ function setupDOMUI() {
 
       propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -33414,7 +33723,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
 
 
 
@@ -34903,6 +35212,8 @@ function setupDOMUI() {
 
   const btnCollectMode = document.getElementById('btn-collect-mode')!;
 
+  const btnMultiCollectMode = document.getElementById('btn-multi-collect-mode')!;
+
 
 
   const btnNoGravityMode = document.getElementById('btn-nogravity-mode')!;
@@ -35197,7 +35508,9 @@ function setupDOMUI() {
 
 
 
-    setBtnActive(btnCollectMode, isCollectMode);
+    setBtnActive(btnCollectMode, isCollectMode && !multiCollectibleModeEnabled);
+
+    setBtnActive(btnMultiCollectMode, isCollectMode && multiCollectibleModeEnabled);
 
 
 
@@ -36949,7 +37262,7 @@ function setupDOMUI() {
 
 
 
-    if (isCollectMode) return;
+    if (isCollectMode && !multiCollectibleModeEnabled) return;
 
 
 
@@ -36958,6 +37271,10 @@ function setupDOMUI() {
 
 
     isCollectMode = true;
+
+    multiCollectibleModeEnabled = false;
+
+    persistMultiCollectibleSettings();
 
 
 
@@ -37075,6 +37392,8 @@ function setupDOMUI() {
 
     collectedCount = 0;
 
+    resetMultiCollectibleCounts();
+
 
 
     await updateActiveCollectible();
@@ -37089,7 +37408,16 @@ function setupDOMUI() {
 
 
 
-    const blocksToConvert = blocks.filter(b => b.length === 1 && Math.random() < 0.3);
+    const existingCollectibleBlocks = blocks.filter(b => b.isCollectible);
+    existingCollectibleBlocks.forEach(b => {
+      const { col, row, length, color, id, noGravity } = b;
+      blocksContainer.removeChild(b.sprite);
+      b.sprite.destroy();
+      blocks = blocks.filter(item => item.id !== id);
+      spawnBlock(col, row, length, color, id, noGravity, true);
+    });
+
+    const blocksToConvert = blocks.filter(b => !b.isCollectible && b.length === 1 && Math.random() < 0.3);
 
 
 
@@ -37175,6 +37503,74 @@ function setupDOMUI() {
 
 
 
+
+
+  btnMultiCollectMode.onclick = async () => {
+
+    if (isCollectMode && multiCollectibleModeEnabled) return;
+
+    isCollectMode = true;
+
+    multiCollectibleModeEnabled = true;
+
+    persistMultiCollectibleSettings();
+
+    isColorChangingMode = false;
+    isSingleColorMode = false;
+    isCustomTwoColorMode = false;
+    isRainbowMode = false;
+    isRainbowFixedMode = false;
+    isMaterialChangingMode = false;
+
+    btnColorMode.innerHTML = '<span class="icon">馃帹</span>鍙樿壊妯″紡';
+    btnSingleColorMode.innerHTML = '<span class="icon">馃帹</span>鍗曡壊鍙樿壊';
+
+    btnCustomTwoColorMode.classList.remove('blue');
+    btnCustomTwoColorMode.classList.add('gray');
+    btnSingleColorMode.classList.remove('blue');
+    btnSingleColorMode.classList.add('gray');
+    btnNormalMode.classList.remove('blue');
+    btnNormalMode.classList.add('gray');
+    btnColorMode.classList.remove('blue');
+    btnColorMode.classList.add('gray');
+    btnRainbowMode.classList.remove('blue');
+    btnRainbowMode.classList.add('gray');
+    btnRainbowFixedMode.classList.remove('blue');
+    btnRainbowFixedMode.classList.add('gray');
+    btnMaterialMode.classList.remove('blue');
+    btnMaterialMode.classList.add('gray');
+
+    collectedCount = 0;
+
+    await rebuildMultiCollectibleItems();
+
+    resetMultiCollectibleCounts();
+
+    const collectibleBlocks = blocks.filter(b => b.isCollectible);
+    collectibleBlocks.forEach(b => {
+      const { col, row, length, color, id, noGravity } = b;
+      blocksContainer.removeChild(b.sprite);
+      b.sprite.destroy();
+      blocks = blocks.filter(item => item.id !== id);
+      spawnBlock(col, row, length, color, id, noGravity, true);
+    });
+
+    const blocksToConvert = blocks.filter(b => !b.isCollectible && b.length === 1 && Math.random() < 0.3);
+    blocksToConvert.forEach(b => {
+      const { col, row, length, color, id, noGravity } = b;
+      blocksContainer.removeChild(b.sprite);
+      b.sprite.destroy();
+      blocks = blocks.filter(item => item.id !== id);
+      spawnBlock(col, row, length, color, id, noGravity, true);
+    });
+
+    captureBoardState();
+
+    updateHeaderUI();
+
+    syncModeButtonsUI();
+
+  };
 
 
   // Effect Type Cards Click
@@ -38199,7 +38595,8 @@ function setupDOMUI() {
 
       propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -38447,7 +38844,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
 
 
 
@@ -38977,7 +39374,8 @@ function setupDOMUI() {
 
       propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -39069,7 +39467,13 @@ function setupDOMUI() {
 
 
 
-        collectedCount
+        collectedCount,
+
+        multiCollectibleModeEnabled,
+
+        multiCollectibleSlotCount,
+
+        multiCollectibleSlotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount)
 
 
 
@@ -39251,6 +39655,20 @@ function setupDOMUI() {
 
       isCollectMode = !!modes.isCollectMode;
 
+      multiCollectibleModeEnabled = modes.multiCollectibleModeEnabled === true;
+
+      if (Number.isFinite(Number(modes.multiCollectibleSlotCount))) {
+        multiCollectibleSlotCount = Math.max(2, Math.min(5, Number(modes.multiCollectibleSlotCount) || 2));
+      }
+
+      if (Array.isArray(modes.multiCollectibleSlotIds)) {
+        multiCollectibleSlotIds = modes.multiCollectibleSlotIds.map(String).slice(0, 5);
+      }
+
+      persistMultiCollectibleSettings();
+
+      await rebuildMultiCollectibleItems();
+
 
 
       collectedCount = modes.collectedCount || 0;
@@ -39389,7 +39807,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
 
 
 
@@ -44814,7 +45232,8 @@ function bindAutoplayGeneratorEvents() {
 
         propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -45285,7 +45704,8 @@ function getPlayableTutorialTarget() {
     color: b.color,
     isProp: b.isProp,
     propType: b.propType,
-    propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
   }));
 
   // Exported playables open at row 0. The editor camera can be scrolled to a

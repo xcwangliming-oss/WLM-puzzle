@@ -17,6 +17,16 @@ const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   'combo/7.png',
   'combo/8.png',
   'combo/9.png',
+  'combo/color/0.png',
+  'combo/color/1.png',
+  'combo/color/2.png',
+  'combo/color/3.png',
+  'combo/color/4.png',
+  'combo/color/5.png',
+  'combo/color/6.png',
+  'combo/color/7.png',
+  'combo/color/8.png',
+  'combo/color/9.png',
   'combo/combo1.png',
   'combo/combo5.png',
   'praise/good.png',
@@ -41,7 +51,9 @@ assert.match(html, /clear-text-spark[\s\S]*?radial-gradient[\s\S]*?@keyframes cl
 assert.match(source, /let comboTextEffectEnabled = localStorage\.getItem\('comboTextEffectEnabled'\) === 'true';/, 'combo text toggle should persist');
 assert.match(source, /let praiseTextEffectEnabled = localStorage\.getItem\('praiseTextEffectEnabled'\) === 'true';/, 'praise text toggle should persist');
 assert.match(source, /function getComboWordUrl\(combo: number\)[\s\S]*?combo <= 1[\s\S]*?combo1\.png[\s\S]*?combo <= 3[\s\S]*?combo2\.png[\s\S]*?combo <= 5[\s\S]*?combo3\.png[\s\S]*?combo <= 7[\s\S]*?combo4\.png[\s\S]*?combo5\.png/, 'combo word image should follow the configured combo-count ranges');
-assert.match(source, /function triggerComboTextEffect\(rows: number\[\], combo: number\)[\s\S]*?const comboValue = Math\.max\(1, combo\);[\s\S]*?const comboWordUrl = getComboWordUrl\(comboValue\);[\s\S]*?const digits = String\(comboValue\)\.split\(''\);[\s\S]*?pushClearTextEffect\(\{ type: 'combo'[\s\S]*?comboCount: comboValue \}\);[\s\S]*?appendComboTextEffectAtPoint/, 'combo text should create one effect per elimination wave and show the continuous elimination combo count');
+assert.match(source, /const COMBO_COLOR_DIGIT_URLS = Array\.from\(\{ length: 10 \}[\s\S]*?\/color\/\$\{index\}\.png/, 'combo text should define a separate colored digit set');
+assert.match(source, /function getComboDigitUrls\(combo: number\)[\s\S]*?combo >= 8 \? COMBO_COLOR_DIGIT_URLS : COMBO_DIGIT_URLS[\s\S]*?String\(Math\.max\(1, combo\)\)\.split\(''\)/, 'combo 8 and above should use colored digit images');
+assert.match(source, /function triggerComboTextEffect\(rows: number\[\], combo: number\)[\s\S]*?const comboValue = Math\.max\(1, combo\);[\s\S]*?const comboWordUrl = getComboWordUrl\(comboValue\);[\s\S]*?const digitUrls = getComboDigitUrls\(comboValue\);[\s\S]*?pushClearTextEffect\(\{ type: 'combo'[\s\S]*?comboCount: comboValue \}\);[\s\S]*?appendComboTextEffectAtPoint/, 'combo text should create one effect per elimination wave and show the continuous elimination combo count');
 assert.match(source, /function appendComboTextEffectAtPoint\([\s\S]*?const wordWidth = Math\.min\(178, boardWidth \* 0\.26\);[\s\S]*?const digitWidth = Math\.min\(41, boardWidth \* 0\.065\);[\s\S]*?const digitGap = digitWidth \* 1\.05;[\s\S]*?appendClearTextImage\('combo-word'[\s\S]*?appendClearTextImage\('combo-digit'[\s\S]*?160, digitWidth/, 'combo text should render a smaller centered horizontal group with non-overlapping delayed digits');
 assert.match(source, /function getBoardFixedPraisePoint\(\)[\s\S]*?clipRect\.top - wrapperRect\.top \+ 50/, 'praise text should use a fixed visible position inside the board');
 assert.match(source, /function triggerPraiseTextEffect\(word: PraiseWord\)[\s\S]*?getBoardFixedPraisePoint\(\)[\s\S]*?boardWidth \* 0\.62[\s\S]*?appendClearTextSparks/, 'praise text should render at the fixed board-top praise position with sparks');
@@ -49,7 +61,7 @@ assert.match(source, /comboCount \+= 1;[\s\S]*?triggerComboTextEffect\(fullRows,
 assert.match(source, /const praiseWord = getPraiseWordForCombo\(comboCount\);[\s\S]*?playSound\(sounds\.vocals\[praiseWord\]\);[\s\S]*?triggerPraiseTextEffect\(praiseWord\);/, 'praise text should follow the actual vocal word');
 assert.match(source, /function drawRecordingClearTextEffects\([\s\S]*?effect\.type === 'combo'[\s\S]*?effect\.type === 'praise'/, 'recording should draw combo and praise text effects');
 assert.match(source, /function drawRecordingClearTextSparks\([\s\S]*?globalCompositeOperation = 'lighter'[\s\S]*?createRadialGradient/, 'recording should draw matching spark particles around clear text');
-assert.match(source, /const digitElapsed = elapsed - 160;[\s\S]*?drawRecordingImageCentered\(context, image, firstDigitX \+ index \* digitGap, rowY \+ 3 \+ digitMotion\.yShift/, 'recording combo digits should appear after the Combo word with extra spacing');
+assert.match(source, /const digitUrls = getComboDigitUrls\(effect\.comboCount\);[\s\S]*?const digitElapsed = elapsed - 160;[\s\S]*?digitUrls\.forEach\(\(url, index\) => \{[\s\S]*?drawRecordingImageCentered\(context, image, firstDigitX \+ index \* digitGap, rowY \+ 3 \+ digitMotion\.yShift/, 'recording combo digits should use the same digit set and appear after the Combo word with extra spacing');
 assert.match(source, /praiseY \+ motion\.yShift, boardBox\.w \* 0\.62[\s\S]*?drawRecordingClearTextSparks\(context, centerX, praiseY/, 'recording praise text should use the same fixed board-top position with sparks');
 assert.match(source, /drawRecordingMarqueeBorder\(recordingCtx!, boardClipBox, performance\.now\(\)\);[\s\S]*?drawRecordingClearTextEffects\(recordingCtx!, boardClipBox, performance\.now\(\)\);/, 'recording should draw clear text over the board after the marquee border');
 
