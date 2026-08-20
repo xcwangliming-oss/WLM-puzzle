@@ -44,6 +44,21 @@ assert.match(
   /const recordingIconBox = useRecordingBackground \? getRecordingCollectIconRect\(width, height\) : null;/,
   'collect mode recording HUD icon should stay in the right side of the master header'
 );
+assert.match(
+  source,
+  /const fallbackCollectibleImage = getClearTextImage\(getActiveCollectibleBase64\(\)\);/,
+  'single collect mode recording should draw the active collectible even when the DOM header icon is not ready'
+);
+assert.match(
+  source,
+  /const recordingCollectibleImage = headerIconReady \? headerIconEl! : fallbackCollectibleImage;/,
+  'single collect mode recording should not drop the header collectible when the preview icon cannot be read'
+);
+assert.match(
+  source,
+  /drawRecordingImageContained\(recordingCtx!, recordingCollectibleImage, \{ x: rx, y: ry, w: rw, h: rh \}\);/,
+  'single collect mode recording should render the collectible icon with contained aspect ratio'
+);
 
 assert.match(
   source,

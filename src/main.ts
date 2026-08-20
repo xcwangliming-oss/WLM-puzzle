@@ -41650,6 +41650,13 @@ function startRecording(): Promise<boolean> {
 
 
         const headerIconEl = document.getElementById('collectible-header-icon') as HTMLImageElement | null;
+        const fallbackCollectibleImage = getClearTextImage(getActiveCollectibleBase64());
+        const headerIconReady = !!(
+          headerIconEl &&
+          headerIconEl.complete &&
+          (headerIconEl.naturalWidth || headerIconEl.width) > 0
+        );
+        const recordingCollectibleImage = headerIconReady ? headerIconEl! : fallbackCollectibleImage;
 
 
 
@@ -41657,11 +41664,13 @@ function startRecording(): Promise<boolean> {
 
 
 
-        if (headerIconEl && boardWrapper) {
+        if (recordingCollectibleImage && boardWrapper) {
 
 
 
-          const iconRect = headerIconEl.getBoundingClientRect();
+          const iconRect = headerIconReady
+            ? headerIconEl!.getBoundingClientRect()
+            : new DOMRect(0, 0, RECORDING_COLLECT_ICON_SIZE, RECORDING_COLLECT_ICON_SIZE);
 
           const boardRect = boardWrapper.getBoundingClientRect();
 
@@ -41673,13 +41682,17 @@ function startRecording(): Promise<boolean> {
 
             ? recordingIconBox!.x
 
-            : (iconRect.left - boardRect.left) * dpr;
+            : headerIconReady
+              ? (iconRect.left - boardRect.left) * dpr
+              : width - (RECORDING_COLLECT_ICON_SIZE + 156) * dpr;
 
           const ry = useRecordingBackground
 
             ? recordingIconBox!.y
 
-            : (iconRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr;
+            : headerIconReady
+              ? (iconRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr
+              : 16 * dpr;
 
           const rw = useRecordingBackground ? headerIconSize : iconRect.width * dpr;
 
@@ -41695,7 +41708,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-          recordingCtx!.drawImage(headerIconEl, rx, ry, rw, rh);
+          drawRecordingImageContained(recordingCtx!, recordingCollectibleImage, { x: rx, y: ry, w: rw, h: rh });
 
 
 
