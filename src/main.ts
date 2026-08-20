@@ -29885,6 +29885,18 @@ function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, h
   ctx.fill();
   ctx.stroke();
 
+  drawSolidRecordingBoardFrame(ctx, boardBox, width);
+  ctx.restore();
+}
+
+function drawSolidRecordingBoardFrame(
+  ctx: CanvasRenderingContext2D,
+  boardBox: { x: number; y: number; w: number; h: number },
+  width: number
+) {
+  const radius = Math.max(4, width * 0.011);
+
+  ctx.save();
   ctx.fillStyle = '#232d5c';
   ctx.strokeStyle = '#1c2655';
   ctx.lineWidth = Math.max(5, width * 0.009);
@@ -30189,6 +30201,8 @@ function drawRecordingHeartHud(
   const hudRect = heartHud?.getBoundingClientRect();
   const heartRect = heartImage?.getBoundingClientRect();
   const burstRect = heartBurstImage?.getBoundingClientRect();
+  const scoreEl = document.getElementById('heart-score-val') as HTMLElement | null;
+  const wrapperScaleX = boardRect ? width / Math.max(1, boardRect.width) : 1;
   const hudBox = boardRect && hudRect
     ? mapBoardWrapperRectToRecordingRect(hudRect, boardRect, { x: 0, y: 0, w: width, h: height })
     : { x: headerBox.x + headerBox.w * 0.33, y: headerBox.y, w: headerBox.w * 0.34, h: headerBox.h };
@@ -30208,7 +30222,9 @@ function drawRecordingHeartHud(
   if (heartImage && heartImage.readyState >= 2 && heartImage.videoWidth > 0) {
     drawRecordingVideoContained(context, heartImage, heartBox);
   }
-  context.font = `900 ${Math.round(hudBox.h * 0.48)}px 'Arial Black', 'Impact', sans-serif`;
+  const cssFontSize = scoreEl ? parseFloat(getComputedStyle(scoreEl).fontSize) : 58;
+  const fontSize = Math.round(cssFontSize * wrapperScaleX);
+  context.font = `900 ${fontSize}px 'Arial Black', 'Impact', sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.lineWidth = width * 0.006;
@@ -30543,15 +30559,11 @@ function positionPreviewCanvasInMaster() {
 
   const canvas = app.canvas as HTMLCanvasElement;
 
-  const contentSize = getPreviewContentSize();
-
-
-
   const targetWidth = boardClip.clientWidth;
 
+  const cssScale = targetWidth / Math.max(1, canvas.width);
 
-
-  const targetHeight = Math.max(boardClip.clientHeight, targetWidth * (contentSize.h / contentSize.w));
+  const targetHeight = Math.max(boardClip.clientHeight, canvas.height * cssScale);
 
 
 
@@ -40827,6 +40839,10 @@ function startRecording(): Promise<boolean> {
       const boardClipBox = getRecordingBoardClipRect(boardWrapper || null, width, height);
 
       const boardCanvasBox = getRecordingPixiCanvasRect(pixiCanvas, boardWrapper || null, width, height);
+
+      if (isSolidRecordingBackgroundActive() && topUiMode === 'heart') {
+        drawSolidRecordingBoardFrame(recordingCtx!, boardClipBox, width);
+      }
 
 
 
