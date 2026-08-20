@@ -30194,7 +30194,7 @@ function fitRectToFixedWidthPreserveAspect(
 
   const w = contentW * scale;
 
-  const h = contentH * scale;
+  const h = Math.max(target.h, contentH * scale);
 
 
 
@@ -30269,7 +30269,7 @@ function positionPreviewCanvasInMaster() {
 
 
 
-  const targetHeight = targetWidth * (contentSize.h / contentSize.w);
+  const targetHeight = Math.max(boardClip.clientHeight, targetWidth * (contentSize.h / contentSize.w));
 
 
 

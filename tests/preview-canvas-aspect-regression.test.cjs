@@ -80,8 +80,8 @@ assert.match(
 
 assert.match(
   body,
-  /function fitRectToFixedWidthPreserveAspect\([\s\S]*?const scale = target\.w \/ contentW;[\s\S]*?const h = contentH \* scale;[\s\S]*?x: target\.x,[\s\S]*?y: target\.y,/,
-  'fixed-width board fitting should not cap height against the old frame height'
+  /function fitRectToFixedWidthPreserveAspect\([\s\S]*?const scale = target\.w \/ contentW;[\s\S]*?const h = Math\.max\(target\.h, contentH \* scale\);[\s\S]*?x: target\.x,[\s\S]*?y: target\.y,/,
+  'fixed-width board fitting should fill the fixed frame when the visible row content is shorter'
 );
 
 assert.match(
@@ -98,8 +98,8 @@ assert.match(
 
 assert.match(
   body,
-  /const targetHeight = targetWidth \* \(contentSize\.h \/ contentSize\.w\);[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
-  'editor canvas should scale by fixed width and let extra height continue downward under the fixed clip'
+  /const targetHeight = Math\.max\(boardClip\.clientHeight, targetWidth \* \(contentSize\.h \/ contentSize\.w\)\);[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
+  'editor canvas should fill the fixed clip when short and continue downward when taller'
 );
 
 assert.match(
