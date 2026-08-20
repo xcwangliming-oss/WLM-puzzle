@@ -86,8 +86,8 @@ assert.match(
 
 assert.match(
   body,
-  /canvas\.style\.left = '0px';[\s\S]*?canvas\.style\.top = '0px';/,
-  'editor preview canvas should start exactly at the board frame top-left'
+  /canvas\.style\.left = '0px';[\s\S]*?canvas\.style\.top = `\$\{targetTop\}px`;/,
+  'editor preview canvas should keep the left edge fixed and bottom-align short content'
 );
 
 assert.match(
@@ -98,8 +98,8 @@ assert.match(
 
 assert.match(
   body,
-  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = canvas\.height \* cssScale;[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
-  'editor canvas should use one CSS scale for width and height so 1x1 cells stay square'
+  /const cssScale = targetWidth \/ Math\.max\(1, canvas\.width\);[\s\S]*?const targetHeight = canvas\.height \* cssScale;[\s\S]*?const targetTop = Math\.min\(0, boardClip\.clientHeight - targetHeight\);[\s\S]*?canvas\.style\.top = `\$\{targetTop\}px`;[\s\S]*?canvas\.style\.height = `\$\{targetHeight\}px`;/,
+  'editor canvas should use one CSS scale for square cells and bottom-align short content inside the fixed frame'
 );
 
 assert.match(
