@@ -30285,63 +30285,47 @@ function drawRecordingMarqueeBorder(
 
   const progress = Math.max(0, Math.min(1, elapsed / MARQUEE_CLEAR_DURATION_MS));
   const alpha = Math.sin(progress * Math.PI);
-  const borderWidth = Math.max(8, Math.min(12, boardBox.w * 0.011));
-  const radius = Math.max(14, boardBox.w * 0.03);
-  const outward = borderWidth;
+  const borderWidth = Math.max(12, Math.min(20, boardBox.w * 0.021));
+  const radius = Math.max(10, boardBox.w * 0.018);
+  const outward = borderWidth * 0.9;
   const strokeX = boardBox.x - outward + borderWidth / 2;
   const strokeY = boardBox.y - outward + borderWidth / 2;
   const strokeW = boardBox.w + outward * 2 - borderWidth;
   const strokeH = boardBox.h + outward * 2 - borderWidth;
   const phase = (timeMs / 580) % 1;
-  const glowPulse = 0.9 + 0.12 * Math.sin(timeMs / 580 * Math.PI * 2);
+  const glowPulse = 0.9 + 0.08 * Math.sin(timeMs / 580 * Math.PI * 2);
   const centerX = boardBox.x + boardBox.w / 2;
   const centerY = boardBox.y + boardBox.h / 2;
   const maybeConicGradient = (context as CanvasRenderingContext2D & {
     createConicGradient?: (startAngle: number, x: number, y: number) => CanvasGradient;
   }).createConicGradient;
   const gradient = maybeConicGradient
-    ? maybeConicGradient.call(context, phase * Math.PI * 2, centerX, centerY)
+    ? maybeConicGradient.call(context, -Math.PI / 2 + Math.PI * 0.28 - phase * Math.PI * 2, centerX, centerY)
     : context.createLinearGradient(boardBox.x, boardBox.y + boardBox.h, boardBox.x + boardBox.w, boardBox.y);
-  gradient.addColorStop(0, '#24ff47');
-  gradient.addColorStop(0.18, '#23f7ff');
-  gradient.addColorStop(0.36, '#255bff');
-  gradient.addColorStop(0.57, '#ff24d0');
-  gradient.addColorStop(0.76, '#ffea38');
-  gradient.addColorStop(0.91, '#ff8b12');
-  gradient.addColorStop(1, '#24ff47');
+  gradient.addColorStop(0, '#ff3030');
+  gradient.addColorStop(0.145, '#ff21df');
+  gradient.addColorStop(0.29, '#763cff');
+  gradient.addColorStop(0.44, '#19eaff');
+  gradient.addColorStop(0.595, '#2dff6a');
+  gradient.addColorStop(0.75, '#fff238');
+  gradient.addColorStop(0.895, '#ff8a18');
+  gradient.addColorStop(1, '#ff3030');
 
   context.save();
   context.globalAlpha = alpha;
-  context.lineWidth = borderWidth;
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
   context.strokeStyle = gradient;
   context.shadowColor = '#23f7ff';
-  context.shadowBlur = boardBox.w * 0.025 * glowPulse;
+  context.shadowBlur = boardBox.w * 0.018 * glowPulse;
+  context.lineWidth = borderWidth;
   drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
   context.stroke();
 
-  context.lineWidth = borderWidth;
-  context.strokeStyle = gradient;
-  context.shadowColor = '#23f7ff';
-  context.shadowBlur = boardBox.w * 0.014 * glowPulse;
-  drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
-  context.stroke();
-
-  const bevelGradient = context.createLinearGradient(strokeX, strokeY, strokeX + strokeW, strokeY + strokeH);
-  bevelGradient.addColorStop(0, `rgba(255, 255, 255, ${0.92 * alpha})`);
-  bevelGradient.addColorStop(0.28, `rgba(255, 255, 255, ${0.34 * alpha})`);
-  bevelGradient.addColorStop(0.52, 'rgba(255, 255, 255, 0)');
-  bevelGradient.addColorStop(0.78, `rgba(0, 0, 0, ${0.42 * alpha})`);
-  bevelGradient.addColorStop(1, `rgba(0, 0, 0, ${0.72 * alpha})`);
-  context.lineWidth = Math.max(4, borderWidth * 0.42);
-  context.strokeStyle = bevelGradient;
+  context.globalAlpha = alpha * 0.45;
+  context.lineWidth = Math.max(1, borderWidth * 0.24);
+  context.strokeStyle = 'rgba(255, 255, 255, 0.72)';
   context.shadowBlur = 0;
-  drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
-  context.stroke();
-
-  context.lineWidth = Math.max(1.5, borderWidth * 0.18);
-  context.strokeStyle = `rgba(255, 255, 255, ${0.5 * alpha})`;
-  context.shadowColor = '#ffffff';
-  context.shadowBlur = boardBox.w * 0.006 * glowPulse;
   drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
   context.stroke();
   context.restore();
