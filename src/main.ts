@@ -31058,6 +31058,113 @@ function getRecordingCollectIconRect(width: number, height: number) {
 
 }
 
+function drawRecordingMultiCollectibleHud(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  boardWrapper: HTMLElement | null,
+  useRecordingBackground: boolean,
+  dpr: number
+) {
+  if (!isCollectMode || !multiCollectibleModeEnabled || multiCollectibleItems.length === 0) return false;
+
+  const targetEls = Array.from(document.querySelectorAll<HTMLElement>('.multi-collectible-target'));
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const visibleTargets = targetEls
+    .map(target => ({
+      target,
+      image: target.querySelector('img') as HTMLImageElement | null,
+      count: target.querySelector('.multi-collectible-target-count') as HTMLElement | null
+    }))
+    .filter(item => item.image?.complete && (item.image.naturalWidth || item.image.width) > 0);
+
+  if (visibleTargets.length > 0 && boardRect) {
+    visibleTargets.forEach(({ target, image, count }) => {
+      const targetRect = target.getBoundingClientRect();
+      const imageRect = image!.getBoundingClientRect();
+      const countRect = count?.getBoundingClientRect();
+      const mappedTarget = useRecordingBackground
+        ? mapBoardWrapperRectToRecordingRect(targetRect, boardRect, { x: 0, y: 0, w: width, h: height })
+        : {
+            x: (targetRect.left - boardRect.left) * dpr,
+            y: (targetRect.top - boardRect.top) * dpr,
+            w: targetRect.width * dpr,
+            h: targetRect.height * dpr
+          };
+      const mappedImage = useRecordingBackground
+        ? mapBoardWrapperRectToRecordingRect(imageRect, boardRect, { x: 0, y: 0, w: width, h: height })
+        : {
+            x: (imageRect.left - boardRect.left) * dpr,
+            y: (imageRect.top - boardRect.top) * dpr,
+            w: imageRect.width * dpr,
+            h: imageRect.height * dpr
+          };
+
+      drawRecordingImageContained(context, image!, mappedImage);
+
+      const countText = count?.innerText || '0';
+      const cssFontSize = count ? parseFloat(getComputedStyle(count).fontSize) : 28;
+      const scaleX = useRecordingBackground ? width / Math.max(1, boardRect.width) : dpr;
+      const fontSize = Math.max(22, Math.round(cssFontSize * scaleX));
+      const countCenterX = countRect
+        ? (useRecordingBackground
+            ? mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height }).x + mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height }).w / 2
+            : (countRect.left - boardRect.left) * dpr + countRect.width * dpr / 2)
+        : mappedTarget.x + mappedTarget.w / 2;
+      const countCenterY = countRect
+        ? (useRecordingBackground
+            ? mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height }).y + mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height }).h / 2
+            : (countRect.top - boardRect.top) * dpr + countRect.height * dpr / 2)
+        : mappedTarget.y + mappedTarget.h - fontSize * 0.45;
+
+      context.save();
+      context.font = `900 ${fontSize}px 'Arial Black', 'Impact', sans-serif`;
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.lineWidth = Math.max(3, fontSize * 0.12);
+      context.strokeStyle = 'rgba(30, 25, 68, 0.8)';
+      context.fillStyle = '#ffffff';
+      context.shadowColor = 'rgba(43, 236, 255, 0.7)';
+      context.shadowBlur = fontSize * 0.28;
+      context.strokeText(countText, countCenterX, countCenterY);
+      context.fillText(countText, countCenterX, countCenterY);
+      context.restore();
+    });
+    return true;
+  }
+
+  const headerBox = {
+    x: MASTER_UI.header.x * width,
+    y: MASTER_UI.header.y * height,
+    w: MASTER_UI.header.w * width,
+    h: MASTER_UI.header.h * height
+  };
+  const count = Math.max(1, multiCollectibleItems.length);
+  const iconSize = Math.min(RECORDING_COLLECT_ICON_SIZE, headerBox.h * 0.42);
+  const groupGap = Math.max(18, iconSize * 0.5);
+  const groupWidth = count * iconSize + (count - 1) * groupGap;
+  const startX = headerBox.x + headerBox.w - groupWidth - headerBox.w * 0.05;
+  const iconY = headerBox.y + headerBox.h * 0.22;
+  const fontSize = Math.max(24, Math.round(iconSize * 0.48));
+
+  multiCollectibleItems.forEach((item, index) => {
+    const image = getClearTextImage(item.src);
+    const x = startX + index * (iconSize + groupGap);
+    drawRecordingImageContained(context, image, { x, y: iconY, w: iconSize, h: iconSize });
+    context.save();
+    context.font = `900 ${fontSize}px 'Arial Black', 'Impact', sans-serif`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineWidth = Math.max(3, fontSize * 0.12);
+    context.strokeStyle = 'rgba(30, 25, 68, 0.8)';
+    context.fillStyle = '#ffffff';
+    context.strokeText(String(item.count), x + iconSize / 2, iconY + iconSize + fontSize * 0.45);
+    context.fillText(String(item.count), x + iconSize / 2, iconY + iconSize + fontSize * 0.45);
+    context.restore();
+  });
+  return true;
+}
+
 
 
 function mapRecordingRectToBoardWrapperRect(
@@ -41491,6 +41598,16 @@ function startRecording(): Promise<boolean> {
 
       if (isCollectMode && topUiMode !== 'heart') {
 
+        const didDrawMultiCollectibleHud = drawRecordingMultiCollectibleHud(
+          recordingCtx!,
+          width,
+          height,
+          boardWrapper || null,
+          useRecordingBackground,
+          dpr
+        );
+
+        if (!didDrawMultiCollectibleHud) {
 
 
         const avatarHudEl = document.getElementById('collection-avatar-hud');
@@ -41705,6 +41822,7 @@ function startRecording(): Promise<boolean> {
         }
 
 
+        }
 
       }
 

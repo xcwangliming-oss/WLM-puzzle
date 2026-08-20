@@ -66,3 +66,10 @@ test('single collectible and multi collectible modes stay mutually exclusive', (
   assert.match(source, /btnMultiCollectMode\.onclick = async \(\) => \{[\s\S]*?multiCollectibleModeEnabled = true/);
   assert.match(source, /function getCollectionAvatarTargetElement\(\): HTMLElement \| null \{[\s\S]*?if \(multiCollectibleModeEnabled\) return null/);
 });
+
+test('recording renders the multi collectible header instead of single collect fallback', () => {
+  assert.match(source, /function drawRecordingMultiCollectibleHud\(/);
+  assert.match(source, /document\.querySelectorAll<HTMLElement>\('\.multi-collectible-target'\)/);
+  assert.match(source, /drawRecordingMultiCollectibleHud\([\s\S]*?if \(!didDrawMultiCollectibleHud\) \{/);
+  assert.match(source, /multiCollectibleItems\.forEach\(\(item, index\) => \{/);
+});
