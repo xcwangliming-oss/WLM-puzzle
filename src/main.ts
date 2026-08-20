@@ -17340,7 +17340,11 @@ function preloadClearTextImages() {
 }
 
 function getComboWordUrl(combo: number) {
-  return COMBO_WORD_URLS[Math.min(COMBO_WORD_URLS.length - 1, Math.max(0, combo - 1))];
+  if (combo <= 1) return `${COMBO_TEXT_BASE_URL}/combo1.png`;
+  if (combo <= 3) return `${COMBO_TEXT_BASE_URL}/combo2.png`;
+  if (combo <= 5) return `${COMBO_TEXT_BASE_URL}/combo3.png`;
+  if (combo <= 7) return `${COMBO_TEXT_BASE_URL}/combo4.png`;
+  return `${COMBO_TEXT_BASE_URL}/combo5.png`;
 }
 
 function getPraiseWordForCombo(combo: number): PraiseWord {
@@ -17368,7 +17372,20 @@ function getBoardRowEffectPoint(row: number, offsetPx: number) {
   };
 }
 
-function appendClearTextImage(className: string, url: string, x: number, y: number, delayMs = 0) {
+function getBoardFixedPraisePoint() {
+  const boardWrapper = document.getElementById('board-wrapper');
+  const boardClip = document.getElementById('board-clip');
+  if (!boardWrapper || !boardClip) return null;
+
+  const wrapperRect = boardWrapper.getBoundingClientRect();
+  const clipRect = boardClip.getBoundingClientRect();
+  return {
+    x: clipRect.left - wrapperRect.left + clipRect.width / 2,
+    y: clipRect.top - wrapperRect.top + 50
+  };
+}
+
+function appendClearTextImage(className: string, url: string, x: number, y: number, delayMs = 0, widthPx?: number) {
   const layer = document.getElementById('clear-text-effects');
   if (!layer) return;
 
@@ -17379,9 +17396,32 @@ function appendClearTextImage(className: string, url: string, x: number, y: numb
   img.draggable = false;
   img.style.left = `${x}px`;
   img.style.top = `${y}px`;
+  if (typeof widthPx === 'number') img.style.width = `${widthPx}px`;
   if (delayMs > 0) img.style.animationDelay = `${delayMs}ms`;
   layer.appendChild(img);
   window.setTimeout(() => img.remove(), (className === 'praise-word' ? PRAISE_TEXT_EFFECT_DURATION_MS : COMBO_TEXT_EFFECT_DURATION_MS) + delayMs + 80);
+}
+
+function appendClearTextSparks(centerX: number, centerY: number, radius: number, durationMs: number) {
+  const layer = document.getElementById('clear-text-effects');
+  if (!layer) return;
+
+  const colors = ['#ffe94a', '#2efcff', '#ff4fd8', '#ffffff'];
+  for (let i = 0; i < 14; i++) {
+    const angle = (Math.PI * 2 * i) / 14;
+    const distance = radius * (0.42 + (i % 4) * 0.13);
+    const spark = document.createElement('span');
+    spark.className = 'clear-text-spark';
+    spark.style.left = `${centerX + Math.cos(angle) * radius * 0.28}px`;
+    spark.style.top = `${centerY + Math.sin(angle) * radius * 0.12}px`;
+    spark.style.setProperty('--spark-color', colors[i % colors.length]);
+    spark.style.setProperty('--spark-dx', `${Math.cos(angle) * distance}px`);
+    spark.style.setProperty('--spark-dy', `${Math.sin(angle) * distance - radius * 0.08}px`);
+    spark.style.animationDuration = `${durationMs * 0.62}ms`;
+    spark.style.animationDelay = `${(i % 5) * 22}ms`;
+    layer.appendChild(spark);
+    window.setTimeout(() => spark.remove(), durationMs + 120);
+  }
 }
 
 function pushClearTextEffect(effect: ClearTextEffect) {
@@ -17396,31 +17436,56 @@ function pushClearTextEffect(effect: ClearTextEffect) {
 function triggerComboTextEffect(rows: number[], combo: number) {
   if (!comboTextEffectEnabled) return;
 
-  const comboWordUrl = getComboWordUrl(combo);
-  const digits = String(Math.max(1, combo)).split('');
+  const comboValue = Math.max(1, combo);
+  const comboWordUrl = getComboWordUrl(comboValue);
+  const digits = String(comboValue).split('');
   const digitUrls = digits.map(digit => COMBO_DIGIT_URLS[Number(digit)] || COMBO_DIGIT_URLS[0]);
-  rows.forEach(row => {
-    const point = getBoardRowEffectPoint(row, 20);
-    pushClearTextEffect({ type: 'combo', startedAt: performance.now(), row, comboCount: combo });
-    if (!point) return;
+  const sortedRows = rows.length > 0 ? [...rows].sort((a, b) => a - b) : [0];
+  const targetRow = sortedRows[Math.floor((sortedRows.length - 1) / 2)];
+  const point = getBoardRowEffectPoint(targetRow, 20);
+  pushClearTextEffect({ type: 'combo', startedAt: performance.now(), row: targetRow, comboCount: comboValue });
+  if (!point) return;
 
-    appendClearTextImage('combo-word', comboWordUrl, point.x, point.y);
-    const digitGap = 34;
-    const firstDigitX = point.x - ((digitUrls.length - 1) * digitGap) / 2;
-    digitUrls.forEach((url, index) => {
-      appendClearTextImage('combo-digit', url, firstDigitX + index * digitGap, point.y + 36, 120);
-    });
+  const boardClip = document.getElementById('board-clip');
+  const boardWidth = boardClip?.getBoundingClientRect().width || 560;
+  appendComboTextEffectAtPoint(point.x, point.y, boardWidth, comboWordUrl, digitUrls);
+}
+
+function appendComboTextEffectAtPoint(
+  centerX: number,
+  centerY: number,
+  boardWidth: number,
+  comboWordUrl: string,
+  digitUrls: string[]
+) {
+  const wordWidth = Math.min(178, boardWidth * 0.26);
+  const digitWidth = Math.min(41, boardWidth * 0.065);
+  const digitGap = digitWidth * 1.05;
+  const digitGroupWidth = digitWidth + Math.max(0, digitUrls.length - 1) * digitGap;
+  const groupGap = Math.max(18, boardWidth * 0.035);
+  const groupWidth = wordWidth + groupGap + digitGroupWidth;
+  const groupLeft = centerX - groupWidth / 2;
+  const wordCenterX = groupLeft + wordWidth / 2;
+  const firstDigitX = groupLeft + wordWidth + groupGap + digitWidth / 2;
+
+  appendClearTextImage('combo-word', comboWordUrl, wordCenterX, centerY, 0, wordWidth);
+  digitUrls.forEach((url, index) => {
+    appendClearTextImage('combo-digit', url, firstDigitX + index * digitGap, centerY + 3, 160, digitWidth);
   });
+  appendClearTextSparks(centerX, centerY, boardWidth * 0.2, COMBO_TEXT_EFFECT_DURATION_MS);
 }
 
 function triggerPraiseTextEffect(word: PraiseWord) {
   if (!praiseTextEffectEnabled) return;
 
-  const point = getBoardRowEffectPoint(0, -30);
+  const point = getBoardFixedPraisePoint();
   pushClearTextEffect({ type: 'praise', startedAt: performance.now(), word });
   if (!point) return;
 
-  appendClearTextImage('praise-word', PRAISE_WORD_URLS[word], point.x, point.y);
+  const boardClip = document.getElementById('board-clip');
+  const boardWidth = boardClip?.getBoundingClientRect().width || 560;
+  appendClearTextImage('praise-word', PRAISE_WORD_URLS[word], point.x, point.y, 0, boardWidth * 0.62);
+  appendClearTextSparks(point.x, point.y, boardWidth * 0.42, PRAISE_TEXT_EFFECT_DURATION_MS);
 }
 
 function syncClearTextEffectUI() {
@@ -30406,6 +30471,48 @@ function getPraiseTextPopMotion(elapsed: number) {
   return { alpha: 0.9 * (1 - ((progress - 0.72) / 0.28)), scale: 1 + 0.08 * ((progress - 0.72) / 0.28), yShift: -24 * progress };
 }
 
+function drawRecordingClearTextSparks(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  elapsed: number,
+  duration: number
+) {
+  const progress = Math.max(0, Math.min(1, elapsed / Math.max(1, duration * 0.62)));
+  if (progress <= 0 || progress >= 1) return;
+
+  const colors = ['#ffe94a', '#2efcff', '#ff4fd8', '#ffffff'];
+  context.save();
+  context.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 14; i++) {
+    const delay = (i % 5) * 22;
+    const localElapsed = elapsed - delay;
+    const localProgress = Math.max(0, Math.min(1, localElapsed / Math.max(1, duration * 0.62)));
+    if (localProgress <= 0 || localProgress >= 1) continue;
+
+    const angle = (Math.PI * 2 * i) / 14;
+    const distance = radius * (0.42 + (i % 4) * 0.13);
+    const startX = centerX + Math.cos(angle) * radius * 0.28;
+    const startY = centerY + Math.sin(angle) * radius * 0.12;
+    const x = startX + Math.cos(angle) * distance * localProgress;
+    const y = startY + (Math.sin(angle) * distance - radius * 0.08) * localProgress;
+    const alpha = Math.sin(localProgress * Math.PI);
+    const size = Math.max(6, radius * 0.042) * (1 - localProgress * 0.25);
+    const gradient = context.createRadialGradient(x, y, 0, x, y, size * 2.4);
+    gradient.addColorStop(0, '#ffffff');
+    gradient.addColorStop(0.38, colors[i % colors.length]);
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+
+    context.globalAlpha = alpha;
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(x, y, size * 2.4, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.restore();
+}
+
 function drawRecordingClearTextEffects(
   context: CanvasRenderingContext2D,
   boardBox: { x: number; y: number; w: number; h: number },
@@ -30429,25 +30536,35 @@ function drawRecordingClearTextEffects(
       const rowY = boardBox.y + ((effect.row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY - 20;
       const wordImage = getClearTextImage(getComboWordUrl(effect.comboCount));
       const wordMotion = getClearTextPopMotion(elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
-      drawRecordingImageCentered(context, wordImage, centerX, rowY + wordMotion.yShift, boardBox.w * 0.44, wordMotion.alpha, wordMotion.scale);
+      const wordWidth = Math.min(178, boardBox.w * 0.26);
+      const digitWidth = Math.min(41, boardBox.w * 0.065);
+      const digitGap = digitWidth * 1.05;
+      const digits = String(Math.max(1, effect.comboCount)).split('');
+      const digitGroupWidth = digitWidth + Math.max(0, digits.length - 1) * digitGap;
+      const groupGap = Math.max(18, boardBox.w * 0.035);
+      const groupWidth = wordWidth + groupGap + digitGroupWidth;
+      const groupLeft = centerX - groupWidth / 2;
+      const wordCenterX = groupLeft + wordWidth / 2;
+      const firstDigitX = groupLeft + wordWidth + groupGap + digitWidth / 2;
+      drawRecordingImageCentered(context, wordImage, wordCenterX, rowY + wordMotion.yShift, wordWidth, wordMotion.alpha, wordMotion.scale);
 
-      const digitElapsed = elapsed - 120;
+      const digitElapsed = elapsed - 160;
       if (digitElapsed >= 0) {
         const digitMotion = getClearTextPopMotion(digitElapsed, 560);
-        const digits = String(Math.max(1, effect.comboCount)).split('');
-        const digitGap = boardBox.w * 0.07;
-        const firstDigitX = centerX - ((digits.length - 1) * digitGap) / 2;
         digits.forEach((digit, index) => {
           const image = getClearTextImage(COMBO_DIGIT_URLS[Number(digit)] || COMBO_DIGIT_URLS[0]);
-          drawRecordingImageCentered(context, image, firstDigitX + index * digitGap, rowY + boardBox.h * 0.043 + digitMotion.yShift, boardBox.w * 0.11, digitMotion.alpha, digitMotion.scale);
+          drawRecordingImageCentered(context, image, firstDigitX + index * digitGap, rowY + 3 + digitMotion.yShift, digitWidth, digitMotion.alpha, digitMotion.scale);
         });
       }
+      drawRecordingClearTextSparks(context, centerX, rowY, boardBox.w * 0.2, elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
     }
 
     if (effect.type === 'praise' && praiseTextEffectEnabled && effect.word) {
       const image = getClearTextImage(PRAISE_WORD_URLS[effect.word]);
       const motion = getPraiseTextPopMotion(elapsed);
-      drawRecordingImageCentered(context, image, centerX, boardBox.y + 30 + motion.yShift, boardBox.w * 0.58, motion.alpha, motion.scale);
+      const praiseY = boardBox.y + 50;
+      drawRecordingImageCentered(context, image, centerX, praiseY + motion.yShift, boardBox.w * 0.62, motion.alpha, motion.scale);
+      drawRecordingClearTextSparks(context, centerX, praiseY, boardBox.w * 0.42, elapsed, PRAISE_TEXT_EFFECT_DURATION_MS);
     }
   }
 }
