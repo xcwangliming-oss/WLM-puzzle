@@ -16955,15 +16955,15 @@ type RecordingBackgroundMode = 'image' | 'solid';
 type SolidBackgroundVariant = 'solid' | 'animated';
 
 const SOLID_BACKGROUND_COLORS = [
-  { id: 'pink', name: '樱粉', from: '#f06f91', to: '#df5f82' },
-  { id: 'peach', name: '蜜桃', from: '#ffb199', to: '#ff8f9c' },
-  { id: 'mint', name: '薄荷', from: '#8cebc0', to: '#6fd6d4' },
-  { id: 'sky', name: '晴蓝', from: '#8ed8ff', to: '#a6b8ff' },
-  { id: 'lavender', name: '薰衣草', from: '#c9a7ff', to: '#f2a4d7' },
-  { id: 'lemon', name: '奶黄', from: '#ffe68c', to: '#ffbd78' }
+  { id: 'deep-blue', name: '深蓝紫', from: '#344372', to: '#563762' },
+  { id: 'royal-violet', name: '皇家紫', from: '#3a356f', to: '#6b3c7f' },
+  { id: 'berry', name: '莓果', from: '#5b315d', to: '#8a3f66' },
+  { id: 'teal-night', name: '青夜', from: '#24546b', to: '#34416c' },
+  { id: 'slate-indigo', name: '灰靛', from: '#3d4d78', to: '#3e3a68' },
+  { id: 'rose-dusk', name: '玫瑰暮色', from: '#7b4265', to: '#4d3a6b' }
 ];
 
-const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'pink';
+const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'deep-blue';
 
 
 

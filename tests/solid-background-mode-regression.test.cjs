@@ -15,8 +15,14 @@ assert.match(
 
 assert.match(
   source,
-  /const SOLID_BACKGROUND_COLORS = \[[\s\S]*?#f06f91[\s\S]*?#8cebc0[\s\S]*?#c9a7ff/,
-  'solid background should expose a pastel macaron color palette'
+  /const SOLID_BACKGROUND_COLORS = \[[\s\S]*?#344372[\s\S]*?#563762[\s\S]*?#3a356f[\s\S]*?#6b3c7f/,
+  'solid background should expose heavier blue-purple colors based on the reference background'
+);
+
+assert.match(
+  source,
+  /const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'deep-blue';/,
+  'solid background should default to the reference-like deep blue-purple palette'
 );
 
 assert.match(
