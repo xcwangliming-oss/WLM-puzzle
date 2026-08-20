@@ -21,6 +21,12 @@ assert.match(
 
 assert.match(
   source,
+  /const SOLID_BACKGROUND_COLORS = \[[\s\S]*?macaron-pink[\s\S]*?#ffd1dc[\s\S]*?macaron-mint[\s\S]*?#c8f7dc[\s\S]*?macaron-sky[\s\S]*?#c7e8ff[\s\S]*?macaron-lavender[\s\S]*?#dec8ff[\s\S]*?macaron-peach[\s\S]*?#ffd5bd[\s\S]*?macaron-cream[\s\S]*?#fff1b8/,
+  'solid background should include a macaron color set'
+);
+
+assert.match(
+  source,
   /const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'deep-blue';/,
   'solid background should default to the reference-like deep blue-purple palette'
 );

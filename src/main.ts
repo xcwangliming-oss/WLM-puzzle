@@ -17296,7 +17296,13 @@ const SOLID_BACKGROUND_COLORS = [
   { id: 'berry', name: '莓果', from: '#5b315d', to: '#8a3f66' },
   { id: 'teal-night', name: '青夜', from: '#24546b', to: '#34416c' },
   { id: 'slate-indigo', name: '灰靛', from: '#3d4d78', to: '#3e3a68' },
-  { id: 'rose-dusk', name: '玫瑰暮色', from: '#7b4265', to: '#4d3a6b' }
+  { id: 'rose-dusk', name: '玫瑰暮色', from: '#7b4265', to: '#4d3a6b' },
+  { id: 'macaron-pink', name: '马卡龙粉', from: '#ffd1dc', to: '#f7a8c8' },
+  { id: 'macaron-mint', name: '马卡龙薄荷', from: '#c8f7dc', to: '#8ee6c0' },
+  { id: 'macaron-sky', name: '马卡龙天空蓝', from: '#c7e8ff', to: '#8fcaf5' },
+  { id: 'macaron-lavender', name: '马卡龙薰衣草', from: '#dec8ff', to: '#bfa1f2' },
+  { id: 'macaron-peach', name: '马卡龙蜜桃', from: '#ffd5bd', to: '#ffad9f' },
+  { id: 'macaron-cream', name: '马卡龙奶黄', from: '#fff1b8', to: '#ffd978' }
 ];
 
 const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'deep-blue';
