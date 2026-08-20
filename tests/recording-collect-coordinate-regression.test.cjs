@@ -21,8 +21,8 @@ assert.match(
 );
 assert.match(
   source,
-  /const RECORDING_COLLECT_ICON_SIZE = 88;/,
-  'collect mode recording HUD icon should be doubled for 720x1280 output'
+  /const RECORDING_COLLECT_ICON_SIZE = 60;/,
+  'collect mode recording HUD icon should stay compact in 720x1280 output'
 );
 assert.match(
   source,

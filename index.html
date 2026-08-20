@@ -309,6 +309,50 @@
       #board-wrapper.marquee-border-live #marquee-border {
         display: block;
       }
+      #clear-text-effects {
+        position: absolute;
+        inset: 0;
+        z-index: 13;
+        pointer-events: none;
+        overflow: visible;
+      }
+      .clear-text-effect {
+        position: absolute;
+        left: 0;
+        top: 0;
+        transform: translate(-50%, -50%);
+        transform-origin: center;
+        pointer-events: none;
+        user-select: none;
+        will-change: transform, opacity;
+        filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.38));
+      }
+      .clear-text-effect.combo-word {
+        width: min(44%, 250px);
+        animation: clear-text-pop 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .clear-text-effect.combo-digit {
+        width: min(11%, 58px);
+        animation: clear-text-pop 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .clear-text-effect.praise-word {
+        width: min(58%, 330px);
+        animation: praise-text-pop 920ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      @keyframes clear-text-pop {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.25); }
+        12% { opacity: 1; transform: translate(-50%, -50%) scale(1.28); }
+        26% { opacity: 1; transform: translate(-50%, -50%) scale(0.96); }
+        72% { opacity: 1; transform: translate(-50%, -56%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -64%) scale(0.92); }
+      }
+      @keyframes praise-text-pop {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+        10% { opacity: 1; transform: translate(-50%, -50%) scale(1.22); }
+        24% { opacity: 1; transform: translate(-50%, -50%) scale(0.98); }
+        72% { opacity: 0.9; transform: translate(-50%, -54%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -64%) scale(1.08); }
+      }
       #marquee-border.clearing::before {
         animation: marquee-border-spin 0.58s linear infinite, marquee-border-underlay 1350ms ease-out both;
       }
@@ -613,6 +657,7 @@
               <div class="marquee-border-bevel"></div>
               <div class="marquee-border-bevel shadow"></div>
             </div>
+            <div id="clear-text-effects" aria-hidden="true"></div>
             <!-- Canvas is inserted here via JS -->
             <div id="game-failure-overlay" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; z-index:12; pointer-events:none; overflow:hidden;">
               <img id="game-failure-icon" alt="" style="width:58%; max-width:330px; height:auto; filter:drop-shadow(0 15px 12px rgba(0, 0, 0, 0.55));">
@@ -796,6 +841,10 @@
             <input type="checkbox" id="input-marquee-border">
             <span>跑马灯边框</span>
           </label>
+          <label class="vc-toggle" title="开启后每次消除行上方弹出 combo 和连消数字">
+            <input type="checkbox" id="input-combo-text-effect">
+            <span>Combo数字</span>
+          </label>
         </div>
         <div class="vocal-controls">
           <div id="voice-pack-group" role="group" aria-label="人声音效选择">
@@ -803,6 +852,7 @@
             <button type="button" class="voice-pack-btn" data-voice-pack="female">女生音效</button>
           </div>
           <label class="vc-toggle vocal-mute-toggle" title="开启后关闭消除时的人声激励词"><input type="checkbox" id="input-mutevocals"><span>关闭人声</span></label>
+          <label class="vc-toggle" title="开启后跟随人声在棋盘上方弹出激励词图片"><input type="checkbox" id="input-praise-text-effect"><span>激励词弹出</span></label>
         </div>
         <div style="margin-top: 6px;">
           <div style="display: flex; align-items: center; gap: 8px;">

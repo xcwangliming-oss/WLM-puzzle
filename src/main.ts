@@ -334,6 +334,10 @@ function queueCustomPropStyle(style: unknown): void {
         topUi: {
             mode: topUiMode
         },
+        visualEffects: {
+            comboText: comboTextEffectEnabled,
+            praiseText: praiseTextEffectEnabled
+        },
         audio: {
             vocalPack: activeVocalPack,
             muteVocals: (document.getElementById('input-mutevocals') as HTMLInputElement | null)?.checked === true,
@@ -431,6 +435,18 @@ function queueCustomPropStyle(style: unknown): void {
         topUiMode = saveData.topUi.mode;
         localStorage.setItem('topUiMode', topUiMode);
         syncTopUiMode();
+    }
+
+    if (saveData.visualEffects) {
+        if (typeof saveData.visualEffects.comboText === 'boolean') {
+            comboTextEffectEnabled = saveData.visualEffects.comboText;
+            localStorage.setItem('comboTextEffectEnabled', String(comboTextEffectEnabled));
+        }
+        if (typeof saveData.visualEffects.praiseText === 'boolean') {
+            praiseTextEffectEnabled = saveData.visualEffects.praiseText;
+            localStorage.setItem('praiseTextEffectEnabled', String(praiseTextEffectEnabled));
+        }
+        syncClearTextEffectUI();
     }
 
     const savedAudio = saveData.audio;
@@ -10812,7 +10828,7 @@ function updateHeaderUI() {
 
 
 
-    scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:72px; height:72px; vertical-align:middle; margin-right:10px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
+    scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:50px; height:50px; vertical-align:middle; margin-right:8px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
 
 
 
@@ -17035,7 +17051,7 @@ const MASTER_UI = {
 
 };
 
-const RECORDING_COLLECT_ICON_SIZE = 88;
+const RECORDING_COLLECT_ICON_SIZE = 60;
 
 const RECORDING_COLLECT_ICON_X_RATIO = 0.71;
 
@@ -17141,6 +17157,10 @@ let topUiMode: TopUiMode = localStorage.getItem('topUiMode') === 'heart' ? 'hear
 
 let marqueeBorderEnabled = localStorage.getItem('marqueeBorderEnabled') === 'true';
 
+let comboTextEffectEnabled = localStorage.getItem('comboTextEffectEnabled') === 'true';
+
+let praiseTextEffectEnabled = localStorage.getItem('praiseTextEffectEnabled') === 'true';
+
 let heartClearTimer: number | null = null;
 
 const MARQUEE_CLEAR_DURATION_MS = 1350;
@@ -17148,6 +17168,32 @@ const MARQUEE_CLEAR_DURATION_MS = 1350;
 let marqueeClearStartedAt = 0;
 
 let marqueeClearTimer: number | null = null;
+
+type PraiseWord = 'good' | 'great' | 'amazing' | 'excellent' | 'unbelievable';
+
+type ClearTextEffect = {
+  type: 'combo' | 'praise';
+  startedAt: number;
+  row?: number;
+  comboCount?: number;
+  word?: PraiseWord;
+};
+
+const COMBO_TEXT_EFFECT_DURATION_MS = 760;
+const PRAISE_TEXT_EFFECT_DURATION_MS = 920;
+const COMBO_TEXT_BASE_URL = '/assets/ui/clear-text/combo';
+const PRAISE_TEXT_BASE_URL = '/assets/ui/clear-text/praise';
+const COMBO_WORD_URLS = Array.from({ length: 5 }, (_, index) => `${COMBO_TEXT_BASE_URL}/combo${index + 1}.png`);
+const COMBO_DIGIT_URLS = Array.from({ length: 10 }, (_, index) => `${COMBO_TEXT_BASE_URL}/${index}.png`);
+const PRAISE_WORD_URLS: Record<PraiseWord, string> = {
+  good: `${PRAISE_TEXT_BASE_URL}/good.png`,
+  great: `${PRAISE_TEXT_BASE_URL}/great.png`,
+  amazing: `${PRAISE_TEXT_BASE_URL}/amazing.png`,
+  excellent: `${PRAISE_TEXT_BASE_URL}/Excellent.png`,
+  unbelievable: `${PRAISE_TEXT_BASE_URL}/unbelievable.png`
+};
+const clearTextImageCache = new Map<string, HTMLImageElement>();
+const activeClearTextEffects: ClearTextEffect[] = [];
 
 
 
@@ -17277,6 +17323,123 @@ function setMarqueeBorderEnabled(enabled: boolean) {
   marqueeBorderEnabled = enabled;
   persistRecordingBackgroundState();
   syncMarqueeBorderUI();
+}
+
+function getClearTextImage(url: string) {
+  let image = clearTextImageCache.get(url);
+  if (!image) {
+    image = new Image();
+    image.src = url;
+    clearTextImageCache.set(url, image);
+  }
+  return image;
+}
+
+function preloadClearTextImages() {
+  [...COMBO_WORD_URLS, ...COMBO_DIGIT_URLS, ...Object.values(PRAISE_WORD_URLS)].forEach(getClearTextImage);
+}
+
+function getComboWordUrl(combo: number) {
+  return COMBO_WORD_URLS[Math.min(COMBO_WORD_URLS.length - 1, Math.max(0, combo - 1))];
+}
+
+function getPraiseWordForCombo(combo: number): PraiseWord {
+  if (combo === 1) return 'good';
+  if (combo === 2) return 'great';
+  if (combo === 3) return 'amazing';
+  if (combo === 4) return 'excellent';
+  return 'unbelievable';
+}
+
+function getBoardRowEffectPoint(row: number, offsetPx: number) {
+  const boardWrapper = document.getElementById('board-wrapper');
+  const boardClip = document.getElementById('board-clip');
+  if (!boardWrapper || !boardClip) return null;
+
+  const wrapperRect = boardWrapper.getBoundingClientRect();
+  const clipRect = boardClip.getBoundingClientRect();
+  const visibleHeight = Math.max(1, getPreviewRendererGameHeight());
+  const scaleY = clipRect.height / visibleHeight;
+  const rowTop = clipRect.top - wrapperRect.top + ((row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY;
+
+  return {
+    x: clipRect.left - wrapperRect.left + clipRect.width / 2,
+    y: rowTop - offsetPx
+  };
+}
+
+function appendClearTextImage(className: string, url: string, x: number, y: number, delayMs = 0) {
+  const layer = document.getElementById('clear-text-effects');
+  if (!layer) return;
+
+  const img = document.createElement('img');
+  img.className = `clear-text-effect ${className}`;
+  img.src = url;
+  img.alt = '';
+  img.draggable = false;
+  img.style.left = `${x}px`;
+  img.style.top = `${y}px`;
+  if (delayMs > 0) img.style.animationDelay = `${delayMs}ms`;
+  layer.appendChild(img);
+  window.setTimeout(() => img.remove(), (className === 'praise-word' ? PRAISE_TEXT_EFFECT_DURATION_MS : COMBO_TEXT_EFFECT_DURATION_MS) + delayMs + 80);
+}
+
+function pushClearTextEffect(effect: ClearTextEffect) {
+  activeClearTextEffects.push(effect);
+  const maxAge = Math.max(COMBO_TEXT_EFFECT_DURATION_MS, PRAISE_TEXT_EFFECT_DURATION_MS) + 250;
+  const now = performance.now();
+  while (activeClearTextEffects.length > 0 && now - activeClearTextEffects[0].startedAt > maxAge) {
+    activeClearTextEffects.shift();
+  }
+}
+
+function triggerComboTextEffect(rows: number[], combo: number) {
+  if (!comboTextEffectEnabled) return;
+
+  const comboWordUrl = getComboWordUrl(combo);
+  const digits = String(Math.max(1, combo)).split('');
+  const digitUrls = digits.map(digit => COMBO_DIGIT_URLS[Number(digit)] || COMBO_DIGIT_URLS[0]);
+  rows.forEach(row => {
+    const point = getBoardRowEffectPoint(row, 20);
+    pushClearTextEffect({ type: 'combo', startedAt: performance.now(), row, comboCount: combo });
+    if (!point) return;
+
+    appendClearTextImage('combo-word', comboWordUrl, point.x, point.y);
+    const digitGap = 34;
+    const firstDigitX = point.x - ((digitUrls.length - 1) * digitGap) / 2;
+    digitUrls.forEach((url, index) => {
+      appendClearTextImage('combo-digit', url, firstDigitX + index * digitGap, point.y + 36, 120);
+    });
+  });
+}
+
+function triggerPraiseTextEffect(word: PraiseWord) {
+  if (!praiseTextEffectEnabled) return;
+
+  const point = getBoardRowEffectPoint(0, -30);
+  pushClearTextEffect({ type: 'praise', startedAt: performance.now(), word });
+  if (!point) return;
+
+  appendClearTextImage('praise-word', PRAISE_WORD_URLS[word], point.x, point.y);
+}
+
+function syncClearTextEffectUI() {
+  const comboCheckbox = document.getElementById('input-combo-text-effect') as HTMLInputElement | null;
+  const praiseCheckbox = document.getElementById('input-praise-text-effect') as HTMLInputElement | null;
+  if (comboCheckbox) comboCheckbox.checked = comboTextEffectEnabled;
+  if (praiseCheckbox) praiseCheckbox.checked = praiseTextEffectEnabled;
+}
+
+function setComboTextEffectEnabled(enabled: boolean) {
+  comboTextEffectEnabled = enabled;
+  localStorage.setItem('comboTextEffectEnabled', String(comboTextEffectEnabled));
+  syncClearTextEffectUI();
+}
+
+function setPraiseTextEffectEnabled(enabled: boolean) {
+  praiseTextEffectEnabled = enabled;
+  localStorage.setItem('praiseTextEffectEnabled', String(praiseTextEffectEnabled));
+  syncClearTextEffectUI();
 }
 
 function createSolidBackgroundGradient(
@@ -25445,6 +25608,7 @@ function checkEliminations() {
     advanceSolidBackgroundColorOnElimination();
     triggerHeartClearHud();
     triggerMarqueeClearEffect();
+    triggerComboTextEffect(fullRows, comboCount);
 
     if (isRisingAdvanceActive()) {
       risingEliminationWavesThisMove += 1;
@@ -25507,25 +25671,9 @@ function checkEliminations() {
 
     if (!isMuteVocals) {
 
-
-
-      if (comboCount === 1) playSound(sounds.vocals.good);
-
-
-
-      else if (comboCount === 2) playSound(sounds.vocals.great);
-
-
-
-      else if (comboCount === 3) playSound(sounds.vocals.amazing);
-
-
-
-      else if (comboCount === 4) playSound(sounds.vocals.excellent);
-
-
-
-      else if (comboCount >= 5) playSound(sounds.vocals.unbelievable);
+      const praiseWord = getPraiseWordForCombo(comboCount);
+      playSound(sounds.vocals[praiseWord]);
+      triggerPraiseTextEffect(praiseWord);
 
 
 
@@ -30219,6 +30367,91 @@ function drawRecordingVideoContained(
   );
 }
 
+function drawRecordingImageCentered(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  centerX: number,
+  centerY: number,
+  targetW: number,
+  alpha: number,
+  scale: number
+) {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || targetW <= 0 || alpha <= 0) return;
+
+  const drawW = targetW * scale;
+  const drawH = drawW * sourceHeight / sourceWidth;
+  context.save();
+  context.globalAlpha = alpha;
+  context.shadowColor = 'rgba(0, 0, 0, 0.38)';
+  context.shadowBlur = targetW * 0.045;
+  context.drawImage(image, centerX - drawW / 2, centerY - drawH / 2, drawW, drawH);
+  context.restore();
+}
+
+function getClearTextPopMotion(elapsed: number, duration: number) {
+  const progress = Math.max(0, Math.min(1, elapsed / duration));
+  if (progress < 0.12) return { alpha: progress / 0.12, scale: 0.25 + (1.28 - 0.25) * (progress / 0.12), yShift: 0 };
+  if (progress < 0.26) return { alpha: 1, scale: 1.28 + (0.96 - 1.28) * ((progress - 0.12) / 0.14), yShift: 0 };
+  if (progress < 0.72) return { alpha: 1, scale: 0.96 + (1 - 0.96) * ((progress - 0.26) / 0.46), yShift: -6 * progress };
+  return { alpha: 1 - ((progress - 0.72) / 0.28), scale: 1 - 0.08 * ((progress - 0.72) / 0.28), yShift: -18 * progress };
+}
+
+function getPraiseTextPopMotion(elapsed: number) {
+  const progress = Math.max(0, Math.min(1, elapsed / PRAISE_TEXT_EFFECT_DURATION_MS));
+  if (progress < 0.1) return { alpha: progress / 0.1, scale: 0.2 + (1.22 - 0.2) * (progress / 0.1), yShift: 0 };
+  if (progress < 0.24) return { alpha: 1, scale: 1.22 + (0.98 - 1.22) * ((progress - 0.1) / 0.14), yShift: 0 };
+  if (progress < 0.72) return { alpha: 0.9, scale: 0.98 + (1 - 0.98) * ((progress - 0.24) / 0.48), yShift: -10 * progress };
+  return { alpha: 0.9 * (1 - ((progress - 0.72) / 0.28)), scale: 1 + 0.08 * ((progress - 0.72) / 0.28), yShift: -24 * progress };
+}
+
+function drawRecordingClearTextEffects(
+  context: CanvasRenderingContext2D,
+  boardBox: { x: number; y: number; w: number; h: number },
+  timeMs: number
+) {
+  const visibleHeight = Math.max(1, getPreviewRendererGameHeight());
+  const scaleY = boardBox.h / visibleHeight;
+  const centerX = boardBox.x + boardBox.w / 2;
+
+  for (let i = activeClearTextEffects.length - 1; i >= 0; i--) {
+    const effect = activeClearTextEffects[i];
+    const elapsed = timeMs - effect.startedAt;
+    const duration = effect.type === 'praise' ? PRAISE_TEXT_EFFECT_DURATION_MS : COMBO_TEXT_EFFECT_DURATION_MS;
+    if (elapsed < 0) continue;
+    if (elapsed > duration + 180) {
+      activeClearTextEffects.splice(i, 1);
+      continue;
+    }
+
+    if (effect.type === 'combo' && comboTextEffectEnabled && typeof effect.row === 'number' && typeof effect.comboCount === 'number') {
+      const rowY = boardBox.y + ((effect.row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY - 20;
+      const wordImage = getClearTextImage(getComboWordUrl(effect.comboCount));
+      const wordMotion = getClearTextPopMotion(elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
+      drawRecordingImageCentered(context, wordImage, centerX, rowY + wordMotion.yShift, boardBox.w * 0.44, wordMotion.alpha, wordMotion.scale);
+
+      const digitElapsed = elapsed - 120;
+      if (digitElapsed >= 0) {
+        const digitMotion = getClearTextPopMotion(digitElapsed, 560);
+        const digits = String(Math.max(1, effect.comboCount)).split('');
+        const digitGap = boardBox.w * 0.07;
+        const firstDigitX = centerX - ((digits.length - 1) * digitGap) / 2;
+        digits.forEach((digit, index) => {
+          const image = getClearTextImage(COMBO_DIGIT_URLS[Number(digit)] || COMBO_DIGIT_URLS[0]);
+          drawRecordingImageCentered(context, image, firstDigitX + index * digitGap, rowY + boardBox.h * 0.043 + digitMotion.yShift, boardBox.w * 0.11, digitMotion.alpha, digitMotion.scale);
+        });
+      }
+    }
+
+    if (effect.type === 'praise' && praiseTextEffectEnabled && effect.word) {
+      const image = getClearTextImage(PRAISE_WORD_URLS[effect.word]);
+      const motion = getPraiseTextPopMotion(elapsed);
+      drawRecordingImageCentered(context, image, centerX, boardBox.y + 30 + motion.yShift, boardBox.w * 0.58, motion.alpha, motion.scale);
+    }
+  }
+}
+
 function drawRecordingHeartHud(
   context: CanvasRenderingContext2D,
   width: number,
@@ -30659,6 +30892,18 @@ function setupDOMUI() {
 
 
   setupShatterModeButtons();
+  preloadClearTextImages();
+  syncClearTextEffectUI();
+
+  const comboTextEffectCheckbox = document.getElementById('input-combo-text-effect') as HTMLInputElement | null;
+  comboTextEffectCheckbox?.addEventListener('change', () => {
+    setComboTextEffectEnabled(comboTextEffectCheckbox.checked);
+  });
+
+  const praiseTextEffectCheckbox = document.getElementById('input-praise-text-effect') as HTMLInputElement | null;
+  praiseTextEffectCheckbox?.addEventListener('change', () => {
+    setPraiseTextEffectEnabled(praiseTextEffectCheckbox.checked);
+  });
 
   const sequentialRowClearCheckbox = document.getElementById('input-sequential-row-clear') as HTMLInputElement | null;
   if (sequentialRowClearCheckbox) {
@@ -40979,6 +41224,7 @@ function startRecording(): Promise<boolean> {
       recordingCtx!.restore();
 
       drawRecordingMarqueeBorder(recordingCtx!, boardClipBox, performance.now());
+      drawRecordingClearTextEffects(recordingCtx!, boardClipBox, performance.now());
 
 
 
@@ -41007,6 +41253,11 @@ function startRecording(): Promise<boolean> {
 
 
       recordingCtx!.restore();
+      drawRecordingClearTextEffects(
+        recordingCtx!,
+        { x: 0, y: currentOffset, w: pixiCanvas.width, h: pixiCanvas.height },
+        performance.now()
+      );
 
 
 
