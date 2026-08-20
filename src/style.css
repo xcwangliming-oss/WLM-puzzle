@@ -71,6 +71,16 @@ html, body {
   background: transparent;
 }
 
+#board-wrapper.solid-bg-live {
+  background-color: #e66a89;
+}
+
+#board-wrapper.solid-bg-live #game-header {
+  background: rgba(31, 39, 83, 0.84);
+  border: 4px solid #202b61;
+  border-radius: 8px;
+}
+
 #game-header {
   position: absolute;
   left: 5.4167%;
@@ -285,6 +295,13 @@ html, body {
   box-sizing: border-box;
   overflow: hidden;
   z-index: 1;
+}
+
+#board-wrapper.solid-bg-live #board-clip {
+  background: #232d5c;
+  border: 5px solid #1c2655;
+  border-radius: 8px;
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.28), 0 4px 8px rgba(20, 28, 65, 0.28);
 }
 
 #canvas-container canvas {
@@ -1433,7 +1450,8 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 .record-bg-card-thumb.no-bg,
-.record-bg-card-thumb.upload-bg {
+.record-bg-card-thumb.upload-bg,
+.record-bg-card-thumb.solid-bg {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1441,6 +1459,15 @@ body:not(.is-playable) #script-steps-panel {
   color: #aeb2cf;
   font-size: 20px;
   font-weight: 900;
+}
+
+.record-bg-card-thumb.solid-bg::before {
+  content: "";
+  width: 58%;
+  height: 58%;
+  border: 2px solid rgba(255, 255, 255, 0.78);
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.34);
 }
 
 .record-bg-card-thumb.no-bg::before {
@@ -1514,6 +1541,64 @@ body:not(.is-playable) #script-steps-panel {
 
 .record-bg-status.active {
   color: #7ee787;
+}
+
+.record-solid-bg-controls {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(20, 20, 32, 0.54);
+}
+
+.record-solid-bg-controls.active {
+  display: flex;
+}
+
+.solid-bg-mode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.solid-bg-mode-btn {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: #3d4058;
+  color: #f5f5ff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 6px 4px;
+}
+
+.solid-bg-mode-btn.active {
+  background: #3b6bdc;
+  border-color: #7aa0ff;
+  box-shadow: 0 0 8px rgba(91, 139, 245, 0.42);
+}
+
+.solid-bg-palette {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+}
+
+.solid-bg-swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.22);
+}
+
+.solid-bg-swatch.active {
+  border-color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.72), inset 0 0 8px rgba(255, 255, 255, 0.22);
 }
 
 /* ===== 材质手动映射面板 ===== */

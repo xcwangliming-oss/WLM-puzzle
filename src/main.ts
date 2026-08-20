@@ -325,7 +325,10 @@ function queueCustomPropStyle(style: unknown): void {
         background: {
             enabled: recordingBackgroundEnabled,
             dataUrl: recordingBackgroundDataUrl,
-            activeId: recordingBackgroundActiveId
+            activeId: recordingBackgroundActiveId,
+            mode: recordingBackgroundMode,
+            solidVariant: solidBackgroundVariant,
+            solidColorId: solidBackgroundColorId
         },
         audio: {
             vocalPack: activeVocalPack,
@@ -389,13 +392,31 @@ function queueCustomPropStyle(style: unknown): void {
     isNoGravityMode = loadedGameRule === 'no-gravity';
 
     const savedBackground = saveData.background;
-    if (savedBackground && typeof savedBackground.dataUrl === 'string') {
-        recordingBackgroundEnabled = savedBackground.enabled === true && savedBackground.dataUrl.length > 0;
-        recordingBackgroundDataUrl = recordingBackgroundEnabled ? savedBackground.dataUrl : '';
-        recordingBackgroundActiveId = recordingBackgroundEnabled
-            ? (typeof savedBackground.activeId === 'string' ? savedBackground.activeId : 'playable-background')
-            : NO_BACKGROUND_ID;
-        loadRecordingBackgroundImage(recordingBackgroundDataUrl);
+    if (savedBackground) {
+        const savedMode = savedBackground.mode === 'solid' ? 'solid' : 'image';
+        recordingBackgroundMode = savedMode;
+        if (savedBackground.solidVariant === 'animated' || savedBackground.solidVariant === 'solid') {
+            solidBackgroundVariant = savedBackground.solidVariant;
+        }
+        if (
+            typeof savedBackground.solidColorId === 'string' &&
+            SOLID_BACKGROUND_COLORS.some(color => color.id === savedBackground.solidColorId)
+        ) {
+            solidBackgroundColorId = savedBackground.solidColorId;
+        }
+        if (savedMode === 'solid') {
+            recordingBackgroundEnabled = savedBackground.enabled === true;
+            recordingBackgroundDataUrl = '';
+            recordingBackgroundActiveId = recordingBackgroundEnabled ? SOLID_BACKGROUND_ID : NO_BACKGROUND_ID;
+        } else if (typeof savedBackground.dataUrl === 'string') {
+            recordingBackgroundEnabled = savedBackground.enabled === true && savedBackground.dataUrl.length > 0;
+            recordingBackgroundDataUrl = recordingBackgroundEnabled ? savedBackground.dataUrl : '';
+            recordingBackgroundActiveId = recordingBackgroundEnabled
+                ? (typeof savedBackground.activeId === 'string' ? savedBackground.activeId : 'playable-background')
+                : NO_BACKGROUND_ID;
+        }
+        persistRecordingBackgroundState();
+        loadRecordingBackgroundImage(recordingBackgroundMode === 'image' ? recordingBackgroundDataUrl : '');
         syncRecordingBackgroundUI();
     }
 
@@ -12679,7 +12700,7 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-  } else if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
+  } else if (isRecordingBackgroundActive()) {
 
     const recordingBoardBox = { x: 0, y: 0, w: MASTER_UI.width, h: MASTER_UI.height };
 
@@ -16915,6 +16936,10 @@ interface ManagedRecordingBackground {
 
 
 
+  kind?: 'image' | 'solid';
+
+
+
   builtin?: boolean;
 
 
@@ -16922,6 +16947,23 @@ interface ManagedRecordingBackground {
 }
 
 const NO_BACKGROUND_ID = 'none';
+
+const SOLID_BACKGROUND_ID = 'solid';
+
+type RecordingBackgroundMode = 'image' | 'solid';
+
+type SolidBackgroundVariant = 'solid' | 'animated';
+
+const SOLID_BACKGROUND_COLORS = [
+  { id: 'pink', name: '樱粉', from: '#f06f91', to: '#df5f82' },
+  { id: 'peach', name: '蜜桃', from: '#ffb199', to: '#ff8f9c' },
+  { id: 'mint', name: '薄荷', from: '#8cebc0', to: '#6fd6d4' },
+  { id: 'sky', name: '晴蓝', from: '#8ed8ff', to: '#a6b8ff' },
+  { id: 'lavender', name: '薰衣草', from: '#c9a7ff', to: '#f2a4d7' },
+  { id: 'lemon', name: '奶黄', from: '#ffe68c', to: '#ffbd78' }
+];
+
+const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'pink';
 
 
 
@@ -17057,6 +17099,14 @@ let recordingBackgroundDataUrl = localStorage.getItem('recordingBackgroundDataUr
 
 let recordingBackgroundActiveId = localStorage.getItem('recordingBackgroundActiveId') || NO_BACKGROUND_ID;
 
+let recordingBackgroundMode: RecordingBackgroundMode =
+  localStorage.getItem('recordingBackgroundMode') === 'solid' ? 'solid' : 'image';
+
+let solidBackgroundVariant: SolidBackgroundVariant =
+  localStorage.getItem('solidBackgroundVariant') === 'animated' ? 'animated' : 'solid';
+
+let solidBackgroundColorId = localStorage.getItem('solidBackgroundColorId') || DEFAULT_SOLID_BACKGROUND_COLOR_ID;
+
 
 
 let recordingBackgroundImage: HTMLImageElement | null = null;
@@ -17064,6 +17114,69 @@ let recordingBackgroundImage: HTMLImageElement | null = null;
 
 
 let recordingBackgroundImageLoaded = false;
+
+function getSolidBackgroundColor() {
+  return SOLID_BACKGROUND_COLORS.find(color => color.id === solidBackgroundColorId) || SOLID_BACKGROUND_COLORS[0];
+}
+
+function isSolidRecordingBackgroundActive() {
+  return recordingBackgroundEnabled && recordingBackgroundMode === 'solid';
+}
+
+function isImageRecordingBackgroundActive() {
+  return recordingBackgroundEnabled && recordingBackgroundMode === 'image' && !!recordingBackgroundDataUrl;
+}
+
+function isRecordingBackgroundActive() {
+  return isSolidRecordingBackgroundActive() || isImageRecordingBackgroundActive();
+}
+
+function persistRecordingBackgroundState() {
+  localStorage.setItem('recordingBackgroundActiveId', recordingBackgroundActiveId);
+  localStorage.setItem('recordingBackgroundDataUrl', recordingBackgroundDataUrl);
+  localStorage.setItem('recordingBackgroundEnabled', String(recordingBackgroundEnabled));
+  localStorage.setItem('recordingBackgroundMode', recordingBackgroundMode);
+  localStorage.setItem('solidBackgroundVariant', solidBackgroundVariant);
+  localStorage.setItem('solidBackgroundColorId', solidBackgroundColorId);
+}
+
+function createSolidBackgroundGradient(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  timeMs = performance.now()
+) {
+  const current = getSolidBackgroundColor();
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+
+  if (solidBackgroundVariant === 'animated') {
+    const currentIndex = Math.max(0, SOLID_BACKGROUND_COLORS.findIndex(color => color.id === current.id));
+    const next = SOLID_BACKGROUND_COLORS[(currentIndex + 1) % SOLID_BACKGROUND_COLORS.length];
+    const t = (Math.sin(timeMs / 1400) + 1) / 2;
+    gradient.addColorStop(0, mixHexColors(current.from, next.from, t));
+    gradient.addColorStop(1, mixHexColors(current.to, next.to, t));
+  } else {
+    gradient.addColorStop(0, current.from);
+    gradient.addColorStop(1, current.to);
+  }
+
+  return gradient;
+}
+
+function mixHexColors(a: string, b: string, t: number) {
+  const parse = (value: string) => {
+    const hex = value.replace('#', '');
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16)
+    };
+  };
+  const ca = parse(a);
+  const cb = parse(b);
+  const mix = (from: number, to: number) => Math.round(from + (to - from) * t);
+  return `rgb(${mix(ca.r, cb.r)}, ${mix(ca.g, cb.g)}, ${mix(ca.b, cb.b)})`;
+}
 
 
 
@@ -18413,10 +18526,8 @@ function drawGrid() {
 
   const lineWidth = 1 / fitScale;
 
-  const useGeneratedBackgroundUI =
-    recordingBackgroundEnabled &&
-    recordingBackgroundActiveId !== MASTER_BACKGROUND_ID &&
-    recordingBackgroundActiveId !== NO_BACKGROUND_ID;
+  const useGeneratedBackgroundUI = isRecordingBackgroundActive();
+  const useSolidBackgroundUI = isSolidRecordingBackgroundActive();
 
   const gridStart = 0;
   const gridColEnd = PARAMS.gridCols;
@@ -18462,8 +18573,8 @@ function drawGrid() {
 
   gridGraphics.stroke({
     width: lineWidth,
-    color: useGeneratedBackgroundUI ? 0x9aa4d3 : 0xffffff,
-    alpha: useGeneratedBackgroundUI ? 0.2 : 0.05
+    color: useSolidBackgroundUI ? 0x151f43 : (useGeneratedBackgroundUI ? 0x9aa4d3 : 0xffffff),
+    alpha: useSolidBackgroundUI ? 0.58 : (useGeneratedBackgroundUI ? 0.2 : 0.05)
   });
 
 
@@ -28875,6 +28986,8 @@ function getManagedRecordingBackgrounds(): ManagedRecordingBackground[] {
 
 
 
+    { id: SOLID_BACKGROUND_ID, name: '纯色', src: '', kind: 'solid', builtin: true },
+
     ...customItems
 
 
@@ -28899,7 +29012,7 @@ function saveCustomRecordingBackgrounds(items: ManagedRecordingBackground[]) {
 
 
 
-    .filter(item => !item.builtin && item.id !== MASTER_BACKGROUND_ID && item.id !== NO_BACKGROUND_ID)
+    .filter(item => !item.builtin && item.id !== MASTER_BACKGROUND_ID && item.id !== NO_BACKGROUND_ID && item.id !== SOLID_BACKGROUND_ID)
 
 
 
@@ -28925,29 +29038,23 @@ function selectRecordingBackground(item: ManagedRecordingBackground) {
 
   recordingBackgroundActiveId = item.id;
 
-
-
-  recordingBackgroundDataUrl = item.src;
-
-
-
-  recordingBackgroundEnabled = item.id !== NO_BACKGROUND_ID && !!item.src;
+  recordingBackgroundMode = item.id === SOLID_BACKGROUND_ID || item.kind === 'solid' ? 'solid' : 'image';
 
 
 
-  localStorage.setItem('recordingBackgroundActiveId', recordingBackgroundActiveId);
+  recordingBackgroundDataUrl = recordingBackgroundMode === 'image' ? item.src : '';
 
 
 
-  localStorage.setItem('recordingBackgroundDataUrl', recordingBackgroundDataUrl);
+  recordingBackgroundEnabled = item.id === SOLID_BACKGROUND_ID || (item.id !== NO_BACKGROUND_ID && !!item.src);
 
 
 
-  localStorage.setItem('recordingBackgroundEnabled', String(recordingBackgroundEnabled));
+  persistRecordingBackgroundState();
 
 
 
-  loadRecordingBackgroundImage(recordingBackgroundDataUrl);
+  loadRecordingBackgroundImage(recordingBackgroundMode === 'image' ? recordingBackgroundDataUrl : '');
 
 
 
@@ -29115,11 +29222,16 @@ function renderRecordingBackgroundList() {
 
 
 
-    thumb.className = `record-bg-card-thumb${item.id === NO_BACKGROUND_ID ? ' no-bg' : ''}`;
+    thumb.className = `record-bg-card-thumb${item.id === NO_BACKGROUND_ID ? ' no-bg' : ''}${item.id === SOLID_BACKGROUND_ID ? ' solid-bg' : ''}`;
 
 
 
-    if (item.src) thumb.style.backgroundImage = `url("${item.src}")`;
+    if (item.id === SOLID_BACKGROUND_ID) {
+      const color = getSolidBackgroundColor();
+      thumb.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+    } else if (item.src) {
+      thumb.style.backgroundImage = `url("${item.src}")`;
+    }
 
 
 
@@ -29299,6 +29411,55 @@ function renderRecordingBackgroundList() {
 
 
 
+function setSolidBackgroundVariant(variant: SolidBackgroundVariant) {
+  solidBackgroundVariant = variant;
+  recordingBackgroundMode = 'solid';
+  recordingBackgroundActiveId = SOLID_BACKGROUND_ID;
+  recordingBackgroundDataUrl = '';
+  recordingBackgroundEnabled = true;
+  persistRecordingBackgroundState();
+  loadRecordingBackgroundImage('');
+  syncRecordingBackgroundUI();
+}
+
+function setSolidBackgroundColor(id: string) {
+  if (!SOLID_BACKGROUND_COLORS.some(color => color.id === id)) return;
+  solidBackgroundColorId = id;
+  recordingBackgroundMode = 'solid';
+  recordingBackgroundActiveId = SOLID_BACKGROUND_ID;
+  recordingBackgroundDataUrl = '';
+  recordingBackgroundEnabled = true;
+  persistRecordingBackgroundState();
+  loadRecordingBackgroundImage('');
+  syncRecordingBackgroundUI();
+}
+
+function renderSolidBackgroundControls() {
+  const panel = document.getElementById('record-solid-bg-controls');
+  const modeButtons = document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-variant]');
+  const palette = document.getElementById('record-solid-bg-palette');
+  if (!panel || !palette) return;
+
+  const showSolidControls = recordingBackgroundActiveId === SOLID_BACKGROUND_ID || recordingBackgroundMode === 'solid';
+  panel.classList.toggle('active', showSolidControls);
+
+  modeButtons.forEach(button => {
+    const variant = button.dataset.solidBgVariant as SolidBackgroundVariant | undefined;
+    button.classList.toggle('active', variant === solidBackgroundVariant);
+  });
+
+  palette.innerHTML = '';
+  SOLID_BACKGROUND_COLORS.forEach(color => {
+    const swatch = document.createElement('button');
+    swatch.type = 'button';
+    swatch.className = `solid-bg-swatch${color.id === solidBackgroundColorId ? ' active' : ''}`;
+    swatch.title = color.name;
+    swatch.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+    swatch.addEventListener('click', () => setSolidBackgroundColor(color.id));
+    palette.appendChild(swatch);
+  });
+}
+
 function syncRecordingBackgroundUI() {
 
 
@@ -29339,7 +29500,21 @@ function syncRecordingBackgroundUI() {
 
 
 
-    if (recordingBackgroundDataUrl) {
+    if (isSolidRecordingBackgroundActive()) {
+
+      const color = getSolidBackgroundColor();
+
+      preview.textContent = '';
+
+      preview.style.backgroundImage = '';
+
+      preview.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+
+      preview.style.backgroundSize = '100% 100%';
+
+
+
+    } else if (recordingBackgroundDataUrl) {
 
 
 
@@ -29348,6 +29523,8 @@ function syncRecordingBackgroundUI() {
 
 
       preview.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
+
+      preview.style.background = '';
 
 
 
@@ -29364,6 +29541,8 @@ function syncRecordingBackgroundUI() {
 
 
       preview.style.backgroundImage = '';
+
+      preview.style.background = '';
 
 
 
@@ -29383,11 +29562,17 @@ function syncRecordingBackgroundUI() {
 
 
 
-    status.classList.toggle('active', recordingBackgroundEnabled && !!recordingBackgroundDataUrl);
+    status.classList.toggle('active', isRecordingBackgroundActive());
 
 
 
-    if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
+    if (isSolidRecordingBackgroundActive()) {
+
+      status.textContent = solidBackgroundVariant === 'animated' ? '已启用变色纯色背景' : '已启用纯色背景';
+
+
+
+    } else if (isImageRecordingBackgroundActive()) {
 
 
 
@@ -29423,7 +29608,9 @@ function syncRecordingBackgroundUI() {
 
 
 
-    const showLiveBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+    const showLiveBackground = isRecordingBackgroundActive();
+
+    const showSolidBackground = isSolidRecordingBackgroundActive();
 
     const useGeneratedBackgroundUI = showLiveBackground;
 
@@ -29433,13 +29620,29 @@ function syncRecordingBackgroundUI() {
 
       boardWrapper.classList.toggle('generated-board-ui', useGeneratedBackgroundUI);
 
+      boardWrapper.classList.toggle('solid-bg-live', showSolidBackground);
 
 
-    if (showLiveBackground) {
+
+    if (showSolidBackground) {
+
+      const color = getSolidBackgroundColor();
+
+      boardWrapper.style.backgroundImage = '';
+
+      boardWrapper.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+
+      boardWrapper.style.backgroundSize = '100% 100%';
+
+
+
+    } else if (showLiveBackground) {
 
 
 
       boardWrapper.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
+
+      boardWrapper.style.background = '';
 
 
 
@@ -29452,6 +29655,8 @@ function syncRecordingBackgroundUI() {
 
 
       boardWrapper.style.backgroundImage = '';
+
+      boardWrapper.style.background = '';
 
 
 
@@ -29471,6 +29676,8 @@ function syncRecordingBackgroundUI() {
 
   positionPreviewCanvasInMaster();
 
+  renderSolidBackgroundControls();
+
 
 
   renderRecordingBackgroundList();
@@ -29489,11 +29696,18 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
 
 
 
-  ctx.fillStyle = '#2e3764';
+  ctx.fillStyle = isSolidRecordingBackgroundActive()
+    ? createSolidBackgroundGradient(ctx, width, height)
+    : '#2e3764';
 
 
 
   ctx.fillRect(0, 0, width, height);
+
+  if (isSolidRecordingBackgroundActive()) {
+    drawSolidRecordingFrame(ctx, width, height);
+    return;
+  }
 
 
 
@@ -29519,6 +29733,55 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
 
 }
 
+function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const headerBox = {
+    x: MASTER_UI.header.x * width,
+    y: MASTER_UI.header.y * height,
+    w: MASTER_UI.header.w * width,
+    h: MASTER_UI.header.h * height
+  };
+  const boardBox = getMasterBoardContentRect(width, height);
+  const radius = Math.max(4, width * 0.011);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(30, 40, 86, 0.86)';
+  ctx.strokeStyle = '#202b61';
+  ctx.lineWidth = Math.max(4, width * 0.008);
+  drawRoundedRectPath(ctx, headerBox.x, headerBox.y, headerBox.w, headerBox.h, radius);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#232d5c';
+  ctx.strokeStyle = '#1c2655';
+  ctx.lineWidth = Math.max(5, width * 0.009);
+  drawRoundedRectPath(ctx, boardBox.x, boardBox.y, boardBox.w, boardBox.h, radius);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRoundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
 
 
 
@@ -29533,7 +29796,7 @@ function drawRecordingVerticalGrid(ctx: CanvasRenderingContext2D, boardBox: { x:
 
 
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.strokeStyle = isSolidRecordingBackgroundActive() ? 'rgba(18,27,65,0.62)' : 'rgba(255,255,255,0.12)';
 
 
 
@@ -29565,6 +29828,18 @@ function drawRecordingVerticalGrid(ctx: CanvasRenderingContext2D, boardBox: { x:
 
 
 
+  }
+
+  if (isSolidRecordingBackgroundActive()) {
+    const contentSize = getBoardCanvasContentSize();
+    const rowCount = Math.max(1, Math.round((contentSize.h - PADDING * 2) / PARAMS.cellSize));
+    for (let r = 1; r < rowCount; r++) {
+      const y = Math.round(boardBox.y + (boardBox.h * r) / rowCount) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(boardBox.x, y);
+      ctx.lineTo(boardBox.x + boardBox.w, y);
+      ctx.stroke();
+    }
   }
 
 
@@ -30214,6 +30489,15 @@ function setupDOMUI() {
 
   const recordBgClear = document.getElementById('btn-record-bg-clear') as HTMLButtonElement | null;
 
+  document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-variant]').forEach(button => {
+    button.addEventListener('click', () => {
+      const variant = button.dataset.solidBgVariant;
+      if (variant === 'solid' || variant === 'animated') {
+        setSolidBackgroundVariant(variant);
+      }
+    });
+  });
+
 
 
 
@@ -30248,11 +30532,11 @@ function setupDOMUI() {
 
 
 
-    const activeItem = items.find(item => item.id === recordingBackgroundActiveId && item.src);
+    const activeItem = items.find(item => item.id === recordingBackgroundActiveId && (item.src || item.id === SOLID_BACKGROUND_ID));
 
 
 
-    selectRecordingBackground(activeItem || items.find(item => item.id !== NO_BACKGROUND_ID && item.src) || items[0]);
+    selectRecordingBackground(activeItem || items.find(item => item.id === SOLID_BACKGROUND_ID) || items.find(item => item.id !== NO_BACKGROUND_ID && item.src) || items[0]);
 
 
 
@@ -39231,7 +39515,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-  const useRecordingBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+  const useRecordingBackground = isRecordingBackgroundActive();
 
 
 
@@ -39243,7 +39527,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-  if (recordingBackgroundEnabled && recordingBackgroundDataUrl && !recordingBackgroundImage) {
+  if (isImageRecordingBackgroundActive() && !recordingBackgroundImage) {
 
 
 
@@ -41026,7 +41310,7 @@ function stopRecording() {
 
 
 
-  const useRecordingBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+  const useRecordingBackground = isRecordingBackgroundActive();
 
 
 

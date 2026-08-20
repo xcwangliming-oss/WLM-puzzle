@@ -11,7 +11,7 @@ const fn = fnMatch[0];
 
 assert.match(
   fn,
-  /if \(targetEl\) \{[\s\S]*?targetEl\.getBoundingClientRect\(\)[\s\S]*?\} else if \(recordingBackgroundEnabled && recordingBackgroundDataUrl\)/,
+  /if \(targetEl\) \{[\s\S]*?targetEl\.getBoundingClientRect\(\)[\s\S]*?\} else if \(isRecordingBackgroundActive\(\)\)/,
   'live collect animation should fly to the actual header icon before falling back to recording-coordinate mapping'
 );
 
