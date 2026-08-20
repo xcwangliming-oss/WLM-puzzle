@@ -328,7 +328,11 @@ function queueCustomPropStyle(style: unknown): void {
             activeId: recordingBackgroundActiveId,
             mode: recordingBackgroundMode,
             solidVariant: solidBackgroundVariant,
-            solidColorId: solidBackgroundColorId
+            solidColorId: solidBackgroundColorId,
+            marqueeBorder: marqueeBorderEnabled
+        },
+        topUi: {
+            mode: topUiMode
         },
         audio: {
             vocalPack: activeVocalPack,
@@ -404,6 +408,9 @@ function queueCustomPropStyle(style: unknown): void {
         ) {
             solidBackgroundColorId = savedBackground.solidColorId;
         }
+        if (typeof savedBackground.marqueeBorder === 'boolean') {
+            marqueeBorderEnabled = savedBackground.marqueeBorder;
+        }
         if (savedMode === 'solid') {
             recordingBackgroundEnabled = savedBackground.enabled === true;
             recordingBackgroundDataUrl = '';
@@ -418,6 +425,12 @@ function queueCustomPropStyle(style: unknown): void {
         persistRecordingBackgroundState();
         loadRecordingBackgroundImage(recordingBackgroundMode === 'image' ? recordingBackgroundDataUrl : '');
         syncRecordingBackgroundUI();
+    }
+
+    if (saveData.topUi?.mode === 'heart' || saveData.topUi?.mode === 'classic') {
+        topUiMode = saveData.topUi.mode;
+        localStorage.setItem('topUiMode', topUiMode);
+        syncTopUiMode();
     }
 
     const savedAudio = saveData.audio;
@@ -1179,6 +1192,8 @@ let activeRecordingStepIndex: number | null = null;
 
 
 let activeEliminationWaveIndex = 0;
+
+let pendingSequentialClearBlockIds: number[][] = [];
 
 
 
@@ -9361,9 +9376,11 @@ async function showMaterialMapperDialog(files: File[]): Promise<Record<string, s
 
         slot.appendChild(emptyText);
 
-      }
+  }
 
-    }
+  syncTopUiMode();
+
+}
 
 
 
@@ -10744,6 +10761,8 @@ function updateHeaderUI() {
 
   const currentLevel = levelInput ? levelInput.value : '284';
 
+  gameHeaderEl.classList.toggle('heart-header-mode', topUiMode === 'heart');
+
 
 
 
@@ -10767,6 +10786,7 @@ function updateHeaderUI() {
 
 
     headerItemEl.innerHTML = `<span class="collect-score-hud"><span class="collect-score-label">SCORE</span><span id="score-val" class="collect-score-value">${currentScore.toLocaleString()}</span></span><span id="level-val" style="display:none;">${currentLevel}</span>`;
+    setScoreTextEverywhere(currentScore.toLocaleString());
 
 
 
@@ -10907,6 +10927,7 @@ function updateHeaderUI() {
 
 
     scoreHeaderItemEl.innerHTML = `SCORE: <span id="score-val">${currentScore.toLocaleString()}</span>`;
+    setScoreTextEverywhere(currentScore.toLocaleString());
 
 
 
@@ -16954,6 +16975,12 @@ type RecordingBackgroundMode = 'image' | 'solid';
 
 type SolidBackgroundVariant = 'solid' | 'animated';
 
+type TopUiMode = 'classic' | 'heart';
+
+const HEART_IDLE_URL = '/assets/ui/heart-idle.gif';
+
+const HEART_CLEAR_URL = '/assets/ui/heart-clear.gif';
+
 const SOLID_BACKGROUND_COLORS = [
   { id: 'deep-blue', name: '深蓝紫', from: '#344372', to: '#563762' },
   { id: 'royal-violet', name: '皇家紫', from: '#3a356f', to: '#6b3c7f' },
@@ -17107,6 +17134,12 @@ let solidBackgroundVariant: SolidBackgroundVariant =
 
 let solidBackgroundColorId = localStorage.getItem('solidBackgroundColorId') || DEFAULT_SOLID_BACKGROUND_COLOR_ID;
 
+let topUiMode: TopUiMode = localStorage.getItem('topUiMode') === 'heart' ? 'heart' : 'classic';
+
+let marqueeBorderEnabled = localStorage.getItem('marqueeBorderEnabled') === 'true';
+
+let heartClearTimer: number | null = null;
+
 
 
 let recordingBackgroundImage: HTMLImageElement | null = null;
@@ -17138,6 +17171,67 @@ function persistRecordingBackgroundState() {
   localStorage.setItem('recordingBackgroundMode', recordingBackgroundMode);
   localStorage.setItem('solidBackgroundVariant', solidBackgroundVariant);
   localStorage.setItem('solidBackgroundColorId', solidBackgroundColorId);
+  localStorage.setItem('marqueeBorderEnabled', String(marqueeBorderEnabled));
+}
+
+function setScoreTextEverywhere(value: string) {
+  const scoreEl = document.getElementById('score-val');
+  const heartScoreEl = document.getElementById('heart-score-val');
+  if (scoreEl) scoreEl.innerText = value;
+  if (heartScoreEl) heartScoreEl.innerText = value;
+}
+
+function syncTopUiModeButtons() {
+  document.querySelectorAll<HTMLButtonElement>('[data-top-ui-mode]').forEach(button => {
+    const active = button.dataset.topUiMode === topUiMode;
+    button.classList.toggle('active', active);
+    button.style.background = active ? '#3b6bdc' : '#4a4a5e';
+  });
+}
+
+function syncTopUiMode() {
+  const gameHeaderEl = document.getElementById('game-header');
+  const scoreEl = document.getElementById('score-val');
+  const heartScoreEl = document.getElementById('heart-score-val');
+  const heartGifEl = document.getElementById('heart-score-gif') as HTMLImageElement | null;
+
+  gameHeaderEl?.classList.toggle('heart-header-mode', topUiMode === 'heart');
+  if (heartScoreEl && scoreEl) heartScoreEl.innerText = scoreEl.innerText;
+  if (heartGifEl && !heartGifEl.src.endsWith(HEART_CLEAR_URL)) heartGifEl.src = HEART_IDLE_URL;
+  syncTopUiModeButtons();
+}
+
+function setTopUiMode(mode: TopUiMode) {
+  topUiMode = mode;
+  localStorage.setItem('topUiMode', topUiMode);
+  updateHeaderUI();
+  syncTopUiMode();
+}
+
+function triggerHeartClearHud() {
+  if (topUiMode !== 'heart') return;
+  const heartGifEl = document.getElementById('heart-score-gif') as HTMLImageElement | null;
+  if (!heartGifEl) return;
+
+  if (heartClearTimer !== null) window.clearTimeout(heartClearTimer);
+  heartGifEl.src = `${HEART_CLEAR_URL}?t=${Date.now()}`;
+  heartClearTimer = window.setTimeout(() => {
+    heartGifEl.src = HEART_IDLE_URL;
+    heartClearTimer = null;
+  }, 900);
+}
+
+function syncMarqueeBorderUI() {
+  const checkbox = document.getElementById('input-marquee-border') as HTMLInputElement | null;
+  const boardWrapper = document.getElementById('board-wrapper');
+  if (checkbox) checkbox.checked = marqueeBorderEnabled;
+  boardWrapper?.classList.toggle('marquee-border-live', marqueeBorderEnabled);
+}
+
+function setMarqueeBorderEnabled(enabled: boolean) {
+  marqueeBorderEnabled = enabled;
+  persistRecordingBackgroundState();
+  syncMarqueeBorderUI();
 }
 
 function createSolidBackgroundGradient(
@@ -22235,6 +22329,8 @@ function clearAllBlocks() {
 
   blocks = [];
 
+  pendingSequentialClearBlockIds = [];
+
 
 
   nextBlockId = 1; // Reset block ID counter to keep IDs fully deterministic across restores
@@ -25078,6 +25174,12 @@ function changeSingleColor() {
 
 
 
+function getRowsForLockedSequentialBlocks(ids: number[] | null): number[] {
+  if (!ids || ids.length === 0) return [];
+  const idSet = new Set(ids);
+  return Array.from(new Set(blocks.filter(block => idSet.has(block.id)).map(block => block.row)));
+}
+
 function checkEliminations() {
 
 
@@ -25086,7 +25188,20 @@ function checkEliminations() {
 
 
 
-  const fullRows: number[] = [];
+  let fullRows: number[] = [];
+  let lockedSequentialBlockIds: number[] | null = null;
+
+  const startLockedSequentialClear = (rows: number[]) => {
+    pendingSequentialClearBlockIds = [...rows]
+      .sort((a, b) => b - a)
+      .map(row => blocks
+        .filter(block => !block.isProp && block.row === row)
+        .map(block => block.id)
+      )
+      .filter(ids => ids.length > 0);
+    lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
+    fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+  };
 
 
 
@@ -25094,7 +25209,10 @@ function checkEliminations() {
 
 
 
-  if (activeSimulatingStepIndex !== null && !isRepairingScript) {
+  if (pendingSequentialClearBlockIds.length > 0) {
+    lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
+    fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+  } else if (activeSimulatingStepIndex !== null && !isRepairingScript) {
 
 
 
@@ -25157,6 +25275,15 @@ function checkEliminations() {
 
 
 
+
+  if (
+    lockedSequentialBlockIds === null &&
+    PARAMS.rowClearOrder === 'bottom-up' &&
+    fullRows.length > 1 &&
+    activeSimulatingStepIndex === null
+  ) {
+    startLockedSequentialClear(fullRows);
+  }
 
   if (fullRows.length > 0) {
     // TRACK ELIMINATIONS FOR PLAYABLE
@@ -25271,6 +25398,7 @@ function checkEliminations() {
     comboCount += 1;
 
     advanceSolidBackgroundColorOnElimination();
+    triggerHeartClearHud();
 
     if (isRisingAdvanceActive()) {
       risingEliminationWavesThisMove += 1;
@@ -25399,7 +25527,7 @@ function checkEliminations() {
 
 
 
-          scoreEl.innerText = Math.round(counter.val).toLocaleString();
+          setScoreTextEverywhere(Math.round(counter.val).toLocaleString());
 
 
 
@@ -25419,7 +25547,10 @@ function checkEliminations() {
 
 
 
-    const blocksToRemove = blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    const lockedSequentialIdSet = lockedSequentialBlockIds ? new Set(lockedSequentialBlockIds) : null;
+    const blocksToRemove = lockedSequentialIdSet
+      ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
+      : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
 
 
 
@@ -25507,7 +25638,9 @@ function checkEliminations() {
         });
 
 
-        blocks = blocks.filter(b => b.isProp || !fullRows.includes(b.row));
+        blocks = lockedSequentialIdSet
+          ? blocks.filter(b => b.isProp || !lockedSequentialIdSet.has(b.id))
+          : blocks.filter(b => b.isProp || !fullRows.includes(b.row));
 
 
 
@@ -29666,6 +29799,8 @@ function syncRecordingBackgroundUI() {
 
   renderSolidBackgroundControls();
 
+  syncMarqueeBorderUI();
+
 
 
   renderRecordingBackgroundList();
@@ -29972,6 +30107,73 @@ function drawRecordingImageContained(
     drawWidth,
     drawHeight
   );
+}
+
+function drawRecordingHeartHud(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  headerBox: { x: number; y: number; w: number; h: number }
+) {
+  const scoreText = document.getElementById('heart-score-val')?.innerText
+    || document.getElementById('score-val')?.innerText
+    || '0';
+  const heartImage = document.getElementById('heart-score-gif') as HTMLImageElement | null;
+  const centerX = headerBox.x + headerBox.w / 2;
+  const centerY = headerBox.y + headerBox.h * 0.62;
+  const heartW = width * 0.30;
+  const heartH = height * 0.12;
+
+  context.save();
+  if (heartImage?.complete && heartImage.naturalWidth > 0) {
+    context.drawImage(heartImage, centerX - heartW / 2, centerY - heartH / 2, heartW, heartH);
+  }
+  context.font = `900 ${Math.round(width * 0.085)}px 'Arial Black', 'Impact', sans-serif`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.lineWidth = width * 0.006;
+  context.strokeStyle = 'rgba(91, 45, 128, 0.65)';
+  context.fillStyle = '#ffffff';
+  context.shadowColor = 'rgba(230, 86, 255, 0.8)';
+  context.shadowBlur = width * 0.025;
+  context.strokeText(scoreText, centerX, centerY);
+  context.fillText(scoreText, centerX, centerY);
+  context.restore();
+}
+
+function drawRecordingMarqueeBorder(
+  context: CanvasRenderingContext2D,
+  boardBox: { x: number; y: number; w: number; h: number },
+  timeMs: number
+) {
+  if (!marqueeBorderEnabled) return;
+
+  const phase = (timeMs / 1000) % 1;
+  const gradient = context.createLinearGradient(boardBox.x, boardBox.y, boardBox.x + boardBox.w, boardBox.y + boardBox.h);
+  gradient.addColorStop(0, '#ff36f2');
+  gradient.addColorStop(0.25, '#22f8ff');
+  gradient.addColorStop(0.52, '#2767ff');
+  gradient.addColorStop(0.78, '#26ff83');
+  gradient.addColorStop(1, '#fff34d');
+
+  context.save();
+  context.lineWidth = Math.max(7, boardBox.w * 0.014);
+  context.strokeStyle = gradient;
+  context.shadowColor = '#22f8ff';
+  context.shadowBlur = boardBox.w * 0.025;
+  context.strokeRect(boardBox.x + context.lineWidth / 2, boardBox.y + context.lineWidth / 2, boardBox.w - context.lineWidth, boardBox.h - context.lineWidth);
+
+  context.shadowColor = '#fff34d';
+  context.shadowBlur = boardBox.w * 0.018;
+  context.strokeStyle = '#fff34d';
+  context.lineWidth = Math.max(3, boardBox.w * 0.006);
+  const runnerW = boardBox.w * 0.26;
+  const runnerX = boardBox.x + ((boardBox.w + runnerW) * phase) - runnerW;
+  context.beginPath();
+  context.moveTo(Math.max(boardBox.x, runnerX), boardBox.y + boardBox.h - 12);
+  context.lineTo(Math.min(boardBox.x + boardBox.w, runnerX + runnerW), boardBox.y + boardBox.h - 12);
+  context.stroke();
+  context.restore();
 }
 
 function getRecordingCollectIconRect(width: number, height: number) {
@@ -30476,6 +30678,20 @@ function setupDOMUI() {
     });
   });
 
+  document.querySelectorAll<HTMLButtonElement>('[data-top-ui-mode]').forEach(button => {
+    button.addEventListener('click', () => {
+      const mode = button.dataset.topUiMode;
+      if (mode === 'classic' || mode === 'heart') {
+        setTopUiMode(mode);
+      }
+    });
+  });
+
+  const marqueeBorderCheckbox = document.getElementById('input-marquee-border') as HTMLInputElement | null;
+  marqueeBorderCheckbox?.addEventListener('change', () => {
+    setMarqueeBorderEnabled(marqueeBorderCheckbox.checked);
+  });
+
 
 
 
@@ -30616,6 +30832,9 @@ function setupDOMUI() {
 
   });
 
+  syncTopUiMode();
+  syncMarqueeBorderUI();
+
 
 
 
@@ -30670,11 +30889,7 @@ function setupDOMUI() {
 
 
 
-      const scoreVal = document.getElementById('score-val');
-
-
-
-      if (scoreVal) scoreVal.innerText = parseInt(inputScore.value).toLocaleString();
+      setScoreTextEverywhere(parseInt(inputScore.value).toLocaleString());
 
 
 
@@ -40189,6 +40404,12 @@ function startRecording(): Promise<boolean> {
 
 
 
+      if (topUiMode === 'heart') {
+        if (!useRecordingBackground) recordingCtx!.restore();
+        drawRecordingHeartHud(recordingCtx!, width, height, headerBox);
+        if (!useRecordingBackground) recordingCtx!.save();
+        if (!useRecordingBackground) recordingCtx!.scale(1, 1.3);
+      } else {
       const leftText = `LEVEL: ${document.getElementById('level-val')?.innerText || '284'}`;
 
 
@@ -40275,6 +40496,7 @@ function startRecording(): Promise<boolean> {
 
 
       }
+      }
 
 
 
@@ -40290,7 +40512,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-      if (isCollectMode) {
+      if (isCollectMode && topUiMode !== 'heart') {
 
 
 
@@ -40594,6 +40816,8 @@ function startRecording(): Promise<boolean> {
 
 
       recordingCtx!.restore();
+
+      drawRecordingMarqueeBorder(recordingCtx!, boardClipBox, performance.now());
 
 
 
