@@ -35,6 +35,21 @@ import { getFailureOverlayMotion } from './failureOverlay.ts'
 import { getPlayableBlockLoadError } from './playableStateContract.ts'
 import { getNoGravityPlaybackMaxRow, releaseNoGravityBlocksInRange } from './noGravityRules.ts'
 
+const EDITOR_STAGE_BASE_WIDTH = 2020;
+const EDITOR_STAGE_BASE_HEIGHT = 995;
+const EDITOR_STAGE_MARGIN = 8;
+
+function syncEditorStageScale(): void {
+  if (isStandalonePlayable || document.body.classList.contains('is-playable')) return;
+  const root = document.documentElement;
+  const availableWidth = Math.max(320, window.innerWidth - EDITOR_STAGE_MARGIN * 2);
+  const availableHeight = Math.max(240, window.innerHeight - EDITOR_STAGE_MARGIN * 2);
+  const scale = Math.min(1, availableWidth / EDITOR_STAGE_BASE_WIDTH, availableHeight / EDITOR_STAGE_BASE_HEIGHT);
+  root.style.setProperty('--editor-stage-width', `${EDITOR_STAGE_BASE_WIDTH}px`);
+  root.style.setProperty('--editor-stage-height', `${EDITOR_STAGE_BASE_HEIGHT}px`);
+  root.style.setProperty('--editor-stage-scale', scale.toFixed(4));
+}
+
 function showFailureImpact() {
   const overlay = document.getElementById('game-failure-overlay');
   const icon = document.getElementById('game-failure-icon');
@@ -18495,6 +18510,8 @@ async function init() {
 
 
   setupDOMUI();
+
+  syncEditorStageScale();
 
 
 
@@ -40796,6 +40813,7 @@ function setupDOMUI() {
 
   window.addEventListener('resize', () => {
 
+    syncEditorStageScale();
 
 
     applyGridConfig();

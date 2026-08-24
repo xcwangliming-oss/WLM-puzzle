@@ -22,6 +22,24 @@ html, body {
   padding-top: 4px;
 }
 
+body:not(.is-playable) {
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+body:not(.is-playable) #tab-level {
+  flex: 0 0 auto !important;
+  width: var(--editor-stage-width, 2020px) !important;
+  height: var(--editor-stage-height, 995px) !important;
+  transform: scale(var(--editor-stage-scale, 1));
+  transform-origin: top left;
+  overflow: hidden !important;
+}
+
 #game-ui {
   position: relative;
   flex: 1;
@@ -844,7 +862,7 @@ body:not(.is-playable) #tab-level {
 
 body:not(.is-playable) #game-ui {
   flex: 0 0 700px;
-  height: calc(100vh - 8px);
+  height: calc(var(--editor-stage-height, 995px) - 8px);
 }
 
 body:not(.is-playable) #material-panel,
@@ -862,7 +880,7 @@ body:not(.is-playable) #material-panel {
 
 body:not(.is-playable) #style-assets-panel {
   width: 250px;
-  max-height: calc(100vh - 8px);
+  max-height: calc(var(--editor-stage-height, 995px) - 8px);
   overflow-y: auto;
   padding: 6px;
   gap: 5px;
