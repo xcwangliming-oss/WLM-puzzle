@@ -11,7 +11,7 @@ assert.ok(fs.existsSync(path.join(root, 'public', 'assets', 'ui', 'heart-clear.w
 
 assert.match(source, /type TopUiMode = 'classic' \| 'heart';/, 'top UI should have classic and heart modes');
 assert.match(source, /function triggerHeartClearHud\(\)[\s\S]*?heart-score-burst[\s\S]*?currentTime = 0[\s\S]*?classList\.add\('clearing'\)[\s\S]*?heartBurstEl\.play/, 'heart HUD should replay the clear video as an expanding burst layer');
-assert.match(source, /comboCount \+= 1;[\s\S]*?triggerHeartClearHud\(\);/, 'eliminations should trigger the heart clear animation');
+assert.match(source, /comboCount \+= Math\.max\(1, fullRows\.length\);[\s\S]*?triggerHeartClearHud\(\);/, 'eliminations should trigger the heart clear animation');
 assert.match(source, /function drawRecordingHeartHud\([\s\S]*?heart-score-burst[\s\S]*?drawRecordingVideoContained\(context, heartBurstImage, burstBox\)[\s\S]*?drawRecordingVideoContained\(context, heartImage, heartBox\)/, 'recording should draw the expanding burst behind the base heart HUD without stretching either video layer');
 assert.match(source, /function drawRecordingVideoContained\([\s\S]*?const scale = Math\.min\(box\.w \/ sourceWidth, box\.h \/ sourceHeight\);[\s\S]*?drawWidth[\s\S]*?drawHeight/, 'recording should contain-fit heart videos instead of stretching the square source into a wide box');
 assert.match(source, /const cssFontSize = scoreEl \? parseFloat\(getComputedStyle\(scoreEl\)\.fontSize\) : 58;[\s\S]*?const fontSize = Math\.round\(cssFontSize \* wrapperScaleX\);/, 'recording should keep the heart score size matched to the live CSS font size');
@@ -29,7 +29,7 @@ assert.match(html, /data-top-ui-mode="classic"[\s\S]*?data-top-ui-mode="heart"/,
 
 assert.match(source, /let marqueeBorderEnabled = localStorage\.getItem\('marqueeBorderEnabled'\) === 'true';/, 'marquee border setting should persist');
 assert.match(source, /function triggerMarqueeClearEffect\(\)[\s\S]*?marqueeClearStartedAt = performance\.now\(\)[\s\S]*?classList\.add\('clearing'\)/, 'eliminations should replay the marquee clear effect');
-assert.match(source, /comboCount \+= 1;[\s\S]*?triggerHeartClearHud\(\);[\s\S]*?triggerMarqueeClearEffect\(\);/, 'eliminations should trigger the marquee clear animation alongside the heart HUD');
+assert.match(source, /comboCount \+= Math\.max\(1, fullRows\.length\);[\s\S]*?triggerHeartClearHud\(\);[\s\S]*?triggerMarqueeClearEffect\(\);/, 'eliminations should trigger the marquee clear animation alongside the heart HUD');
 assert.match(source, /function drawRecordingMarqueeBorder\([\s\S]*?if \(!marqueeBorderEnabled\) return;[\s\S]*?if \(!marqueeClearStartedAt\) return;[\s\S]*?createConicGradient/, 'recording should only render the animated marquee border during an elimination');
 assert.match(source, /const borderWidth = Math\.max\(12, Math\.min\(20, boardBox\.w \* 0\.021\)\);[\s\S]*?const outward = borderWidth \* 0\.9;/, 'recording marquee border should match the live outside ring scale instead of drawing an oversized frame');
 assert.match(source, /maybeConicGradient\.call\(context, -Math\.PI \/ 2 \+ Math\.PI \* 0\.28 - phase \* Math\.PI \* 2, centerX, centerY\)/, 'recording marquee gradient should use the adjusted top-origin clockwise phase that matches the live CSS ring visually');

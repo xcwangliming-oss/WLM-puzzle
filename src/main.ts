@@ -17471,6 +17471,7 @@ type ClearTextEffect = {
   type: 'combo' | 'praise';
   startedAt: number;
   row?: number;
+  boardYRatio?: number;
   comboCount?: number;
   word?: PraiseWord;
 };
@@ -17670,7 +17671,8 @@ function getBoardRowEffectPoint(row: number, offsetPx: number) {
 
   return {
     x: clipRect.left - wrapperRect.left + clipRect.width / 2,
-    y: rowTop - offsetPx
+    y: rowTop - offsetPx,
+    yRatio: Math.max(0, Math.min(1, (rowTop - offsetPx - (clipRect.top - wrapperRect.top)) / clipRect.height))
   };
 }
 
@@ -17748,11 +17750,11 @@ function triggerComboTextEffect(rows: number[], combo: number) {
   const sortedRows = rows.length > 0 ? [...rows].sort((a, b) => a - b) : [0];
   const targetRow = sortedRows[Math.floor((sortedRows.length - 1) / 2)];
   const point = getBoardRowEffectPoint(targetRow, 20);
-  pushClearTextEffect({ type: 'combo', startedAt: performance.now(), row: targetRow, comboCount: comboValue });
   if (!point) return;
 
   const boardClip = document.getElementById('board-clip');
   const boardWidth = boardClip?.getBoundingClientRect().width || 560;
+  pushClearTextEffect({ type: 'combo', startedAt: performance.now(), row: targetRow, boardYRatio: point.yRatio, comboCount: comboValue });
   appendComboTextEffectAtPoint(point.x, point.y, boardWidth, comboWordUrl, digitUrls);
 }
 
@@ -25990,7 +25992,7 @@ function checkEliminations() {
 
 
 
-    comboCount += 1;
+    comboCount += Math.max(1, fullRows.length);
 
     advanceSolidBackgroundColorOnElimination();
     triggerHeartClearHud();
@@ -30883,7 +30885,12 @@ function drawRecordingClearTextEffects(
     }
 
     if (effect.type === 'combo' && comboTextEffectEnabled && typeof effect.row === 'number' && typeof effect.comboCount === 'number') {
-      const rowY = boardBox.y + ((effect.row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY - 20;
+      const fixedBoardYRatio = typeof effect.boardYRatio === 'number'
+        ? Math.max(0, Math.min(1, effect.boardYRatio))
+        : null;
+      const rowY = fixedBoardYRatio !== null
+        ? boardBox.y + boardBox.h * fixedBoardYRatio
+        : boardBox.y + ((effect.row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY - 20;
       const wordImage = getClearTextImage(getComboWordUrl(effect.comboCount));
       const wordMotion = getClearTextPopMotion(elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
       const wordWidth = Math.min(205, boardBox.w * 0.3);

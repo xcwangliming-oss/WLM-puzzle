@@ -57,7 +57,7 @@ assert.match(
 
 assert.match(
   source,
-  /comboCount \+= 1;[\s\S]*?advanceSolidBackgroundColorOnElimination\(\);/,
+  /comboCount \+= Math\.max\(1, fullRows\.length\);[\s\S]*?advanceSolidBackgroundColorOnElimination\(\);/,
   'each elimination wave should trigger one solid background color step'
 );
 
