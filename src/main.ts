@@ -41524,10 +41524,11 @@ function startRecording(): Promise<boolean> {
 
       if (isCollectMode) {
         const scoreText = document.getElementById('score-val')?.innerText || '0';
-        const labelFontSize = headerFontSize * 0.58;
-        const valueFontSize = headerFontSize * 1.04;
-        const labelY = textY - headerFontSize * 0.28;
-        const valueY = textY + headerFontSize * 0.48;
+        const isMultiCollectRecording = multiCollectibleModeEnabled && multiCollectibleItems.length > 0;
+        const labelFontSize = headerFontSize * (isMultiCollectRecording ? 0.52 : 0.58);
+        const valueFontSize = headerFontSize * (isMultiCollectRecording ? 1.34 : 1.04);
+        const labelY = textY - headerFontSize * (isMultiCollectRecording ? 0.42 : 0.28);
+        const valueY = textY + headerFontSize * (isMultiCollectRecording ? 0.58 : 0.48);
 
         recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
         recordingCtx!.fillText('SCORE', leftX, labelY);

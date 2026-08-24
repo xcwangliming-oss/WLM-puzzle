@@ -21,6 +21,8 @@ test('multi collectible mode exposes independent controls and top header HUD', (
   assert.match(css, /\.multi-collectible-target\s*\{[\s\S]*?flex-direction:\s*column/);
   assert.match(css, /\.multi-collectible-target-count/);
   assert.match(css, /\.multi-collectible-upload/);
+  assert.match(css, /#board-wrapper\.multi-collectible-live \.collect-score-label\s*\{[\s\S]*?margin-bottom:\s*9px/);
+  assert.match(css, /#board-wrapper\.multi-collectible-live \.collect-score-value\s*\{[\s\S]*?font-size:\s*36px/);
   assert.match(source, /const collectibleManagerSection = document\.getElementById\('collectible-manager-section'\)/);
   assert.match(source, /panel\.appendChild\(collectibleManagerSection\)/);
 });
@@ -75,4 +77,6 @@ test('recording renders the multi collectible header instead of single collect f
   assert.match(source, /document\.querySelectorAll<HTMLElement>\('\.multi-collectible-target'\)/);
   assert.match(source, /drawRecordingMultiCollectibleHud\([\s\S]*?if \(!didDrawMultiCollectibleHud\) \{/);
   assert.match(source, /multiCollectibleItems\.forEach\(\(item, index\) => \{/);
+  assert.match(source, /const isMultiCollectRecording = multiCollectibleModeEnabled && multiCollectibleItems\.length > 0/);
+  assert.match(source, /const valueFontSize = headerFontSize \* \(isMultiCollectRecording \? 1\.34 : 1\.04\)/);
 });

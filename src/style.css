@@ -143,6 +143,22 @@ html, body {
   font-weight: 900;
 }
 
+#board-wrapper.multi-collectible-live .collect-score-hud {
+  justify-content: flex-start;
+  padding-top: 2px;
+}
+
+#board-wrapper.multi-collectible-live .collect-score-label {
+  margin-bottom: 9px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+#board-wrapper.multi-collectible-live .collect-score-value {
+  font-size: 36px;
+  line-height: 0.92;
+}
+
 #collectible-header-icon {
   transform: none;
   transform-origin: center;
