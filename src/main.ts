@@ -26167,8 +26167,6 @@ function checkEliminations() {
       ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
       : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
 
-    triggerComboTextEffect(fullRows, comboCount, blocksToRemove);
-
 
 
     if (blocksToRemove.some(b => b.isCollectible)) {
@@ -26434,6 +26432,9 @@ function checkEliminations() {
 
 
         const propSkipCols = initialPropColsByRow.get(r) || new Set<number>();
+        if (rowPlaybackIndex === 0) {
+          triggerComboTextEffect(fullRows, comboCount, rowBlocks.length > 0 ? rowBlocks : blocksToRemove);
+        }
         if (PARAMS.effectType !== 'gem-shatter') {
           playRowShatterEffect(r, explosionColor, rowBlocks, propSkipCols);
         }
