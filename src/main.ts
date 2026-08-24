@@ -17471,6 +17471,7 @@ type ClearTextEffect = {
   type: 'combo' | 'praise';
   startedAt: number;
   row?: number;
+  boardX?: number;
   boardY?: number;
   boardYRatio?: number;
   comboCount?: number;
@@ -17788,7 +17789,7 @@ function triggerComboTextEffect(rows: number[], combo: number, anchorBlocks: Blo
 
   const boardClip = document.getElementById('board-clip');
   const boardWidth = boardClip?.getBoundingClientRect().width || 560;
-  pushClearTextEffect({ type: 'combo', startedAt: performance.now(), row: targetRow, boardY: point.y, boardYRatio: point.yRatio, comboCount: comboValue });
+  pushClearTextEffect({ type: 'combo', startedAt: performance.now(), row: targetRow, boardX: point.x, boardY: point.y, boardYRatio: point.yRatio, comboCount: comboValue });
   appendComboTextEffectAtPoint(point.x, point.y, boardWidth, comboWordUrl, digitUrls);
 }
 
@@ -30904,7 +30905,8 @@ function drawRecordingClearTextSparks(
 function drawRecordingClearTextEffects(
   context: CanvasRenderingContext2D,
   boardBox: { x: number; y: number; w: number; h: number },
-  timeMs: number
+  timeMs: number,
+  recordingWrapperBox?: { x: number; y: number; w: number; h: number }
 ) {
   const visibleHeight = Math.max(1, getViewportGameHeight());
   const scaleY = boardBox.h / visibleHeight;
@@ -30921,10 +30923,21 @@ function drawRecordingClearTextEffects(
     }
 
     if (effect.type === 'combo' && comboTextEffectEnabled && typeof effect.row === 'number' && typeof effect.comboCount === 'number') {
+      const boardWrapper = document.getElementById('board-wrapper');
+      const wrapperRect = boardWrapper?.getBoundingClientRect();
+      const mappedTriggerPoint = wrapperRect && recordingWrapperBox && typeof effect.boardX === 'number' && typeof effect.boardY === 'number'
+        ? mapBoardWrapperRectToRecordingRect(
+            new DOMRect(wrapperRect.left + effect.boardX, wrapperRect.top + effect.boardY, 1, 1),
+            wrapperRect,
+            recordingWrapperBox
+          )
+        : null;
       const fixedBoardYRatio = typeof effect.boardYRatio === 'number'
         ? Math.max(0, Math.min(1, effect.boardYRatio))
         : null;
-      const rowY = fixedBoardYRatio !== null
+      const rowY = mappedTriggerPoint
+        ? mappedTriggerPoint.y
+        : fixedBoardYRatio !== null
         ? boardBox.y + boardBox.h * fixedBoardYRatio
         : boardBox.y + ((effect.row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY - 30;
       const wordImage = getClearTextImage(getComboWordUrl(effect.comboCount));
@@ -41977,7 +41990,7 @@ function startRecording(): Promise<boolean> {
       recordingCtx!.restore();
 
       drawRecordingMarqueeBorder(recordingCtx!, boardClipBox, performance.now());
-      drawRecordingClearTextEffects(recordingCtx!, boardClipBox, performance.now());
+      drawRecordingClearTextEffects(recordingCtx!, boardClipBox, performance.now(), { x: 0, y: 0, w: width, h: height });
 
 
 
