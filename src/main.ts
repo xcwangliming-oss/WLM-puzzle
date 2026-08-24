@@ -31334,11 +31334,11 @@ function drawRecordingHeartHud(
   context.font = `900 ${fontSize}px 'Arial Black', 'Impact', sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.lineWidth = width * 0.006;
-  context.strokeStyle = 'rgba(91, 45, 128, 0.65)';
+  context.lineWidth = Math.max(3, fontSize * 0.07);
+  context.lineJoin = 'round';
+  context.strokeStyle = '#9a155f';
   context.fillStyle = '#ffffff';
-  context.shadowColor = 'rgba(230, 86, 255, 0.8)';
-  context.shadowBlur = width * 0.025;
+  context.shadowBlur = 0;
   context.strokeText(scoreText, centerX, centerY);
   context.fillText(scoreText, centerX, centerY);
   context.restore();
