@@ -17234,11 +17234,11 @@ let recordingReadyResolver: ((started: boolean) => void) | null = null;
 
 
 
-const DIRECT_OUTPUT_RECORDING_FPS = 30;
+const DIRECT_OUTPUT_RECORDING_FPS = 60;
 
 
 
-const TRANSPARENT_RECORDING_FPS = 30;
+const TRANSPARENT_RECORDING_FPS = 60;
 
 
 

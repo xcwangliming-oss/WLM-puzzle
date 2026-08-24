@@ -29,5 +29,22 @@ assert.match(
   /if \(recordingStartedForPlayback && isRecording\) \{[\s\S]*?stopRecording\(\);/,
   'script video recording should stop after playback completes'
 );
+assert.match(source, /const DIRECT_OUTPUT_RECORDING_FPS = 60;/, 'direct MP4 recording should export at 60fps');
+assert.match(source, /const TRANSPARENT_RECORDING_FPS = 60;/, 'transparent source recording should export at 60fps');
+assert.match(
+  source,
+  /const frameIntervalMs = 1000 \/ encoderSettings\.fps;/,
+  'recording draw cadence should use the configured fps'
+);
+assert.match(
+  source,
+  /captureStream\(encoderSettings\.fps\)/,
+  'recording capture fallback should use the configured fps'
+);
+assert.match(
+  source,
+  /fps=\$\{encoderSettings\.fps\}/,
+  'server conversion should use the configured fps'
+);
 
 console.log('script video recording regression checks passed');
