@@ -4766,6 +4766,18 @@ function getVisibleBottomRowForWorldY(worldY: number): number {
 
 
 
+function getVisibleRowRangeForWorldY(worldY: number): { minRow: number; maxRow: number } {
+
+  const minRow = Math.max(0, Math.floor(-worldY / PARAMS.cellSize));
+
+  const maxRow = getVisibleBottomRowForWorldY(worldY);
+
+  return { minRow, maxRow };
+
+}
+
+
+
 
 
 
@@ -5328,9 +5340,11 @@ function getFullRowsFromOccupancy(occ: number[][], minRow = 0, maxRow = PARAMS.t
 
 function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): number[] {
 
-  const playbackMaxRow = getRecordedStepPhysicsMaxRow(step);
+  const recordedRange = getVisibleRowRangeForWorldY(getStepScrollY(step));
 
-  const actualFullRows = getFullRowsFromOccupancy(occ, 0, playbackMaxRow);
+  const playbackMaxRow = Math.min(recordedRange.maxRow, getRecordedStepPhysicsMaxRow(step));
+
+  const actualFullRows = getFullRowsFromOccupancy(occ, recordedRange.minRow, playbackMaxRow);
 
   const allowed = getPlaybackAllowedRows(step);
 

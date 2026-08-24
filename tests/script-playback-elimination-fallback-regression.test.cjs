@@ -11,13 +11,18 @@ assert.match(
 );
 assert.match(
   source,
-  /const playbackMaxRow = getRecordedStepPhysicsMaxRow\(step\);/,
-  'script playback fallback should use the recorded step boundary'
+  /const recordedRange = getVisibleRowRangeForWorldY\(getStepScrollY\(step\)\);/,
+  'script playback fallback should use the recorded step viewport'
 );
 assert.match(
   source,
-  /const actualFullRows = getFullRowsFromOccupancy\(occ, 0, playbackMaxRow\);/,
-  'script playback fallback must not clear rows outside the recorded playback viewport'
+  /const playbackMaxRow = Math\.min\(recordedRange\.maxRow, getRecordedStepPhysicsMaxRow\(step\)\);/,
+  'script playback fallback should cap scanning at the recorded visible bottom row'
+);
+assert.match(
+  source,
+  /const actualFullRows = getFullRowsFromOccupancy\(occ, recordedRange\.minRow, playbackMaxRow\);/,
+  'script playback fallback must not clear rows outside the recorded visible viewport'
 );
 assert.match(
   source,
