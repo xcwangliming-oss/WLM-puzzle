@@ -28276,7 +28276,7 @@ function generateFromHoles() {
 
   if (isSingleColorMode) singleColorIndex = 0;
 
-  const generatedLayoutMask = buildGeneratedLayoutMaskFromTemplate(layoutDrawMask);
+  const generatedLayoutMask = normalizeBooleanMask(layoutDrawMask);
 
 
 

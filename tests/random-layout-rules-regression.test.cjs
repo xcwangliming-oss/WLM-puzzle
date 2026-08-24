@@ -58,19 +58,19 @@ assert.match(
   'drawn layout template rows should be extracted from painted rows'
 );
 assert.match(
-  source,
-  /for \(let r = lastTemplateRow \+ 1; r < PARAMS\.totalRows; r\+\+\)/,
-  'drawn layout template should only repeat below the painted rows'
-);
-assert.match(
   generateFromHolesSource,
-  /const generatedLayoutMask = buildGeneratedLayoutMaskFromTemplate\(layoutDrawMask\);/,
-  'generate-from-drawing should expand the painted template before spawning'
+  /const generatedLayoutMask = normalizeBooleanMask\(layoutDrawMask\);/,
+  'generate-from-drawing should use the exact painted mask before spawning'
+);
+assert.doesNotMatch(
+  generateFromHolesSource,
+  /buildGeneratedLayoutMaskFromTemplate\(layoutDrawMask\)/,
+  'generate-from-drawing should not repeat painted rows into unpainted rows'
 );
 assert.match(
   generateFromHolesSource,
   /getValidPartitions\(remaining, c, r, generatedLayoutMask\)/,
-  'generate-from-drawing should use the expanded mask for support-aware partitions'
+  'generate-from-drawing should use the exact painted mask for support-aware partitions'
 );
 assert.doesNotMatch(
   generateFromHolesSource,
