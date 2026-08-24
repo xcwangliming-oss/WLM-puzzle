@@ -1269,6 +1269,33 @@ interface BoardBlockState {
 
 
 
+function spawnRecordedBlockState(sb: BoardBlockState | any) {
+  const shouldUseSingleCollectible =
+    sb?.isCollectible === true &&
+    (sb.collectibleId === undefined || sb.collectibleId === null || sb.collectibleId === '');
+  const previousMultiCollectibleMode = multiCollectibleModeEnabled;
+  if (shouldUseSingleCollectible) multiCollectibleModeEnabled = false;
+  try {
+    spawnBlock(
+      sb.col,
+      sb.row,
+      sb.length,
+      sb.color,
+      sb.id,
+      sb.noGravity,
+      sb.isCollectible,
+      sb.isProp,
+      sb.propType,
+      sb.propDir || 'left',
+      sb.collectibleId
+    );
+  } finally {
+    multiCollectibleModeEnabled = previousMultiCollectibleMode;
+  }
+}
+
+
+
 let scriptSteps: ScriptStep[] = [];
 
 
@@ -4635,7 +4662,7 @@ function restoreBoardState(options: { preserveWorldY?: boolean } = {}) {
 
 
 
-    spawnBlock(ib.col, ib.row, ib.length, ib.color, ib.id, ib.noGravity, ib.isCollectible, ib.isProp, ib.propType, ib.propDir || 'left', ib.collectibleId);
+    spawnRecordedBlockState(ib);
 
 
 
@@ -5968,7 +5995,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-      spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
+      spawnRecordedBlockState(sb);
 
 
 
@@ -6332,7 +6359,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-      spawnBlock(cb.col, cb.row, cb.length, cb.color, cb.id, cb.noGravity, cb.isCollectible, cb.isProp, cb.propType, cb.propDir || 'left', cb.collectibleId);
+      spawnRecordedBlockState(cb);
 
 
 
@@ -7884,7 +7911,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
+        spawnRecordedBlockState(sb);
 
 
 
@@ -34221,7 +34248,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
+        spawnRecordedBlockState(sb);
 
 
 
@@ -39342,7 +39369,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
+        spawnRecordedBlockState(sb);
 
 
 
@@ -40331,7 +40358,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left', sb.collectibleId);
+        spawnRecordedBlockState(sb);
 
 
 

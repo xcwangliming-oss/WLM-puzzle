@@ -39,7 +39,9 @@ test('multi collectible mode persists item identity through blocks and saves', (
   assert.match(source, /const newId = await collectibleDB\.addCollectible\(cleanName, base64\)/);
   assert.match(source, /collectibleId: block\.collectibleId/);
   assert.match(source, /collectibleId: b\.collectibleId/);
-  assert.match(source, /spawnBlock\(sb\.col, sb\.row, sb\.length, sb\.color, sb\.id, sb\.noGravity, sb\.isCollectible, sb\.isProp, sb\.propType, sb\.propDir \|\| 'left', sb\.collectibleId\)/);
+  assert.match(source, /function spawnRecordedBlockState\(sb: BoardBlockState \| any\)/);
+  assert.match(source, /shouldUseSingleCollectible[\s\S]*?sb\?\.isCollectible === true[\s\S]*?sb\.collectibleId === undefined/);
+  assert.match(source, /if \(shouldUseSingleCollectible\) multiCollectibleModeEnabled = false;/);
   assert.match(source, /function getExportableMultiCollectibleAssets\(\)/);
   assert.match(source, /const sharedCollectibleAssets = new Map/);
   assert.match(source, /const shared = sharedCollectibleAssets\.get\(numericId\)/);
@@ -50,6 +52,16 @@ test('multi collectible mode persists item identity through blocks and saves', (
   assert.match(source, /applyMultiCollectibleAssetPayload\(saveData\.multiCollectible\.assets\)/);
   assert.match(source, /multiCollectibleAssets: getExportableMultiCollectibleAssets\(\)/);
   assert.match(source, /applyMultiCollectibleAssetPayload\(modes\.multiCollectibleAssets\)/);
+});
+
+test('old recorded collectible blocks do not adopt current multi collectible slots during playback', () => {
+  const playbackRestoreCount = (source.match(/spawnRecordedBlockState\((?:ib|sb|cb)\)/g) || []).length;
+  assert.ok(playbackRestoreCount >= 4, 'recorded board/script restore paths should use the collectible-safe spawner');
+  assert.doesNotMatch(
+    source,
+    /initialBoardBlocks\.forEach\([\s\S]{0,200}?spawnBlock\([^;]+collectibleId\)/,
+    'script playback should not restore recorded blocks through the live multi-collectible spawner'
+  );
 });
 
 test('changing multi collectible slots refreshes existing collectible blocks', () => {
