@@ -40,6 +40,16 @@ test('multi collectible mode persists item identity through blocks and saves', (
   assert.match(source, /collectibleId: block\.collectibleId/);
   assert.match(source, /collectibleId: b\.collectibleId/);
   assert.match(source, /spawnBlock\(sb\.col, sb\.row, sb\.length, sb\.color, sb\.id, sb\.noGravity, sb\.isCollectible, sb\.isProp, sb\.propType, sb\.propDir \|\| 'left', sb\.collectibleId\)/);
+  assert.match(source, /function getExportableMultiCollectibleAssets\(\)/);
+  assert.match(source, /const sharedCollectibleAssets = new Map/);
+  assert.match(source, /const shared = sharedCollectibleAssets\.get\(numericId\)/);
+  assert.match(source, /sharedCollectibleAssets\.forEach\(item => assetsById\.set\(item\.id, item\)\)/);
+  assert.match(source, /sharedCollectibleAssets\.set\(item\.id, item\)/);
+  assert.match(source, /sharedCollectibleAssets\.forEach\(asset => \{[\s\S]*?customCollectibles\.push\(asset\)/);
+  assert.match(source, /assets: getExportableMultiCollectibleAssets\(\)/);
+  assert.match(source, /applyMultiCollectibleAssetPayload\(saveData\.multiCollectible\.assets\)/);
+  assert.match(source, /multiCollectibleAssets: getExportableMultiCollectibleAssets\(\)/);
+  assert.match(source, /applyMultiCollectibleAssetPayload\(modes\.multiCollectibleAssets\)/);
 });
 
 test('changing multi collectible slots refreshes existing collectible blocks', () => {
@@ -57,6 +67,7 @@ test('multi collectible flight targets matching left-side collectible', () => {
   const flyBody = source.slice(flyStart, flyEnd);
 
   assert.match(flyBody, /getMultiCollectibleItem\(b\.collectibleId\)/);
+  assert.match(flyBody, /if \(multiCollectibleModeEnabled && !multiItem\) return;/);
   assert.match(flyBody, /\.multi-collectible-target/);
   assert.match(flyBody, /dataset\.multiCollectibleId === multiItem\.id/);
   assert.match(flyBody, /multiItem\.count\+\+/);

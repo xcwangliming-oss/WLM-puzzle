@@ -317,7 +317,8 @@ function queueCustomPropStyle(style: unknown): void {
         multiCollectible: {
             enabled: multiCollectibleModeEnabled,
             slotCount: multiCollectibleSlotCount,
-            slotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount)
+            slotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount),
+            assets: getExportableMultiCollectibleAssets()
         },
         isFixedBoardMode: exportBoardAdvanceMode === 'fixed',
         isFallingMode,
@@ -456,6 +457,7 @@ function queueCustomPropStyle(style: unknown): void {
     }
 
     if (saveData.multiCollectible) {
+        applyMultiCollectibleAssetPayload(saveData.multiCollectible.assets);
         multiCollectibleModeEnabled = saveData.multiCollectible.enabled === true;
         if (Number.isFinite(Number(saveData.multiCollectible.slotCount))) {
             multiCollectibleSlotCount = Math.max(2, Math.min(5, Number(saveData.multiCollectible.slotCount) || 2));
@@ -464,6 +466,9 @@ function queueCustomPropStyle(style: unknown): void {
             multiCollectibleSlotIds = saveData.multiCollectible.slotIds.map(String).slice(0, 5);
         }
         persistMultiCollectibleSettings();
+        rebuildMultiCollectibleItems().catch(error => {
+            console.warn('Failed to rebuild shared multi collectible items:', error);
+        });
     }
 
     const savedAudio = saveData.audio;
@@ -907,6 +912,9 @@ let activeCollectibleTextures: PIXI.Texture[] | null = null;
 
 
 let customCollectibles: { id: number; name: string; texture: string }[] = [];
+const sharedCollectibleAssets = new Map<number, { id: number; name: string; texture: string }>();
+
+type ExportedCollectibleAsset = { id: string; name: string; src: string };
 
 type MultiCollectibleItem = {
   id: string;
@@ -3284,6 +3292,17 @@ class CollectibleDB {
 
 
 
+  }
+
+  async putCollectible(id: number, name: string, texture: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) return resolve();
+      const transaction = this.db.transaction(this.storeName, 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.put({ id, name, texture });
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
   }
 
 
@@ -10480,14 +10499,61 @@ function getCollectibleSourceById(id: string): { id: string; name: string; src: 
   const numericId = Number.parseInt(id, 10);
   const custom = customCollectibles.find(item => item.id === numericId);
   if (custom) return { id: String(custom.id), name: custom.name, src: custom.texture };
+  const shared = sharedCollectibleAssets.get(numericId);
+  if (shared) return { id: String(shared.id), name: shared.name, src: shared.texture };
   return null;
 }
 
 function getAvailableCollectibleSources() {
+  const customById = new Set(customCollectibles.map(item => item.id));
+  const sharedOnly = Array.from(sharedCollectibleAssets.values()).filter(item => !customById.has(item.id));
   return [
     ...BUILTIN_COLLECTIBLES.map(item => ({ id: String(item.id), name: item.name, src: item.textureData })),
-    ...customCollectibles.map(item => ({ id: String(item.id), name: item.name, src: item.texture }))
+    ...customCollectibles.map(item => ({ id: String(item.id), name: item.name, src: item.texture })),
+    ...sharedOnly.map(item => ({ id: String(item.id), name: item.name, src: item.texture }))
   ];
+}
+
+function getExportableMultiCollectibleAssets(): ExportedCollectibleAsset[] {
+  const selectedIds = new Set(multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount).map(String));
+  initialBoardBlocks.forEach((block: any) => {
+    if (block?.isCollectible && block.collectibleId !== undefined) selectedIds.add(String(block.collectibleId));
+  });
+  blocks.forEach(block => {
+    if (block.isCollectible && block.collectibleId !== undefined) selectedIds.add(String(block.collectibleId));
+  });
+
+  const assetsById = new Map<number, { id: number; name: string; texture: string }>();
+  customCollectibles.forEach(item => assetsById.set(item.id, item));
+  sharedCollectibleAssets.forEach(item => assetsById.set(item.id, item));
+
+  return Array.from(assetsById.values())
+    .filter(item => selectedIds.has(String(item.id)) && typeof item.texture === 'string' && item.texture.startsWith('data:'))
+    .map(item => ({ id: String(item.id), name: item.name, src: item.texture }));
+}
+
+function applyMultiCollectibleAssetPayload(assets: unknown): void {
+  if (!Array.isArray(assets)) return;
+  const imported: { id: number; name: string; texture: string }[] = [];
+  assets.forEach(asset => {
+    if (!asset || typeof asset !== 'object') return;
+    const source = asset as Partial<ExportedCollectibleAsset>;
+    const numericId = Number.parseInt(String(source.id), 10);
+    if (!Number.isFinite(numericId) || !source.src || !source.src.startsWith('data:')) return;
+    const name = typeof source.name === 'string' && source.name.trim() ? source.name.trim() : `收集物${numericId}`;
+    imported.push({ id: numericId, name, texture: source.src });
+  });
+  if (imported.length === 0) return;
+
+  imported.forEach(item => {
+    sharedCollectibleAssets.set(item.id, item);
+    const existingIndex = customCollectibles.findIndex(existing => existing.id === item.id);
+    if (existingIndex >= 0) customCollectibles[existingIndex] = item;
+    else customCollectibles.push(item);
+    collectibleDB.putCollectible(item.id, item.name, item.texture).catch(error => {
+      console.warn('Failed to persist shared collectible asset:', error);
+    });
+  });
 }
 
 function persistMultiCollectibleSettings() {
@@ -11536,6 +11602,9 @@ async function renderCollectibleList() {
 
 
     customCollectibles = await collectibleDB.getAllCollectibles();
+    sharedCollectibleAssets.forEach(asset => {
+      if (!customCollectibles.some(item => item.id === asset.id)) customCollectibles.push(asset);
+    });
 
 
 
@@ -12830,6 +12899,7 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
   const multiItem = multiCollectibleModeEnabled ? getMultiCollectibleItem(b.collectibleId) : null;
+  if (multiCollectibleModeEnabled && !multiItem) return;
 
   const base64 = multiItem?.src || getActiveCollectibleBase64();
 
@@ -39679,7 +39749,9 @@ function setupDOMUI() {
 
         multiCollectibleSlotCount,
 
-        multiCollectibleSlotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount)
+        multiCollectibleSlotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount),
+
+        multiCollectibleAssets: getExportableMultiCollectibleAssets()
 
 
 
@@ -39862,6 +39934,7 @@ function setupDOMUI() {
       isCollectMode = !!modes.isCollectMode;
 
       multiCollectibleModeEnabled = modes.multiCollectibleModeEnabled === true;
+      applyMultiCollectibleAssetPayload(modes.multiCollectibleAssets);
 
       if (Number.isFinite(Number(modes.multiCollectibleSlotCount))) {
         multiCollectibleSlotCount = Math.max(2, Math.min(5, Number(modes.multiCollectibleSlotCount) || 2));
