@@ -17671,8 +17671,9 @@ function getBoardRowEffectPoint(row: number, offsetPx: number) {
   const rowTop = clipRect.top - wrapperRect.top + ((row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY;
   const clipTop = clipRect.top - wrapperRect.top;
   const clipBottom = clipTop + clipRect.height;
-  const minY = clipTop + 30;
-  const maxY = clipBottom - 30;
+  const edgeSafeY = Math.max(72, offsetPx);
+  const minY = clipTop + edgeSafeY;
+  const maxY = clipBottom - edgeSafeY;
   const y = Math.max(minY, Math.min(maxY, rowTop - offsetPx));
 
   return {
@@ -17697,8 +17698,9 @@ function getBoardBlocksEffectPoint(anchorBlocks: Block[], offsetPx: number) {
   const rowTop = clipRect.top - wrapperRect.top + (bottomRowTopGameY + (worldContainer?.y || 0)) * scaleY;
   const clipTop = clipRect.top - wrapperRect.top;
   const clipBottom = clipTop + clipRect.height;
-  const minY = clipTop + 30;
-  const maxY = clipBottom - 30;
+  const edgeSafeY = Math.max(72, offsetPx);
+  const minY = clipTop + edgeSafeY;
+  const maxY = clipBottom - edgeSafeY;
   const y = Math.max(minY, Math.min(maxY, rowTop - offsetPx));
 
   return {
