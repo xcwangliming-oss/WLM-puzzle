@@ -17682,6 +17682,32 @@ function getBoardRowEffectPoint(row: number, offsetPx: number) {
   };
 }
 
+function getBoardBlocksEffectPoint(anchorBlocks: Block[], offsetPx: number) {
+  if (anchorBlocks.length === 0) return null;
+
+  const boardWrapper = document.getElementById('board-wrapper');
+  const boardClip = document.getElementById('board-clip');
+  if (!boardWrapper || !boardClip) return null;
+
+  const wrapperRect = boardWrapper.getBoundingClientRect();
+  const clipRect = boardClip.getBoundingClientRect();
+  const visibleHeight = Math.max(1, getViewportGameHeight());
+  const scaleY = clipRect.height / visibleHeight;
+  const topGameY = Math.min(...anchorBlocks.map(block => block.sprite?.y ?? block.row * PARAMS.cellSize));
+  const rowTop = clipRect.top - wrapperRect.top + (topGameY + (worldContainer?.y || 0)) * scaleY;
+  const clipTop = clipRect.top - wrapperRect.top;
+  const clipBottom = clipTop + clipRect.height;
+  const minY = clipTop + 30;
+  const maxY = clipBottom - 30;
+  const y = Math.max(minY, Math.min(maxY, rowTop - offsetPx));
+
+  return {
+    x: clipRect.left - wrapperRect.left + clipRect.width / 2,
+    y,
+    yRatio: Math.max(0, Math.min(1, (y - clipTop) / clipRect.height))
+  };
+}
+
 function getBoardFixedPraisePoint() {
   const boardWrapper = document.getElementById('board-wrapper');
   const boardClip = document.getElementById('board-clip');
@@ -17747,7 +17773,7 @@ function pushClearTextEffect(effect: ClearTextEffect) {
   }
 }
 
-function triggerComboTextEffect(rows: number[], combo: number) {
+function triggerComboTextEffect(rows: number[], combo: number, anchorBlocks: Block[] = []) {
   if (!comboTextEffectEnabled) return;
 
   const comboValue = Math.max(1, combo);
@@ -17755,7 +17781,7 @@ function triggerComboTextEffect(rows: number[], combo: number) {
   const digitUrls = getComboDigitUrls(comboValue);
   const sortedRows = rows.length > 0 ? [...rows].sort((a, b) => a - b) : [0];
   const targetRow = sortedRows[Math.floor((sortedRows.length - 1) / 2)];
-  const point = getBoardRowEffectPoint(targetRow, 30);
+  const point = getBoardBlocksEffectPoint(anchorBlocks, 30) || getBoardRowEffectPoint(targetRow, 30);
   if (!point) return;
 
   const boardClip = document.getElementById('board-clip');
@@ -26003,7 +26029,6 @@ function checkEliminations() {
     advanceSolidBackgroundColorOnElimination();
     triggerHeartClearHud();
     triggerMarqueeClearEffect();
-    triggerComboTextEffect(fullRows, comboCount);
 
     if (isRisingAdvanceActive()) {
       risingEliminationWavesThisMove += 1;
@@ -26141,6 +26166,8 @@ function checkEliminations() {
     const blocksToRemove = lockedSequentialIdSet
       ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
       : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+
+    triggerComboTextEffect(fullRows, comboCount, blocksToRemove);
 
 
 
