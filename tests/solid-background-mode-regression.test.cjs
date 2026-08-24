@@ -44,9 +44,21 @@ assert.match(
 );
 
 assert.match(
+  html,
+  /data-solid-bg-group="dark"[\s\S]*data-solid-bg-group="light"[\s\S]*data-solid-bg-group="custom"/,
+  'solid background manager should keep dark, light, and custom color groups separate'
+);
+
+assert.match(
   source,
-  /function addCustomSolidBackgroundColor\(hex: string\)[\s\S]*?SOLID_BACKGROUND_COLORS\.push\(color\)[\s\S]*?setSolidBackgroundColor\(color\.id\)/,
+  /function addCustomSolidBackgroundColor\(hex: string\)[\s\S]*?const customGroup: SolidBackgroundGroup = 'custom'[\s\S]*?SOLID_BACKGROUND_COLORS\.push\(color\)[\s\S]*?setSolidBackgroundColor\(color\.id\)/,
   'custom solid colors should be added to the palette and previewed immediately'
+);
+
+assert.match(
+  source,
+  /function deleteCustomSolidBackgroundColor\(id: string\)[\s\S]*?SOLID_BACKGROUND_COLORS\.splice\(index, 1\)[\s\S]*?syncRecordingBackgroundUI\(\)/,
+  'custom solid colors should be removable from the palette'
 );
 
 assert.match(
@@ -75,8 +87,8 @@ assert.match(
 
 assert.match(
   source,
-  /function advanceSolidBackgroundColorOnElimination\(\)[\s\S]*?solidBackgroundVariant !== 'animated'[\s\S]*?solidBackgroundColorId = next\.id[\s\S]*?persistRecordingBackgroundState\(\)[\s\S]*?syncRecordingBackgroundUI\(\)/,
-  'animated solid background mode should advance to the next color only when an elimination occurs'
+  /function advanceSolidBackgroundColorOnElimination\(\)[\s\S]*?const colors = getSolidBackgroundColorsForActiveGroup\(\)[\s\S]*?solidBackgroundColorId = next\.id[\s\S]*?persistRecordingBackgroundState\(\)[\s\S]*?syncRecordingBackgroundUI\(\)/,
+  'animated solid background mode should advance within the active color group only when an elimination occurs'
 );
 
 assert.match(

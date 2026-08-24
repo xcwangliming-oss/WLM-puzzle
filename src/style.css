@@ -1900,11 +1900,12 @@ body:not(.is-playable) #script-steps-panel {
 
 .solid-bg-mode-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 6px;
 }
 
-.solid-bg-mode-btn {
+.solid-bg-mode-btn,
+.solid-bg-group-btn {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
   background: #3d4058;
@@ -1915,7 +1916,8 @@ body:not(.is-playable) #script-steps-panel {
   padding: 6px 4px;
 }
 
-.solid-bg-mode-btn.active {
+.solid-bg-mode-btn.active,
+.solid-bg-group-btn.active {
   background: #3b6bdc;
   border-color: #7aa0ff;
   box-shadow: 0 0 8px rgba(91, 139, 245, 0.42);
@@ -1928,6 +1930,7 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 .solid-bg-swatch {
+  position: relative;
   width: 100%;
   aspect-ratio: 1;
   border: 2px solid rgba(255, 255, 255, 0.18);
@@ -1935,6 +1938,22 @@ body:not(.is-playable) #script-steps-panel {
   cursor: pointer;
   padding: 0;
   box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.22);
+}
+
+.solid-bg-swatch-delete {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #d93838;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .solid-bg-swatch.active {
