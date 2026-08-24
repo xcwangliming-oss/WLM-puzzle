@@ -17693,8 +17693,8 @@ function getBoardBlocksEffectPoint(anchorBlocks: Block[], offsetPx: number) {
   const clipRect = boardClip.getBoundingClientRect();
   const visibleHeight = Math.max(1, getViewportGameHeight());
   const scaleY = clipRect.height / visibleHeight;
-  const topGameY = Math.min(...anchorBlocks.map(block => block.sprite?.y ?? block.row * PARAMS.cellSize));
-  const rowTop = clipRect.top - wrapperRect.top + (topGameY + (worldContainer?.y || 0)) * scaleY;
+  const bottomRowTopGameY = Math.max(...anchorBlocks.map(block => block.sprite?.y ?? block.row * PARAMS.cellSize));
+  const rowTop = clipRect.top - wrapperRect.top + (bottomRowTopGameY + (worldContainer?.y || 0)) * scaleY;
   const clipTop = clipRect.top - wrapperRect.top;
   const clipBottom = clipTop + clipRect.height;
   const minY = clipTop + 30;
