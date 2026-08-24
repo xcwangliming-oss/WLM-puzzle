@@ -17665,7 +17665,7 @@ function getBoardRowEffectPoint(row: number, offsetPx: number) {
 
   const wrapperRect = boardWrapper.getBoundingClientRect();
   const clipRect = boardClip.getBoundingClientRect();
-  const visibleHeight = Math.max(1, getPreviewRendererGameHeight());
+  const visibleHeight = Math.max(1, getViewportGameHeight());
   const scaleY = clipRect.height / visibleHeight;
   const rowTop = clipRect.top - wrapperRect.top + ((row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY;
 
@@ -30870,7 +30870,7 @@ function drawRecordingClearTextEffects(
   boardBox: { x: number; y: number; w: number; h: number },
   timeMs: number
 ) {
-  const visibleHeight = Math.max(1, getPreviewRendererGameHeight());
+  const visibleHeight = Math.max(1, getViewportGameHeight());
   const scaleY = boardBox.h / visibleHeight;
   const centerX = boardBox.x + boardBox.w / 2;
 
