@@ -15,13 +15,13 @@ assert.match(
 
 assert.match(
   source,
-  /const SOLID_BACKGROUND_COLORS = \[[\s\S]*?#344372[\s\S]*?#563762[\s\S]*?#3a356f[\s\S]*?#6b3c7f/,
+  /const SOLID_BACKGROUND_COLORS(?:: SolidBackgroundColor\[\])? = \[[\s\S]*?#344372[\s\S]*?#563762[\s\S]*?#3a356f[\s\S]*?#6b3c7f/,
   'solid background should expose heavier blue-purple colors based on the reference background'
 );
 
 assert.match(
   source,
-  /const SOLID_BACKGROUND_COLORS = \[[\s\S]*?macaron-pink[\s\S]*?#ffd1dc[\s\S]*?macaron-mint[\s\S]*?#c8f7dc[\s\S]*?macaron-sky[\s\S]*?#c7e8ff[\s\S]*?macaron-lavender[\s\S]*?#dec8ff[\s\S]*?macaron-peach[\s\S]*?#ffd5bd[\s\S]*?macaron-cream[\s\S]*?#fff1b8/,
+  /const SOLID_BACKGROUND_COLORS(?:: SolidBackgroundColor\[\])? = \[[\s\S]*?macaron-pink[\s\S]*?#ffd1dc[\s\S]*?macaron-mint[\s\S]*?#c8f7dc[\s\S]*?macaron-sky[\s\S]*?#c7e8ff[\s\S]*?macaron-lavender[\s\S]*?#dec8ff[\s\S]*?macaron-peach[\s\S]*?#ffd5bd[\s\S]*?macaron-cream[\s\S]*?#fff1b8/,
   'solid background should include a macaron color set'
 );
 
@@ -35,6 +35,30 @@ assert.match(
   html,
   /data-solid-bg-variant="solid"[\s\S]*data-solid-bg-variant="animated"/,
   'background manager should provide solid and animated-color switches'
+);
+
+assert.match(
+  html,
+  /id="input-solid-bg-color"[\s\S]*id="btn-add-solid-bg-color"/,
+  'solid background manager should allow adding colors with a color picker'
+);
+
+assert.match(
+  source,
+  /function addCustomSolidBackgroundColor\(hex: string\)[\s\S]*?SOLID_BACKGROUND_COLORS\.push\(color\)[\s\S]*?setSolidBackgroundColor\(color\.id\)/,
+  'custom solid colors should be added to the palette and previewed immediately'
+);
+
+assert.match(
+  source,
+  /solidColors: SOLID_BACKGROUND_COLORS\.filter\(color => color\.custom\)/,
+  'playable export should include custom solid background colors'
+);
+
+assert.match(
+  source,
+  /applyCustomSolidBackgroundColors\(savedBackground\.solidColors\)/,
+  'playable import should restore custom solid background colors'
 );
 
 assert.match(
@@ -81,8 +105,14 @@ assert.match(
 
 assert.match(
   css,
-  /#board-wrapper\.solid-bg-live #board-clip[\s\S]*?background:\s*#232d5c;[\s\S]*?border:\s*5px solid #1c2655;/,
-  'editor preview should use the dark board frame style in solid background mode'
+  /#board-wrapper\.solid-bg-live #board-clip[\s\S]*?background:\s*rgba\(35,\s*45,\s*92,\s*0\.7\);[\s\S]*?border:\s*5px solid rgba\(28,\s*38,\s*85,\s*0\.7\);/,
+  'editor preview should use a 70 percent transparent dark board frame in solid background mode'
+);
+
+assert.match(
+  source,
+  /function drawSolidRecordingBoardFrame[\s\S]*?ctx\.fillStyle = 'rgba\(35, 45, 92, 0\.7\)'[\s\S]*?ctx\.strokeStyle = 'rgba\(28, 38, 85, 0\.7\)'/,
+  'recording should use the same 70 percent transparent board frame in solid background mode'
 );
 
 assert.match(

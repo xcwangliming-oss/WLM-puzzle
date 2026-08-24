@@ -336,6 +336,7 @@ function queueCustomPropStyle(style: unknown): void {
             mode: recordingBackgroundMode,
             solidVariant: solidBackgroundVariant,
             solidColorId: solidBackgroundColorId,
+            solidColors: SOLID_BACKGROUND_COLORS.filter(color => color.custom),
             marqueeBorder: marqueeBorderEnabled
         },
         topUi: {
@@ -410,6 +411,7 @@ function queueCustomPropStyle(style: unknown): void {
     if (savedBackground) {
         const savedMode = savedBackground.mode === 'solid' ? 'solid' : 'image';
         recordingBackgroundMode = savedMode;
+        applyCustomSolidBackgroundColors(savedBackground.solidColors);
         if (savedBackground.solidVariant === 'animated' || savedBackground.solidVariant === 'solid') {
             solidBackgroundVariant = savedBackground.solidVariant;
         }
@@ -17354,13 +17356,15 @@ type RecordingBackgroundMode = 'image' | 'solid';
 
 type SolidBackgroundVariant = 'solid' | 'animated';
 
+type SolidBackgroundColor = { id: string; name: string; from: string; to: string; custom?: boolean };
+
 type TopUiMode = 'classic' | 'heart';
 
 const HEART_IDLE_URL = '/assets/ui/heart-idle.webm';
 
 const HEART_CLEAR_URL = '/assets/ui/heart-clear.webm';
 
-const SOLID_BACKGROUND_COLORS = [
+const SOLID_BACKGROUND_COLORS: SolidBackgroundColor[] = [
   { id: 'deep-blue', name: '深蓝紫', from: '#344372', to: '#563762' },
   { id: 'royal-violet', name: '皇家紫', from: '#3a356f', to: '#6b3c7f' },
   { id: 'berry', name: '莓果', from: '#5b315d', to: '#8a3f66' },
@@ -17376,6 +17380,85 @@ const SOLID_BACKGROUND_COLORS = [
 ];
 
 const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'deep-blue';
+
+function normalizeHexColor(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+
+function mixHexColor(hex: string, target: string, amount: number): string {
+  const source = normalizeHexColor(hex) || '#344372';
+  const dest = normalizeHexColor(target) || '#000000';
+  const parse = (value: string, start: number) => Number.parseInt(value.slice(start, start + 2), 16);
+  const channel = (from: number, to: number) => Math.round(from + (to - from) * amount).toString(16).padStart(2, '0');
+  return `#${channel(parse(source, 1), parse(dest, 1))}${channel(parse(source, 3), parse(dest, 3))}${channel(parse(source, 5), parse(dest, 5))}`;
+}
+
+function createCustomSolidBackgroundColor(hex: string, index: number): SolidBackgroundColor {
+  return {
+    id: `custom-${hex.slice(1)}-${index}`,
+    name: `自定义${index}`,
+    from: mixHexColor(hex, '#ffffff', 0.18),
+    to: mixHexColor(hex, '#1b2048', 0.22),
+    custom: true
+  };
+}
+
+function getCustomSolidBackgroundColors(): SolidBackgroundColor[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('customSolidBackgroundColors') || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item, index): SolidBackgroundColor | null => {
+        if (!item || typeof item !== 'object') return null;
+        const source = item as Partial<SolidBackgroundColor>;
+        const from = normalizeHexColor(source.from);
+        const to = normalizeHexColor(source.to);
+        if (!from || !to) return null;
+        return {
+          id: typeof source.id === 'string' && source.id ? source.id : `custom-import-${index}`,
+          name: typeof source.name === 'string' && source.name ? source.name : `自定义${index + 1}`,
+          from,
+          to,
+          custom: true
+        } satisfies SolidBackgroundColor;
+      })
+      .filter((item): item is SolidBackgroundColor => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomSolidBackgroundColors() {
+  const customColors = SOLID_BACKGROUND_COLORS
+    .filter(color => color.custom)
+    .map(({ id, name, from, to, custom }) => ({ id, name, from, to, custom }));
+  localStorage.setItem('customSolidBackgroundColors', JSON.stringify(customColors));
+}
+
+function applyCustomSolidBackgroundColors(colors: unknown) {
+  if (!Array.isArray(colors)) return;
+  colors.forEach((color, index) => {
+    if (!color || typeof color !== 'object') return;
+    const source = color as Partial<SolidBackgroundColor>;
+    const from = normalizeHexColor(source.from);
+    const to = normalizeHexColor(source.to);
+    if (!from || !to) return;
+    const id = typeof source.id === 'string' && source.id ? source.id : `custom-import-${index}`;
+    if (SOLID_BACKGROUND_COLORS.some(existing => existing.id === id)) return;
+    SOLID_BACKGROUND_COLORS.push({
+      id,
+      name: typeof source.name === 'string' && source.name ? source.name : `自定义${SOLID_BACKGROUND_COLORS.length + 1}`,
+      from,
+      to,
+      custom: true
+    });
+  });
+  saveCustomSolidBackgroundColors();
+}
+
+applyCustomSolidBackgroundColors(getCustomSolidBackgroundColors());
 
 
 
@@ -17597,6 +17680,7 @@ function persistRecordingBackgroundState() {
   localStorage.setItem('solidBackgroundVariant', solidBackgroundVariant);
   localStorage.setItem('solidBackgroundColorId', solidBackgroundColorId);
   localStorage.setItem('marqueeBorderEnabled', String(marqueeBorderEnabled));
+  saveCustomSolidBackgroundColors();
 }
 
 function setScoreTextEverywhere(value: string) {
@@ -30246,10 +30330,26 @@ function setSolidBackgroundColor(id: string) {
   syncRecordingBackgroundUI();
 }
 
+function addCustomSolidBackgroundColor(hex: string) {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return;
+  const existing = SOLID_BACKGROUND_COLORS.find(color => color.custom && color.from === mixHexColor(normalized, '#ffffff', 0.18));
+  if (existing) {
+    setSolidBackgroundColor(existing.id);
+    return;
+  }
+  const customIndex = SOLID_BACKGROUND_COLORS.filter(color => color.custom).length + 1;
+  const color = createCustomSolidBackgroundColor(normalized, customIndex);
+  SOLID_BACKGROUND_COLORS.push(color);
+  saveCustomSolidBackgroundColors();
+  setSolidBackgroundColor(color.id);
+}
+
 function renderSolidBackgroundControls() {
   const panel = document.getElementById('record-solid-bg-controls');
   const modeButtons = document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-variant]');
   const palette = document.getElementById('record-solid-bg-palette');
+  const colorInput = document.getElementById('input-solid-bg-color') as HTMLInputElement | null;
   if (!panel || !palette) return;
 
   const showSolidControls = recordingBackgroundActiveId === SOLID_BACKGROUND_ID || recordingBackgroundMode === 'solid';
@@ -30270,6 +30370,11 @@ function renderSolidBackgroundControls() {
     swatch.addEventListener('click', () => setSolidBackgroundColor(color.id));
     palette.appendChild(swatch);
   });
+
+  if (colorInput) {
+    const activeColor = getSolidBackgroundColor();
+    colorInput.value = activeColor.from;
+  }
 }
 
 function syncRecordingBackgroundUI() {
@@ -30558,8 +30663,8 @@ function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, h
   const radius = Math.max(4, width * 0.011);
 
   ctx.save();
-  ctx.fillStyle = 'rgba(30, 40, 86, 0.86)';
-  ctx.strokeStyle = '#202b61';
+  ctx.fillStyle = 'rgba(30, 40, 86, 0.7)';
+  ctx.strokeStyle = 'rgba(32, 43, 97, 0.7)';
   ctx.lineWidth = Math.max(4, width * 0.008);
   drawRoundedRectPath(ctx, headerBox.x, headerBox.y, headerBox.w, headerBox.h, radius);
   ctx.fill();
@@ -30577,8 +30682,8 @@ function drawSolidRecordingBoardFrame(
   const radius = Math.max(4, width * 0.011);
 
   ctx.save();
-  ctx.fillStyle = '#232d5c';
-  ctx.strokeStyle = '#1c2655';
+  ctx.fillStyle = 'rgba(35, 45, 92, 0.7)';
+  ctx.strokeStyle = 'rgba(28, 38, 85, 0.7)';
   ctx.lineWidth = Math.max(5, width * 0.009);
   drawRoundedRectPath(ctx, boardBox.x, boardBox.y, boardBox.w, boardBox.h, radius);
   ctx.fill();
@@ -31773,6 +31878,15 @@ function setupDOMUI() {
         setSolidBackgroundVariant(variant);
       }
     });
+  });
+
+  const solidBgColorInput = document.getElementById('input-solid-bg-color') as HTMLInputElement | null;
+  const solidBgColorButton = document.getElementById('btn-add-solid-bg-color') as HTMLButtonElement | null;
+  solidBgColorButton?.addEventListener('click', () => {
+    addCustomSolidBackgroundColor(solidBgColorInput?.value || '#8fcaf5');
+  });
+  solidBgColorInput?.addEventListener('change', () => {
+    addCustomSolidBackgroundColor(solidBgColorInput.value);
   });
 
   document.querySelectorAll<HTMLButtonElement>('[data-top-ui-mode]').forEach(button => {
@@ -39751,7 +39865,13 @@ function setupDOMUI() {
 
         multiCollectibleSlotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount),
 
-        multiCollectibleAssets: getExportableMultiCollectibleAssets()
+        multiCollectibleAssets: getExportableMultiCollectibleAssets(),
+
+        solidBackgroundVariant,
+
+        solidBackgroundColorId,
+
+        solidBackgroundColors: SOLID_BACKGROUND_COLORS.filter(color => color.custom)
 
 
 
@@ -39932,6 +40052,19 @@ function setupDOMUI() {
 
 
       isCollectMode = !!modes.isCollectMode;
+
+      applyCustomSolidBackgroundColors(modes.solidBackgroundColors);
+
+      if (modes.solidBackgroundVariant === 'animated' || modes.solidBackgroundVariant === 'solid') {
+        solidBackgroundVariant = modes.solidBackgroundVariant;
+      }
+
+      if (
+        typeof modes.solidBackgroundColorId === 'string' &&
+        SOLID_BACKGROUND_COLORS.some(color => color.id === modes.solidBackgroundColorId)
+      ) {
+        solidBackgroundColorId = modes.solidBackgroundColorId;
+      }
 
       multiCollectibleModeEnabled = modes.multiCollectibleModeEnabled === true;
       applyMultiCollectibleAssetPayload(modes.multiCollectibleAssets);
