@@ -33,7 +33,11 @@ import {
 } from './boardMechanics.ts'
 import { getFailureOverlayMotion } from './failureOverlay.ts'
 import { getPlayableBlockLoadError } from './playableStateContract.ts'
-import { getNoGravityPlaybackMaxRow, releaseNoGravityBlocksInRange } from './noGravityRules.ts'
+import {
+  getNoGravityPlaybackMaxRow,
+  releaseNewlyUnsupportedNoGravityBlocks,
+  releaseNoGravityBlocksInRange,
+} from './noGravityRules.ts'
 
 const EDITOR_STAGE_BASE_WIDTH = 2020;
 const EDITOR_STAGE_BASE_HEIGHT = 995;
@@ -812,6 +816,8 @@ let scriptPlaybackAdvanceMode: BoardAdvanceMode | null = null;
 
 let scriptPlaybackMechanic: BoardMechanic | null = null;
 
+let scriptPlaybackUsesRecordedScrollTrack = false;
+
 
 
 
@@ -1128,6 +1134,8 @@ const gameplayRiseInterval = 3500;
 
 
 
+const SCRIPT_PLAYBACK_DATA_VERSION = 5;
+
 interface ScriptStep {
 
 
@@ -1165,6 +1173,12 @@ interface ScriptStep {
 
 
   eliminationWaves?: number[][];
+
+  eliminationWaveScrollYs?: number[];
+
+  boardBefore?: BoardBlockState[];
+
+  playbackDataVersion?: number;
 
 
 
@@ -1294,6 +1308,50 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
   }
 }
 
+function captureCurrentBoardBlockStates(): BoardBlockState[] {
+  return blocks.map(b => ({
+    id: b.id,
+    col: b.col,
+    row: b.row,
+    length: b.length,
+    color: b.color,
+    noGravity: b.noGravity,
+    isCollectible: b.isCollectible,
+    isProp: b.isProp,
+    propType: b.propType,
+    propDir: b.propDir,
+    collectibleId: b.collectibleId
+  }));
+}
+
+function restoreBoardBlockStates(states: BoardBlockState[]) {
+  clearAllBlocks();
+  states.forEach(sb => {
+    spawnRecordedBlockState(sb);
+  });
+}
+
+function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
+  if (blocks.length !== states.length) return false;
+
+  const currentById = new Map<number | undefined, Block>(blocks.map(block => [block.id, block]));
+
+  for (const state of states) {
+    const block = currentById.get(state.id);
+    if (!block) return false;
+    if (block.col !== state.col) return false;
+    if (block.row !== state.row) return false;
+    if (block.length !== state.length) return false;
+    if (!!block.isCollectible !== !!state.isCollectible) return false;
+    if (!!block.isProp !== !!state.isProp) return false;
+    if (block.propType !== state.propType) return false;
+    if ((block.propDir || 'left') !== (state.propDir || 'left')) return false;
+    if (block.collectibleId !== state.collectibleId) return false;
+  }
+
+  return true;
+}
+
 
 
 let scriptSteps: ScriptStep[] = [];
@@ -1315,6 +1373,10 @@ let activeRecordingStepIndex: number | null = null;
 let activeEliminationWaveIndex = 0;
 
 let pendingSequentialClearBlockIds: number[][] = [];
+
+let pendingOffscreenFullRowBlockIds: number[][] = [];
+
+let forcedPlaybackFullRows: number[] | null = null;
 
 
 
@@ -4856,6 +4918,10 @@ function getStepGravityMaxRow(step: ScriptStep): number {
 
   const recordedVisibleBottomRow = getVisibleBottomRowForWorldY(getStepScrollY(step));
 
+  if (isPlayingScript && isNoGravityMode && scriptPlaybackAdvanceMode === 'fixed') {
+    return getVisibleBottomRowForWorldY(worldContainer ? worldContainer.y : getStepScrollY(step));
+  }
+
 
 
 
@@ -5272,6 +5338,12 @@ function appendStepEliminationWave(stepIndex: number | null, rows: number[]) {
 
   step.eliminationWaves = waves;
 
+  const waveScrollYs = Array.isArray(step.eliminationWaveScrollYs)
+    ? [...step.eliminationWaveScrollYs]
+    : [];
+  waveScrollYs.push(worldContainer ? worldContainer.y : getStepScrollY(step));
+  step.eliminationWaveScrollYs = waveScrollYs;
+
 
 
   mergeStepEliminatedRows(stepIndex, wave);
@@ -5336,40 +5408,204 @@ function getFullRowsFromOccupancy(occ: number[][], minRow = 0, maxRow = PARAMS.t
 
 }
 
+function getFullRowBlockIds(row: number): number[] {
+  return blocks
+    .filter(block => !block.isProp && block.row === row)
+    .map(block => block.id)
+    .sort((a, b) => a - b);
+}
 
+function refreshPendingOffscreenFullRows(occ: number[][]): number[] {
+  const refreshed: number[][] = [];
+  const rows: number[] = [];
+
+  pendingOffscreenFullRowBlockIds.forEach(ids => {
+    const idSet = new Set(ids);
+    const members = blocks.filter(block => !block.isProp && idSet.has(block.id));
+    if (members.length !== ids.length || members.length === 0) return;
+
+    const row = members[0].row;
+    if (!members.every(block => block.row === row)) return;
+    if (!getFullRowsFromOccupancy(occ, row, row).includes(row)) return;
+
+    refreshed.push([...ids]);
+    rows.push(row);
+  });
+
+  pendingOffscreenFullRowBlockIds = refreshed;
+  return rows;
+}
+
+function rememberOffscreenFullRows(occ: number[][], minVisibleRow: number, maxVisibleRow: number): number[] {
+  const pendingRows = refreshPendingOffscreenFullRows(occ);
+
+  getFullRowsFromOccupancy(occ)
+    .filter(row => row < minVisibleRow || row > maxVisibleRow)
+    .forEach(row => {
+      if (pendingRows.includes(row)) return;
+      const ids = getFullRowBlockIds(row);
+      if (ids.length > 0) pendingOffscreenFullRowBlockIds.push(ids);
+    });
+
+  return refreshPendingOffscreenFullRows(occ);
+}
+
+function getTriggeredFullRowsFromOccupancy(occ: number[][], minVisibleRow: number, maxVisibleRow: number): number[] {
+  const pendingRows = rememberOffscreenFullRows(occ, minVisibleRow, maxVisibleRow);
+  const visibleFullRows = getFullRowsFromOccupancy(occ, minVisibleRow, maxVisibleRow);
+  const newlyCompletedVisibleRows = visibleFullRows.filter(row => !pendingRows.includes(row));
+  const allFullRows = getFullRowsFromOccupancy(occ);
+
+  if (newlyCompletedVisibleRows.length === 0) return [];
+
+  const rowsToClear = normalizeEliminatedRows([
+    ...newlyCompletedVisibleRows,
+    ...refreshPendingOffscreenFullRows(occ)
+  ]).filter(row => allFullRows.includes(row));
+
+  const clearedRows = new Set(rowsToClear);
+  pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
+    const member = blocks.find(block => ids.includes(block.id));
+    return member ? !clearedRows.has(member.row) : false;
+  });
+
+  return rowsToClear;
+}
 
 function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): number[] {
 
-  const recordedRange = getVisibleRowRangeForWorldY(getStepScrollY(step));
+  const visualWorldY = worldContainer ? worldContainer.y : getStepScrollY(step);
 
-  const playbackMaxRow = Math.min(recordedRange.maxRow, getRecordedStepPhysicsMaxRow(step));
+  const visualRange = getFullyVisibleRowRangeForWorldY(visualWorldY);
 
-  const actualFullRows = getFullRowsFromOccupancy(occ, recordedRange.minRow, playbackMaxRow);
+  const recordedRange = scriptPlaybackMechanic === 'scroll' && scriptPlaybackUsesRecordedScrollTrack
+
+    ? getFullyVisibleRowRangeForWorldY(getStepScrollY(step))
+
+    : visualRange;
+
+  const playbackMinRow = Math.max(visualRange.minRow, recordedRange.minRow);
+
+  const playbackMaxRow = Math.min(visualRange.maxRow, recordedRange.maxRow, getRecordedStepPhysicsMaxRow(step));
+
+  const visibleFullRows = getFullRowsFromOccupancy(occ, playbackMinRow, playbackMaxRow);
+
+  const allFullRows = getFullRowsFromOccupancy(occ);
 
   const allowed = getPlaybackAllowedRows(step);
 
-  if (allowed.length === 0) return actualFullRows;
+  if (step.playbackDataVersion === SCRIPT_PLAYBACK_DATA_VERSION) {
 
-  const recordedRowsStillFull = actualFullRows.filter(r => allowed.includes(r));
+    const pendingRows = rememberOffscreenFullRows(
+      occ,
+      visualRange.minRow,
+      visualRange.maxRow
+    );
 
-  if (recordedRowsStillFull.length > 0) return recordedRowsStillFull;
+    if (allowed.length === 0) {
+      const recordedWaves = normalizeEliminationWaves(step.eliminationWaves);
+      const recordedChainFinished = recordedWaves.length > 0
+        && activeEliminationWaveIndex >= recordedWaves.length;
+      const liveClearChainActive = hasAnyEliminationThisStep
+        && (recordedWaves.length === 0 || recordedChainFinished);
 
-  if (actualFullRows.length > 0) {
+      // The camera keeps moving while a recorded clear is animating. Gravity can
+      // therefore complete another row after the authored waves are exhausted.
+      // Continue only that active scroll-playback chain, and still require a
+      // newly completed row inside the current fully-visible physics boundary.
+      if (
+        scriptPlaybackMechanic === 'scroll'
+        && scriptPlaybackUsesRecordedScrollTrack
+        && (isPlayingStepTransition || liveClearChainActive)
+      ) {
+        const continuingVisibleRows = getFullRowsFromOccupancy(
+          occ,
+          visualRange.minRow,
+          Math.min(visualRange.maxRow, getStepGravityMaxRow(step))
+        );
 
-    console.warn('[Playback] recorded elimination rows did not match current board; using actual full rows for this wave.', {
+        if (continuingVisibleRows.length > 0) {
+          const visibleRowSet = new Set(continuingVisibleRows);
+          pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
+            const member = blocks.find(block => ids.includes(block.id));
+            return member ? !visibleRowSet.has(member.row) : false;
+          });
+        }
+
+        return continuingVisibleRows;
+      }
+
+      return [];
+    }
+
+    const allowedFullRows = allFullRows.filter(row => allowed.includes(row));
+    const newVisibleAllowedRows = visibleFullRows.filter(
+      row => allowedFullRows.includes(row) && !pendingRows.includes(row)
+    );
+
+    if (newVisibleAllowedRows.length === 0) {
+      allowedFullRows.forEach(row => {
+        if (pendingRows.includes(row)) return;
+        const ids = getFullRowBlockIds(row);
+        if (ids.length > 0) pendingOffscreenFullRowBlockIds.push(ids);
+      });
+      return [];
+    }
+
+    const rowsToClear = normalizeEliminatedRows([
+      ...allowedFullRows,
+      ...refreshPendingOffscreenFullRows(occ)
+    ]).filter(row => allFullRows.includes(row));
+    const clearedRows = new Set(rowsToClear);
+    pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
+      const member = blocks.find(block => ids.includes(block.id));
+      return member ? !clearedRows.has(member.row) : false;
+    });
+
+    return rowsToClear;
+
+  }
+
+  if (visibleFullRows.length === 0) return [];
+
+  if (allowed.length === 0) return allFullRows;
+
+  if (!visibleFullRows.some(r => allowed.includes(r))) {
+
+    console.warn('[Playback] recorded elimination rows did not match current board; using current full rows for this recorded wave.', {
 
       allowed,
 
-      actualFullRows,
+      visibleFullRows,
 
       activeEliminationWaveIndex
 
     });
 
+    return allFullRows;
+
   }
 
-  return actualFullRows;
+  return allFullRows.filter(row => allowed.includes(row));
 
+}
+
+function getFullyVisibleRowRangeForWorldY(worldY: number): { minRow: number; maxRow: number } {
+  const viewportTop = -worldY;
+  const viewportBottom = viewportTop + getViewportGameHeight();
+  const minRow = Math.max(0, Math.ceil(viewportTop / PARAMS.cellSize));
+  const maxRow = Math.min(
+    PARAMS.totalRows - 1,
+    Math.floor(viewportBottom / PARAMS.cellSize) - 1
+  );
+  return { minRow, maxRow: Math.max(minRow - 1, maxRow) };
+}
+
+function getCurrentVisiblePlaybackFullRows(stepIndex: number | null): number[] {
+  if (stepIndex === null) return [];
+  const step = scriptSteps[stepIndex];
+  if (!step) return [];
+  return getPlaybackFullRowsFromOccupancy(getGridOccupancy(), step);
 }
 
 
@@ -5384,6 +5620,101 @@ function shouldAdvancePlaybackWave(step: ScriptStep): boolean {
 
 }
 
+function shouldContinuePlaybackClearChain(stepIndex: number | null): boolean {
+
+  if (stepIndex === null || isRepairingScript) return true;
+
+  if (getCurrentVisiblePlaybackFullRows(stepIndex).length > 0) return true;
+
+  const step = scriptSteps[stepIndex];
+
+  if (!step) return false;
+
+  const waves = normalizeEliminationWaves(step.eliminationWaves);
+
+  if (waves.length === 0) {
+    if (
+      scriptPlaybackMechanic === 'scroll'
+      && scriptPlaybackUsesRecordedScrollTrack
+      && hasAnyEliminationThisStep
+    ) return true;
+
+    return getPlaybackAllowedRows(step).length > 0;
+  }
+
+  if (
+    scriptPlaybackMechanic === 'scroll'
+    && scriptPlaybackUsesRecordedScrollTrack
+    && activeEliminationWaveIndex >= waves.length
+    && hasAnyEliminationThisStep
+  ) return true;
+
+  return activeEliminationWaveIndex < waves.length;
+
+}
+
+function getNextPlaybackWaveWorldY(stepIndex: number | null): number | null {
+
+  if (stepIndex === null || isRepairingScript) return null;
+
+  const step = scriptSteps[stepIndex];
+
+  if (!step) return null;
+
+  const nextWave = normalizeEliminationWaves(step.eliminationWaves)[activeEliminationWaveIndex];
+
+  if (!nextWave || nextWave.length === 0) return null;
+
+  const currentY = worldContainer ? worldContainer.y : getStepScrollY(step);
+  const visibleRange = getFullyVisibleRowRangeForWorldY(currentY);
+  const waveMin = Math.min(...nextWave);
+  const waveMax = Math.max(...nextWave);
+
+  if (waveMin >= visibleRange.minRow && waveMax <= visibleRange.maxRow) return null;
+
+  const recordedWaveY = step.eliminationWaveScrollYs?.[activeEliminationWaveIndex];
+  if (Number.isFinite(recordedWaveY)) return clampWorldY(recordedWaveY!);
+
+  const visibleRowSpan = Math.max(0, PARAMS.viewportRows - 1);
+  const waveCenter = (waveMin + waveMax) / 2;
+  const targetTopRow = Math.max(0, Math.round(waveCenter - visibleRowSpan / 2));
+
+  return clampWorldY(getWorldYFromScrollRow(targetTopRow));
+
+}
+
+function alignInstantPlaybackViewportToNextWave() {
+  if (activeSimulatingStepIndex === null || isRepairingScript) return;
+  if (getCurrentVisiblePlaybackFullRows(activeSimulatingStepIndex).length > 0) return;
+
+  const nextWaveWorldY = getNextPlaybackWaveWorldY(activeSimulatingStepIndex);
+  if (nextWaveWorldY !== null) setWorldY(nextWaveWorldY);
+}
+
+function continueGravityAfterElimination() {
+
+  const hasVisibleFullRows = getCurrentVisiblePlaybackFullRows(activeSimulatingStepIndex).length > 0;
+  const shouldCheckNextClear = hasVisibleFullRows
+    || shouldContinuePlaybackClearChain(activeSimulatingStepIndex);
+  const nextWaveWorldY = shouldCheckNextClear && !hasVisibleFullRows
+    ? getNextPlaybackWaveWorldY(activeSimulatingStepIndex)
+    : null;
+  const applyNextGravity = () => {
+    isAnimating = false;
+    applyGravity(shouldCheckNextClear);
+  };
+
+  if (nextWaveWorldY !== null) {
+    void animateRecordedScrollTo(
+      nextWaveWorldY,
+      Math.max(150, Math.max(0, Number(PARAMS.gravityDuration) || 0) * 1000)
+    ).then(applyNextGravity);
+    return;
+  }
+
+  applyNextGravity();
+
+}
 
 
 
@@ -5395,6 +5726,8 @@ function scriptNeedsPlaybackRepair(): boolean {
 
 
   return scriptSteps.some(step => {
+
+    if (step.playbackDataVersion !== SCRIPT_PLAYBACK_DATA_VERSION) return true;
 
 
 
@@ -5455,6 +5788,8 @@ function runPhysicsInstant() {
 
 
     safetyCounter++;
+
+    alignInstantPlaybackViewportToNextWave();
 
 
 
@@ -5682,15 +6017,15 @@ function runPhysicsInstant() {
 
 
 
-      const minVisibleY = -worldContainer.y;
+      const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
-      const minRow = Math.max(0, Math.floor(minVisibleY / PARAMS.cellSize));
+      const minRow = visibleRange.minRow;
 
 
 
-      const maxRow = getVisibleBottomRowForWorldY(worldContainer.y);
+      const maxRow = Math.min(visibleRange.maxRow, getActivePhysicsMaxRow());
 
 
 
@@ -5729,6 +6064,10 @@ function runPhysicsInstant() {
 
 
 
+
+      const triggeredFullRows = getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
+      fullRows.length = 0;
+      fullRows.push(...triggeredFullRows);
 
       if (isRepairingScript && activeRepairEliminationBudget !== null) {
 
@@ -5918,50 +6257,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-  const currentBlocksBackup: BoardBlockState[] = blocks.map(b => ({
-
-
-
-    id: b.id,
-
-
-
-    col: b.col,
-
-
-
-    row: b.row,
-
-
-
-    length: b.length,
-
-
-
-    color: b.color,
-
-
-
-    noGravity: b.noGravity,
-
-
-
-    isCollectible: b.isCollectible,
-
-
-
-    isProp: b.isProp,
-
-
-
-    propType: b.propType,
-
-        propDir: b.propDir,
-        collectibleId: b.collectibleId
-
-
-
-  }));
+  const currentBlocksBackup: BoardBlockState[] = captureCurrentBoardBlockStates();
 
 
 
@@ -6059,6 +6355,8 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
       const existingEliminationEvents = getStepEliminationEventCount(step);
 
+      const hasCurrentPlaybackData = step.playbackDataVersion === SCRIPT_PLAYBACK_DATA_VERSION;
+
 
 
       const hasValidExistingWaves = existingWaves.length > 0 && !hasRepeatedWaveRows(existingWaves);
@@ -6099,7 +6397,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
       const useExistingEliminations = preserveExistingEliminations
 
-
+        && hasCurrentPlaybackData
 
         && (hasValidExistingWaves || hasLegacyFlatEliminations);
 
@@ -6203,6 +6501,8 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
         console.warn(`[Script repair] Block not found for step ${i + 1}; the damaged legacy step was skipped.`);
 
+        step.playbackDataVersion = SCRIPT_PLAYBACK_DATA_VERSION;
+
 
 
         continue;
@@ -6210,6 +6510,10 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
       }
+
+
+
+      step.boardBefore = captureCurrentBoardBlockStates();
 
 
 
@@ -6242,6 +6546,8 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
         console.warn(`[Script repair] Step ${i + 1} target column ${step.toCol} is occupied; the damaged legacy step was skipped.`);
+
+        step.playbackDataVersion = SCRIPT_PLAYBACK_DATA_VERSION;
 
 
 
@@ -6293,7 +6599,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-      activeRepairEliminationBudget = !useExistingEliminations && existingEliminationEvents > 0
+      activeRepairEliminationBudget = !useExistingEliminations && hasCurrentPlaybackData && existingEliminationEvents > 0
 
 
 
@@ -6314,6 +6620,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
         runPhysicsInstant();
+        step.playbackDataVersion = SCRIPT_PLAYBACK_DATA_VERSION;
 
 
 
@@ -6365,19 +6672,9 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-    clearAllBlocks();
+    restoreBoardBlockStates(currentBlocksBackup);
 
-
-
-    currentBlocksBackup.forEach(cb => {
-
-
-
-      spawnRecordedBlockState(cb);
-
-
-
-    });
+    pendingOffscreenFullRowBlockIds = [];
 
 
 
@@ -6997,6 +7294,48 @@ function waitForScriptPlaybackDelay(durationMs: number): Promise<void> {
 
 
 
+async function waitForRecordedScrollStepPosition(step: ScriptStep): Promise<void> {
+  if (!worldContainer || scriptPlaybackStopRequested) return;
+
+  const targetY = clampWorldY(getStepScrollY(step));
+
+  while (!scriptPlaybackStopRequested) {
+    if (!isAnimating && activeSimulatingStepIndex !== null) {
+      const visibleRows = getImmediatePlayableFullRows();
+
+      if (visibleRows.length > 0) {
+        forcedPlaybackFullRows = visibleRows;
+        try {
+          checkEliminations();
+        } finally {
+          forcedPlaybackFullRows = null;
+        }
+        await waitForPhysics();
+        continue;
+      }
+    }
+
+    if (!isAnimating) {
+      const targetBlock = step.blockId
+        ? blocks.find(block => block.id === step.blockId)
+        : blocks.find(block => block.col === step.fromCol && block.row === step.row);
+      const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
+
+      if (
+        targetBlock
+        && targetBlock.row >= visibleRange.minRow
+        && targetBlock.row <= visibleRange.maxRow
+      ) return;
+    }
+
+    if (!isAnimating && worldContainer.y <= targetY + 1) return;
+
+    await waitForScriptPlaybackDelay(20);
+  }
+}
+
+
+
 function getInitialScriptPauseMs() {
 
 
@@ -7138,42 +7477,6 @@ function animateRecordedScrollTo(targetY: number, durationMs: number): Promise<v
 
 
   });
-
-
-
-}
-
-
-
-
-
-
-
-function getRecordedScrollDurationMs(fromY: number, toY: number, minimumMs = 0): number {
-
-
-
-  if (!Number.isFinite(fromY) || !Number.isFinite(toY)) {
-
-
-
-    return Math.max(0, minimumMs);
-
-
-
-  }
-
-
-
-  const speedPxPerSec = Math.max(1, Number(PARAMS.scrollSpeed) || 1);
-
-
-
-  const distancePx = Math.abs(toY - fromY);
-
-
-
-  return Math.max(minimumMs, (distancePx / speedPxPerSec) * 1000);
 
 
 
@@ -7368,7 +7671,9 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
     && selectedStepIndex < scriptSteps.length;
 
-  const useRecordedScrollTrack = autoScroll && hasMeaningfulRecordedScrollTrack();
+  const useRecordedScrollTrack = hasMeaningfulRecordedScrollTrack();
+
+  scriptPlaybackUsesRecordedScrollTrack = useRecordedScrollTrack;
 
   const shouldAlignToStepScroll = isResuming || useRecordedScrollTrack;
 
@@ -7428,7 +7733,9 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
   if (scriptPlaybackMechanic === 'scroll') {
 
-    // Reset/replay must start the continuous-scroll ticker from the restored camera.
+    // Recorded scripts use the ticker for camera movement only. Legacy scripts
+
+    // keep the original row-shifting infinite-scroll behavior.
 
     continuousScrollOffset = Math.max(0, -(worldContainer ? worldContainer.y : virtualScrollY));
 
@@ -7464,11 +7771,11 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-  // The optional pause only delays scripted block movement. Continuous board
+  // Orange autoplay starts its single scroll owner immediately. Recorded
 
 
 
-  // scrolling still starts immediately so the opening two seconds stay alive.
+  // scripts take the camera-only branch in advanceContinuousScroll().
 
 
 
@@ -7508,6 +7815,13 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
+    const step = scriptSteps[i];
+
+    if (autoScroll && useRecordedScrollTrack) {
+      await waitForRecordedScrollStepPosition(step);
+      if (scriptPlaybackStopRequested) break;
+    }
+
     selectedStepIndex = i;
 
 
@@ -7528,14 +7842,6 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    const step = scriptSteps[i];
-
-
-
-    const nextStep = scriptSteps[i + 1];
-
-
-
     if (shouldAlignEachStepScroll) {
 
 
@@ -7546,7 +7852,18 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
     }
 
+    if (useRecordedScrollTrack && !autoScroll) {
+      const targetY = getStepScrollY(step);
+      const sourceY = worldContainer ? worldContainer.y : targetY;
+      const scrollDurationMs = i === startIdx
+        ? 0
+        : Math.max(0, stepDelay) * 1000;
 
+      await animateRecordedScrollTo(
+        targetY,
+        scrollDurationMs
+      );
+    }
 
     let block = step.blockId ? blocks.find(b => b.id === step.blockId) : null;
 
@@ -7612,110 +7929,11 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    const stepStateBefore: BoardBlockState[] = blocks.map(b => ({
-
-
-
-      id: b.id,
-
-
-
-      col: b.col,
-
-
-
-      row: b.row,
-
-
-
-      length: b.length,
-
-
-
-      color: b.color,
-
-
-
-      noGravity: b.noGravity,
-
-
-
-      isCollectible: b.isCollectible,
-
-
-
-      isProp: b.isProp,
-
-
-
-      propType: b.propType,
-
-        propDir: b.propDir,
-        collectibleId: b.collectibleId
-
-
-
-    }));
+    const stepStateBefore: BoardBlockState[] = captureCurrentBoardBlockStates();
 
 
 
     const stepWorldYBefore = worldContainer.y;
-
-
-
-
-
-
-
-    // In recorded scrolling playback, the viewport should start moving as soon
-
-
-
-    // as the step starts. Physics below still uses the recorded step boundary,
-
-
-
-    // so the moving camera cannot change which rows are allowed to clear.
-
-
-
-    if (autoScroll && useRecordedScrollTrack && nextStep && !scriptPlaybackStopRequested) {
-
-
-
-      const targetY = getStepScrollY(nextStep);
-
-
-
-      const sourceY = worldContainer ? worldContainer.y : getStepScrollY(step);
-
-
-
-      const scrollDurationMs = getRecordedScrollDurationMs(
-
-
-
-        sourceY,
-
-
-
-        targetY,
-
-
-
-        Math.max(0, stepDelay) * 1000
-
-
-
-      );
-
-
-
-      void animateRecordedScrollTo(targetY, scrollDurationMs);
-
-
-
-    }
 
 
 
@@ -7859,29 +8077,49 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
     block.noGravity = false;
 
-
-
-    const recordedStepWorldY = getStepScrollY(step);
-
-
-
-    releaseNoGravityBlocksInCurrentBoard(recordedStepWorldY, getStepGravityMaxRow(step));
+    releaseNoGravityBlocksInCurrentBoard(
+      worldContainer ? worldContainer.y : getStepScrollY(step),
+      getStepGravityMaxRow(step)
+    );
 
 
 
-    draggedBlockId = block.id;
+    const immediatePlaybackRows = getImmediatePlayableFullRows();
 
-    if (isRisingAdvanceActive()) {
-      pendingRisingRows = getRisingRowsForCompletedMove(risingEliminationWavesThisMove);
+    if (immediatePlaybackRows.length > 0) {
+
+      forcedPlaybackFullRows = immediatePlaybackRows;
+
+      try {
+
+        checkEliminations();
+
+      } finally {
+
+        forcedPlaybackFullRows = null;
+
+      }
+
+      await waitForPhysics();
+
     }
 
 
 
-    blocksThatFell.clear();
+    if (immediatePlaybackRows.length === 0) {
+      draggedBlockId = block.id;
+
+      if (isRisingAdvanceActive()) {
+        pendingRisingRows = getRisingRowsForCompletedMove(risingEliminationWavesThisMove);
+      }
 
 
 
-    blocksThatFell.add(block.id);
+      blocksThatFell.clear();
+
+
+
+      blocksThatFell.add(block.id);
 
 
 
@@ -7889,11 +8127,13 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    applyGravity(true);
+      applyGravity(true);
 
 
 
-    await waitForPhysics();
+      await waitForPhysics();
+
+    }
 
 
 
@@ -7917,19 +8157,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-      clearAllBlocks();
-
-
-
-      stepStateBefore.forEach(sb => {
-
-
-
-        spawnRecordedBlockState(sb);
-
-
-
-      });
+      restoreBoardBlockStates(stepStateBefore);
 
 
 
@@ -7965,15 +8193,11 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    // 4. Pause between completed steps. In recorded scrolling autoplay, the
+    // 4. Legacy scripts without a recorded camera track keep the configured
 
 
 
-    // camera is already moving independently, so do not let scroll distance
-
-
-
-    // stretch the script timing.
+    // pause. Recorded tracks own this interval at the start of the next step.
 
 
 
@@ -7981,39 +8205,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-      if (useRecordedScrollTrack && nextStep && !scriptPlaybackStopRequested) {
-
-
-
-        if (autoScroll) {
-
-
-
-          if (stepDelay > 0) {
-
-
-
-            await waitForScriptPlaybackDelay(stepDelay * 1000);
-
-
-
-          }
-
-
-
-        } else {
-
-
-
-          await animateRecordedScrollTo(getStepScrollY(nextStep), Math.max(0, stepDelay) * 1000);
-
-
-
-        }
-
-
-
-      } else if (stepDelay > 0) {
+      if ((!useRecordedScrollTrack || autoScroll) && stepDelay > 0) {
 
 
 
@@ -8101,7 +8293,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-  if (scriptPlaybackAdvanceMode === 'scroll') {
+  if (scriptPlaybackAdvanceMode === 'scroll' && !useRecordedScrollTrack) {
 
 
 
@@ -8120,6 +8312,8 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
   scriptPlaybackAdvanceMode = null;
 
   scriptPlaybackMechanic = null;
+
+  scriptPlaybackUsesRecordedScrollTrack = false;
 
 
 
@@ -15961,27 +16155,31 @@ function advanceContinuousScroll(deltaSec: number) {
 
 
 
-  if (
-
-
-
-    !worldContainer
-
-
-
-    || !isGameStarted
-
-
-
-    || getActiveBoardMechanic() !== 'scroll'
-
-
-
-  ) return;
+  if (!worldContainer || !isGameStarted || getActiveBoardMechanic() !== 'scroll') return;
 
 
 
   const cellSize = Math.max(1, PARAMS.cellSize || 1);
+
+
+
+  if (isPlayingScript && scriptPlaybackUsesRecordedScrollTrack) {
+
+
+
+    continuousScrollOffset += Math.max(1, PARAMS.scrollSpeed || 1) * deltaSec;
+
+
+
+    setWorldY(-continuousScrollOffset);
+
+
+
+    return;
+
+
+
+  }
 
 
 
@@ -22948,6 +23146,10 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
+      const boardBeforeMove = captureCurrentBoardBlockStates();
+
+
+
       block.col = newCol;
 
 
@@ -23030,7 +23232,15 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-          eliminationWaves: []
+          eliminationWaves: [],
+
+          eliminationWaveScrollYs: [],
+
+          playbackDataVersion: SCRIPT_PLAYBACK_DATA_VERSION,
+
+
+
+          boardBefore: boardBeforeMove
 
 
 
@@ -23210,6 +23420,8 @@ function clearAllBlocks() {
   blocks = [];
 
   pendingSequentialClearBlockIds = [];
+
+  pendingOffscreenFullRowBlockIds = [];
 
 
 
@@ -23995,7 +24207,7 @@ function applyGravity(checkElim: boolean = true) {
 
 
 
-  if (isNoGravityMode) resolveNoGravityStates();
+  if (isNoGravityMode) resolveNoGravityStates(getActivePhysicsMaxRow());
 
 
 
@@ -24279,15 +24491,15 @@ function applyGravity(checkElim: boolean = true) {
 
 
 
-    const minVisibleY = -worldContainer.y;
+    const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
-    const minRow = Math.max(0, Math.floor(minVisibleY / PARAMS.cellSize));
+    const minRow = visibleRange.minRow;
 
 
 
-    const maxRow = getVisibleBottomRowForWorldY(worldContainer.y);
+    const maxRow = visibleRange.maxRow;
 
 
 
@@ -26092,6 +26304,10 @@ function checkEliminations() {
   if (pendingSequentialClearBlockIds.length > 0) {
     lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
     fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+  } else if (forcedPlaybackFullRows && forcedPlaybackFullRows.length > 0) {
+
+    fullRows.push(...forcedPlaybackFullRows);
+
   } else if (activeSimulatingStepIndex !== null && !isRepairingScript) {
 
 
@@ -26108,19 +26324,19 @@ function checkEliminations() {
 
 
 
-    // Only check rows visible in the viewport
+    // A row must be fully inside the viewport before it can be eliminated.
 
 
 
-    const minVisibleY = -worldContainer.y;
+    const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
-    const minRow = Math.max(0, Math.floor(minVisibleY / PARAMS.cellSize));
+    const minRow = visibleRange.minRow;
 
 
 
-    const maxRow = getVisibleBottomRowForWorldY(worldContainer.y);
+    const maxRow = visibleRange.maxRow;
 
 
 
@@ -26146,7 +26362,9 @@ function checkEliminations() {
 
     }
 
-
+    const triggeredFullRows = getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
+    fullRows.length = 0;
+    fullRows.push(...triggeredFullRows);
 
   }
 
@@ -26418,6 +26636,14 @@ function checkEliminations() {
       ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
       : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
 
+    if (isNoGravityMode) {
+      releaseNewlyUnsupportedNoGravityBlocks(
+        blocks,
+        new Set(blocksToRemove.map(block => block.id)),
+        getActivePhysicsMaxRow()
+      );
+    }
+
 
 
     if (blocksToRemove.some(b => b.isCollectible)) {
@@ -26542,8 +26768,7 @@ function checkEliminations() {
 
 
           setTimeout(() => {
-            isAnimating = false;
-            applyGravity(true);
+            continueGravityAfterElimination();
           }, Math.max(customElimDelay * 1000, typeof anyPropDamaged !== "undefined" && anyPropDamaged ? 400 : 0));
 
 
@@ -26597,8 +26822,7 @@ function checkEliminations() {
 
 
           setTimeout(() => {
-            isAnimating = false;
-            applyGravity(true);
+            continueGravityAfterElimination();
           }, Math.max(customElimDelay * 1000, typeof anyPropDamaged !== "undefined" && anyPropDamaged ? 400 : 0));
 
 
@@ -40498,6 +40722,18 @@ function setupDOMUI() {
 
       });
 
+      if (scriptNeedsPlaybackRepair()) {
+
+        repairScriptSteps({
+
+          preserveStepIdentity: true,
+
+          preserveExistingEliminations: true
+
+        });
+
+      }
+
 
 
       selectedStepIndex = null;
@@ -43291,9 +43527,19 @@ setTimeout(() => { initPropStylePanel(); }, 600);
 
     blockCount: blocks.length,
 
+    blocks: blocks.map(block => ({
+      id: block.id,
+      col: block.col,
+      row: block.row,
+      length: block.length,
+      noGravity: !!block.noGravity
+    })),
+
 
 
     fullRows,
+
+    pendingOffscreenFullRows: refreshPendingOffscreenFullRows(occ),
 
 
 
@@ -46364,26 +46610,18 @@ function getPlayableTutorialTarget() {
 
 function getImmediatePlayableFullRows(): number[] {
   const occ = getGridOccupancy();
-  const minVisibleY = -worldContainer.y;
-  const minRow = Math.max(0, Math.floor(minVisibleY / PARAMS.cellSize));
-  const maxRow = getVisibleBottomRowForWorldY(worldContainer.y);
-  const fullRows: number[] = [];
 
-  for (let r = minRow; r <= maxRow; r++) {
-    let isFull = true;
-    for (let c = 0; c < PARAMS.gridCols; c++) {
-      if (occ[r][c] === 0) {
-        isFull = false;
-        break;
-      }
-    }
-    if (isFull) fullRows.push(r);
+  if (activeSimulatingStepIndex !== null && !isRepairingScript) {
+    const step = scriptSteps[activeSimulatingStepIndex];
+    if (step) return getPlaybackFullRowsFromOccupancy(occ, step);
   }
 
-  return fullRows;
+  const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
+  const minRow = visibleRange.minRow;
+  const maxRow = visibleRange.maxRow;
+
+  return getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
 }
-
-
 
 function getSimFullRows(simBlocks: SimBlock[], minRow = 0, maxRow = PARAMS.totalRows - 1): number[] {
   const occ = getSimOccupancy(simBlocks);

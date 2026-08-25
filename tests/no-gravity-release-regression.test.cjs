@@ -13,7 +13,11 @@ const compiled = ts.transpileModule(source, {
 const moduleShim = { exports: {} };
 new Function('module', 'exports', 'require', compiled)(moduleShim, moduleShim.exports, require);
 
-const { releaseNoGravityBlocksInRange, getNoGravityPlaybackMaxRow } = moduleShim.exports;
+const {
+  releaseNoGravityBlocksInRange,
+  releaseNewlyUnsupportedNoGravityBlocks,
+  getNoGravityPlaybackMaxRow
+} = moduleShim.exports;
 const blocks = [
   { id: 1, row: 2, noGravity: true },
   { id: 2, row: 22, noGravity: true },
@@ -38,11 +42,33 @@ assert.equal(
   'fixed playback must keep using the boundary captured by the recorded step'
 );
 
+const supportBlocks = [
+  { id: 1, col: 0, length: 2, row: 5, noGravity: false },
+  { id: 2, col: 0, length: 1, row: 4, noGravity: true },
+  { id: 3, col: 0, length: 1, row: 3, noGravity: true },
+  { id: 4, col: 3, length: 1, row: 1, noGravity: true }
+];
+assert.deepEqual(
+  releaseNewlyUnsupportedNoGravityBlocks(supportBlocks, new Set([1]), 5),
+  [2, 3],
+  'a clear should release only blocks whose support chain was removed'
+);
+assert.deepEqual(
+  supportBlocks.map(block => block.noGravity),
+  [false, false, false, true],
+  'an unrelated block that was already floating must remain locked'
+);
+
 const mainSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.ts'), 'utf8');
 assert.doesNotMatch(mainSource, /releaseAllNoGravityBlocks\(blocks\)/);
 assert.ok(
   (mainSource.match(/releaseNoGravityBlocksInCurrentBoard\(/g) || []).length >= 5,
   'manual movement, repair, jump, and playback should share the bounded release rule'
+);
+assert.match(
+  mainSource,
+  /releaseNewlyUnsupportedNoGravityBlocks\([\s\S]*?new Set\(blocksToRemove\.map\(block => block\.id\)\)[\s\S]*?getActivePhysicsMaxRow\(\)/,
+  'row clearing should release newly unsupported no-gravity blocks before gravity runs'
 );
 assert.match(
   mainSource,
