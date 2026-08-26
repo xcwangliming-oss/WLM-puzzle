@@ -27544,6 +27544,19 @@ function checkEliminations() {
       const fallingBlock = rowBlocks.find(b => blocksThatFell.has(b.id));
       return fallingBlock ? fallingBlock.color : (rowBlocks[0] ? rowBlocks[0].color : 'pink');
     };
+    const getBlockShatterDelay = (block: Block) => {
+      const mode = PARAMS.shatterMode || 1;
+      const centerCol = PARAMS.gridCols / 2;
+      const totalStagger = (mode === 2) ? 0 : 0.5;
+      const maxDist = (mode === 3 || mode === 4) ? (PARAMS.gridCols - 1) : Math.ceil(PARAMS.gridCols / 2);
+      const staggerPerCell = maxDist > 0 ? totalStagger / maxDist : 0;
+      const refCol = block.col + block.length / 2;
+      if (mode === 3) return block.col * staggerPerCell;
+      if (mode === 4) return (PARAMS.gridCols - block.col - block.length) * staggerPerCell;
+      const isLeft = refCol < centerCol;
+      const dist = isLeft ? (centerCol - refCol) : (refCol - centerCol);
+      return Math.max(0, dist) * staggerPerCell;
+    };
 
     tntRowShatterTimes.forEach((blastAt, row) => {
       const rowBlocks = expandedBlocksToRemove.filter(b => b.row === row);
@@ -27603,79 +27616,8 @@ function checkEliminations() {
 
 
 
-      const mode = PARAMS.shatterMode || 1;
-
-
-
-      const centerCol = PARAMS.gridCols / 2;
-
-
-
-      const totalStagger = (mode === 2) ? 0 : 0.5;
-
-
-
-      const maxDist = (mode === 3 || mode === 4) ? (PARAMS.gridCols - 1) : Math.ceil(PARAMS.gridCols / 2);
-
-
-
-      const staggerPerCell = maxDist > 0 ? totalStagger / maxDist : 0;
-
-
-
-
-
-
-
       rowBlocksAnim.forEach((b) => {
-
-
-
-        const refCol = b.col + b.length / 2;
-
-
-
-        let delay: number;
-
-
-
-
-
-
-
-        if (mode === 3) {
-
-
-
-          delay = b.col * staggerPerCell;
-
-
-
-        } else if (mode === 4) {
-
-
-
-          delay = (PARAMS.gridCols - b.col - b.length) * staggerPerCell;
-
-
-
-        } else {
-
-
-
-          const isLeft = refCol < centerCol;
-
-
-
-          const dist = isLeft ? (centerCol - refCol) : (refCol - centerCol);
-
-
-
-          delay = Math.max(0, dist) * staggerPerCell;
-
-
-
-        }
+        const delay = getBlockShatterDelay(b);
 
 
 
@@ -27771,7 +27713,7 @@ function checkEliminations() {
 
 
 
-      if (mode === 2) {
+      if ((PARAMS.shatterMode || 1) === 2) {
 
 
 
@@ -27808,17 +27750,21 @@ function checkEliminations() {
 
     tntBlastExtraBlocks.forEach(block => {
       const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
+      const tntRowShatterAt = shouldSyncTntThreeRowShatter ? tntRowShatterTimes.get(block.row) : undefined;
+      const blastVisualDelay = tntRowShatterAt !== undefined
+        ? tntRowShatterAt + getBlockShatterDelay(block)
+        : blastAt;
       if (block.isCollectible) {
         tl.call(() => {
           playCollectibleFlyAnimation(block);
-        }, [], blastAt);
+        }, [], blastVisualDelay);
       }
       if (detonatingTntIds.has(block.id)) {
         scheduleTntDetonation(tl, block, tntDetonationStartTimes.get(block.id) ?? 0);
         return;
       }
-      tl.to(block.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, blastAt);
-      tl.to(block.sprite, { alpha: 0, duration: 0.12, ease: 'power2.in' }, blastAt);
+      tl.to(block.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, blastVisualDelay);
+      tl.to(block.sprite, { alpha: 0, duration: 0.12, ease: 'power2.in' }, blastVisualDelay);
     });
 
   } else {
