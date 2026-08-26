@@ -11,13 +11,13 @@ assert.match(
 );
 assert.match(
   source,
-  /const visualWorldY = worldContainer \? worldContainer\.y : getStepScrollY\(step\);[\s\S]*?const visualRange = getFullyVisibleRowRangeForWorldY\(visualWorldY\);/,
-  'script playback fallback should use only fully visible rows in the current viewport'
+  /const visualWorldY = worldContainer \? worldContainer\.y : getStepScrollY\(step\);[\s\S]*?const visualRange = getEliminationVisibleRowRangeForWorldY\(visualWorldY\);/,
+  'script playback fallback should use rows exposed by the current board clip'
 );
 assert.match(
   source,
-  /const playbackMaxRow = Math\.min\(visualRange\.maxRow, recordedRange\.maxRow, getRecordedStepPhysicsMaxRow\(step\)\);/,
-  'script playback fallback should cap scanning at the recorded visible bottom row'
+  /const playbackMaxRow = Math\.min\(visualRange\.maxRow, recordedRange\.maxRow\);/,
+  'script playback fallback should scan the rows rendered in both the live and recorded views'
 );
 assert.match(
   source,
@@ -36,7 +36,7 @@ assert.match(
 );
 assert.match(
   source,
-  /const recordedChainFinished = recordedWaves\.length > 0[\s\S]*?const liveClearChainActive = hasAnyEliminationThisStep[\s\S]*?isPlayingStepTransition \|\| liveClearChainActive[\s\S]*?const continuingVisibleRows = getFullRowsFromOccupancy\([\s\S]*?visualRange\.minRow[\s\S]*?getStepGravityMaxRow\(step\)[\s\S]*?pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds\.filter/,
+  /const recordedChainFinished = recordedWaves\.length > 0[\s\S]*?const liveClearChainActive = hasAnyEliminationThisStep[\s\S]*?isPlayingStepTransition \|\| liveClearChainActive[\s\S]*?const continuingVisibleRows = getFullRowsFromOccupancy\([\s\S]*?visualRange\.minRow[\s\S]*?visualRange\.maxRow[\s\S]*?pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds\.filter/,
   'gravity-created visible rows should continue a recorded scrolling clear after authored waves end'
 );
 assert.match(
@@ -61,8 +61,8 @@ assert.match(
 );
 assert.match(
   source,
-  /function getFullyVisibleRowRangeForWorldY\([\s\S]*?Math\.ceil\(viewportTop \/ PARAMS\.cellSize\)[\s\S]*?Math\.floor\(viewportBottom \/ PARAMS\.cellSize\) - 1/,
-  'partially clipped rows must never be eligible for playback elimination'
+  /function getEliminationVisibleRowRangeForWorldY\([\s\S]*?boardClip\.getBoundingClientRect\(\)[\s\S]*?canvas\.getBoundingClientRect\(\)[\s\S]*?Math\.ceil\(viewportTop \/ PARAMS\.cellSize\)[\s\S]*?Math\.floor\(viewportBottom \/ PARAMS\.cellSize\) - 1/,
+  'only rows fully inside the actual board clip may be eligible for playback elimination'
 );
 assert.match(
   source,
@@ -81,17 +81,17 @@ assert.match(
 );
 assert.match(
   source,
-  /function getPlaybackFullRowsFromOccupancy\([\s\S]*?const visualRange = getFullyVisibleRowRangeForWorldY\(visualWorldY\);[\s\S]*?getFullyVisibleRowRangeForWorldY\(getStepScrollY\(step\)\)[\s\S]*?const playbackMinRow = Math\.max\(visualRange\.minRow, recordedRange\.minRow\);[\s\S]*?Math\.min\(visualRange\.maxRow, recordedRange\.maxRow, getRecordedStepPhysicsMaxRow\(step\)\)/,
+  /function getPlaybackFullRowsFromOccupancy\([\s\S]*?const visualRange = getEliminationVisibleRowRangeForWorldY\(visualWorldY\);[\s\S]*?getEliminationVisibleRowRangeForWorldY\(getStepScrollY\(step\)\)[\s\S]*?const playbackMinRow = Math\.max\(visualRange\.minRow, recordedRange\.minRow\);[\s\S]*?Math\.min\(visualRange\.maxRow, recordedRange\.maxRow\)/,
   'continuous camera playback should eliminate only rows visible both now and at the recorded step boundary'
 );
 assert.match(
   source,
-  /const visibleRange = getFullyVisibleRowRangeForWorldY\(worldContainer\.y\);[\s\S]*?const minRow = visibleRange\.minRow;[\s\S]*?const maxRow = Math\.min\(visibleRange\.maxRow, getActivePhysicsMaxRow\(\)\);/,
-  'instant repair must use a fully visible trigger boundary'
+  /const visibleRange = getEliminationVisibleRowRangeForWorldY\(worldContainer\.y\);[\s\S]*?const minRow = visibleRange\.minRow;[\s\S]*?const maxRow = visibleRange\.maxRow;/,
+  'instant repair must use the rendered elimination boundary without changing the gravity boundary'
 );
 assert.match(
   source,
-  /function getImmediatePlayableFullRows\(\): number\[\] \{[\s\S]*?activeSimulatingStepIndex !== null && !isRepairingScript[\s\S]*?getPlaybackFullRowsFromOccupancy\(occ, step\)[\s\S]*?getFullyVisibleRowRangeForWorldY\(worldContainer\.y\)/,
+  /function getImmediatePlayableFullRows\(\): number\[\] \{[\s\S]*?activeSimulatingStepIndex !== null && !isRepairingScript[\s\S]*?getPlaybackFullRowsFromOccupancy\(occ, step\)[\s\S]*?getEliminationVisibleRowRangeForWorldY\(worldContainer\.y\)/,
   'immediate playback elimination must use the same recorded and visible trigger boundary'
 );
 

@@ -44,6 +44,12 @@ assert.match(
 
 assert.match(
   body,
+  /function getEliminationVisibleRowRangeForWorldY\([\s\S]*?const boardClip = document\.getElementById\('board-clip'\);[\s\S]*?const visibleBottom = Math\.min\(clipRect\.bottom, canvasRect\.bottom\);[\s\S]*?visibleGameBottom = Math\.min\(getPreviewRendererGameHeight\(\), rendererBottom - PADDING\);/,
+  'elimination visibility should follow the actual board clip instead of the configured row count or hidden renderer overscan'
+);
+
+assert.match(
+  body,
   /function updateBoardViewportMask\(\)[\s\S]*?\.rect\(PADDING, PADDING, PARAMS\.gridCols \* PARAMS\.cellSize, getPreviewRendererGameHeight\(\)\)/,
   'board viewport mask should expose the fractional bottom area instead of covering it'
 );

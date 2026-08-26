@@ -5497,17 +5497,17 @@ function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): nu
 
   const visualWorldY = worldContainer ? worldContainer.y : getStepScrollY(step);
 
-  const visualRange = getFullyVisibleRowRangeForWorldY(visualWorldY);
+  const visualRange = getEliminationVisibleRowRangeForWorldY(visualWorldY);
 
   const recordedRange = scriptPlaybackMechanic === 'scroll' && scriptPlaybackUsesRecordedScrollTrack
 
-    ? getFullyVisibleRowRangeForWorldY(getStepScrollY(step))
+    ? getEliminationVisibleRowRangeForWorldY(getStepScrollY(step))
 
     : visualRange;
 
   const playbackMinRow = Math.max(visualRange.minRow, recordedRange.minRow);
 
-  const playbackMaxRow = Math.min(visualRange.maxRow, recordedRange.maxRow, getRecordedStepPhysicsMaxRow(step));
+  const playbackMaxRow = Math.min(visualRange.maxRow, recordedRange.maxRow);
 
   const visibleFullRows = getFullRowsFromOccupancy(occ, playbackMinRow, playbackMaxRow);
 
@@ -5542,7 +5542,7 @@ function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): nu
         const continuingVisibleRows = getFullRowsFromOccupancy(
           occ,
           visualRange.minRow,
-          Math.min(visualRange.maxRow, getStepGravityMaxRow(step))
+          visualRange.maxRow
         );
 
         if (continuingVisibleRows.length > 0) {
@@ -5614,6 +5614,43 @@ function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): nu
 function getFullyVisibleRowRangeForWorldY(worldY: number): { minRow: number; maxRow: number } {
   const viewportTop = -worldY;
   const viewportBottom = viewportTop + getViewportGameHeight();
+  const minRow = Math.max(0, Math.ceil(viewportTop / PARAMS.cellSize));
+  const maxRow = Math.min(
+    PARAMS.totalRows - 1,
+    Math.floor(viewportBottom / PARAMS.cellSize) - 1
+  );
+  return { minRow, maxRow: Math.max(minRow - 1, maxRow) };
+}
+
+function getEliminationVisibleRowRangeForWorldY(worldY: number): { minRow: number; maxRow: number } {
+  let visibleGameTop = 0;
+  let visibleGameBottom = getViewportGameHeight();
+  const boardClip = document.getElementById('board-clip');
+  const canvas = app?.canvas;
+
+  if (boardClip && canvas) {
+    const clipRect = boardClip.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const rendererHeight = app.renderer.height;
+    const scaleY = rendererHeight > 0 ? canvasRect.height / rendererHeight : 0;
+    const visibleTop = Math.max(clipRect.top, canvasRect.top);
+    const visibleBottom = Math.min(clipRect.bottom, canvasRect.bottom);
+
+    if (scaleY > 0 && visibleBottom > visibleTop) {
+      const rendererTop = (visibleTop - canvasRect.top) / scaleY;
+      const rendererBottom = (visibleBottom - canvasRect.top) / scaleY;
+      visibleGameTop = Math.max(0, rendererTop - PADDING);
+      visibleGameBottom = Math.min(getPreviewRendererGameHeight(), rendererBottom - PADDING);
+    }
+  }
+
+  if (visibleGameBottom <= visibleGameTop) {
+    visibleGameTop = 0;
+    visibleGameBottom = getViewportGameHeight();
+  }
+
+  const viewportTop = -worldY + visibleGameTop;
+  const viewportBottom = -worldY + visibleGameBottom;
   const minRow = Math.max(0, Math.ceil(viewportTop / PARAMS.cellSize));
   const maxRow = Math.min(
     PARAMS.totalRows - 1,
@@ -6038,7 +6075,7 @@ function runPhysicsInstant() {
 
 
 
-      const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
+      const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
@@ -6046,7 +6083,7 @@ function runPhysicsInstant() {
 
 
 
-      const maxRow = Math.min(visibleRange.maxRow, getActivePhysicsMaxRow());
+      const maxRow = visibleRange.maxRow;
 
 
 
@@ -24514,7 +24551,7 @@ function applyGravity(checkElim: boolean = true) {
 
 
 
-    const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
+    const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
@@ -26351,7 +26388,7 @@ function checkEliminations() {
 
 
 
-    const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
+    const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
@@ -46653,7 +46690,7 @@ function getImmediatePlayableFullRows(): number[] {
     if (step) return getPlaybackFullRowsFromOccupancy(occ, step);
   }
 
-  const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
+  const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
   const minRow = visibleRange.minRow;
   const maxRow = visibleRange.maxRow;
 
