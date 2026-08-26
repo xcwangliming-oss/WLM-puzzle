@@ -27296,6 +27296,7 @@ function checkEliminations() {
     const blocksToRemove = lockedSequentialIdSet
       ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
       : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    const initialRemovedBlockIds = new Set(blocksToRemove.map(block => block.id));
     const tntBlast = resolveTntBlast(
       blocks.filter(b => !b.isProp),
       blocksToRemove.map(block => block.id),
@@ -27686,7 +27687,7 @@ function checkEliminations() {
           scheduleTntDetonation(tl, b, tntDetonationStartTimes.get(b.id) ?? 0);
           return;
         }
-        const originalTntVisualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id)
+        const originalTntVisualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id) && !initialRemovedBlockIds.has(b.id)
           ? Math.max(rowPlaybackOffset + delay, tntBlastRemovalTimes.get(b.id) ?? TNT_PRE_EXPLOSION_SECONDS)
           : rowPlaybackOffset + delay;
         const tntRowShatterAt = shouldSyncTntThreeRowShatter ? tntRowShatterTimes.get(b.row) : undefined;
