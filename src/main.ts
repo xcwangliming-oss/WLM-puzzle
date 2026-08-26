@@ -38,7 +38,7 @@ import {
   releaseNewlyUnsupportedNoGravityBlocks,
   releaseNoGravityBlocksInRange,
 } from './noGravityRules.ts'
-import { getTntBlastCellKeys, isTntBlock, resolveTntBlast } from './tntRules.ts'
+import { getTntBlastCells, isTntBlock, resolveTntBlast, type TntBlastMode } from './tntRules.ts'
 import { getTriggeredVisibleFullRows } from './playbackRowRules.ts'
 
 const EDITOR_STAGE_BASE_WIDTH = 2020;
@@ -337,6 +337,7 @@ function queueCustomPropStyle(style: unknown): void {
             boardMechanic: exportBoardMechanic,
             gameRule: exportGameRule,
             isTntMode,
+            tntBlastMode,
             collectedCount
         },
         multiCollectible: {
@@ -433,6 +434,11 @@ function queueCustomPropStyle(style: unknown): void {
     isMaterialChangingMode = loadedGameRule === 'material';
     isNoGravityMode = loadedGameRule === 'no-gravity';
     isTntMode = loadedGameRule === 'tnt' || !!(saveData.isTntMode ?? savedModes.isTntMode);
+    const loadedTntBlastMode = saveData.tntBlastMode ?? savedModes.tntBlastMode;
+    if (loadedTntBlastMode === 'three-rows' || loadedTntBlastMode === 'area-3x3') {
+      tntBlastMode = loadedTntBlastMode;
+      localStorage.setItem(TNT_STORAGE_BLAST_MODE, tntBlastMode);
+    }
 
     const savedBackground = saveData.background;
     if (savedBackground) {
@@ -1041,6 +1047,8 @@ const TNT_STORAGE_IMAGE = 'custom_tnt_image_b64';
 let tntArmedTextureCache: PIXI.Texture | null = null;
 let customTntArmedImage: HTMLImageElement | null = null;
 const TNT_STORAGE_ARMED_IMAGE = 'custom_tnt_armed_image_b64';
+let tntBlastMode: TntBlastMode = 'area-3x3';
+const TNT_STORAGE_BLAST_MODE = 'tnt_blast_mode';
 
 
 
@@ -26897,6 +26905,7 @@ function getTntBlastRemovalTimes(
   allBlocks: Block[],
   tntIds: number[],
   tntStartTimes: Map<number, number>,
+  mode: TntBlastMode,
 ): Map<number, number> {
   const removalTimes = new Map<number, number>();
   tntIds.forEach(tntId => {
@@ -26904,7 +26913,7 @@ function getTntBlastRemovalTimes(
     const tntStart = tntStartTimes.get(tntId);
     if (!tnt || tntStart === undefined) return;
     const blastAt = tntStart + TNT_PRE_EXPLOSION_SECONDS;
-    const blastCells = getTntBlastCellKeys(tnt.row, tnt.col, PARAMS.totalRows, PARAMS.gridCols);
+    const blastCells = getTntBlastCells(tnt.row, tnt.col, PARAMS.totalRows, PARAMS.gridCols, mode);
     allBlocks.forEach(block => {
       for (let offset = 0; offset < Math.max(1, block.length); offset++) {
         if (!blastCells.has(`${block.row}:${block.col + offset}`)) continue;
@@ -27292,12 +27301,13 @@ function checkEliminations() {
       blocksToRemove.map(block => block.id),
       PARAMS.totalRows,
       PARAMS.gridCols,
+      tntBlastMode,
     );
     const tntBlastIdSet = new Set(tntBlast.removedIds);
     const detonatingTntIds = new Set(tntBlast.tntIds);
     const initialDetonatingTntIds = new Set(blocksToRemove.filter(block => isTntBlock(block)).map(block => block.id));
     const tntDetonationStartTimes = getTntDetonationStartTimes(tntBlast.tntIds, initialDetonatingTntIds);
-    const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes);
+    const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes, tntBlastMode);
     const expandedBlocksToRemove = blocks.filter(b => !b.isProp && tntBlastIdSet.has(b.id));
     const tntBlastExtraBlocks = expandedBlocksToRemove.filter(block => !fullRows.includes(block.row));
 
@@ -32865,6 +32875,30 @@ function setupDOMUI() {
 
 
 
+
+  const tntBlastModeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.tnt-blast-mode-btn'));
+  const syncTntBlastModeUI = () => {
+    tntBlastModeButtons.forEach(button => {
+      const active = button.dataset.tntBlastMode === tntBlastMode;
+      button.classList.toggle('active', active);
+      button.style.background = active ? '#3b6bdc' : 'transparent';
+      button.style.color = active ? 'white' : '#aaa';
+    });
+  };
+  const savedTntBlastMode = localStorage.getItem(TNT_STORAGE_BLAST_MODE);
+  if (savedTntBlastMode === 'three-rows' || savedTntBlastMode === 'area-3x3') {
+    tntBlastMode = savedTntBlastMode;
+  }
+  tntBlastModeButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const mode = button.dataset.tntBlastMode;
+      if (mode !== 'three-rows' && mode !== 'area-3x3') return;
+      tntBlastMode = mode;
+      localStorage.setItem(TNT_STORAGE_BLAST_MODE, tntBlastMode);
+      syncTntBlastModeUI();
+    });
+  });
+  syncTntBlastModeUI();
 
   // 隐藏文案 checkbox
 
