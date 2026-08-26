@@ -27784,6 +27784,27 @@ function checkEliminations() {
 
     });
 
+    if (!shouldSyncTntThreeRowShatter && PARAMS.effectType !== 'gem-shatter') {
+      const tntExtraShatterGroups = new Map<string, { row: number; blastAt: number; blocks: Block[]; cols: Set<number> }>();
+      tntBlastExtraBlocks.forEach(block => {
+        if (detonatingTntIds.has(block.id)) return;
+        const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
+        const key = `${blastAt}:${block.row}`;
+        const group = tntExtraShatterGroups.get(key) || { row: block.row, blastAt, blocks: [], cols: new Set<number>() };
+        group.blocks.push(block);
+        for (let offset = 0; offset < Math.max(1, block.length); offset++) {
+          group.cols.add(block.col + offset);
+        }
+        tntExtraShatterGroups.set(key, group);
+      });
+      tntExtraShatterGroups.forEach(group => {
+        const explosionColor = getRowExplosionColor(group.row, group.blocks);
+        tl.call(() => {
+          playRowShatterEffect(group.row, explosionColor, group.blocks, new Set(), group.cols);
+        }, [], group.blastAt);
+      });
+    }
+
     tntBlastExtraBlocks.forEach(block => {
       const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
       if (block.isCollectible) {
@@ -27795,6 +27816,7 @@ function checkEliminations() {
         scheduleTntDetonation(tl, block, tntDetonationStartTimes.get(block.id) ?? 0);
         return;
       }
+      tl.to(block.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, blastAt);
       tl.to(block.sprite, { alpha: 0, duration: 0.12, ease: 'power2.in' }, blastAt);
     });
 
