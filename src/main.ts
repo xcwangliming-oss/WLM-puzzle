@@ -27526,8 +27526,9 @@ function checkEliminations() {
     const rowPlaybackGap = PARAMS.rowClearOrder === 'bottom-up' && rowsForPlayback.length > 1
       ? 0.8
       : 0;
+    const shouldSyncTntThreeRowShatter = tntBlastMode === 'three-rows' && detonatingTntIds.size > 0;
     const tntRowShatterTimes = new Map<number, number>();
-    if (tntBlastMode === 'three-rows' && detonatingTntIds.size > 0) {
+    if (shouldSyncTntThreeRowShatter) {
       expandedBlocksToRemove.forEach(block => {
         const blastAt = tntBlastRemovalTimes.get(block.id);
         if (blastAt === undefined) return;
@@ -27583,7 +27584,7 @@ function checkEliminations() {
         if (rowPlaybackIndex === 0) {
           triggerComboTextEffect(fullRows, comboCount, rowBlocks.length > 0 ? rowBlocks : blocksToRemove);
         }
-        if (!tntRowShatterTimes.has(r) && PARAMS.effectType !== 'gem-shatter') {
+        if (!(shouldSyncTntThreeRowShatter && tntRowShatterTimes.has(r)) && PARAMS.effectType !== 'gem-shatter') {
           playRowShatterEffect(r, explosionColor, rowBlocks, propSkipCols);
         }
 
@@ -27685,12 +27686,11 @@ function checkEliminations() {
           scheduleTntDetonation(tl, b, tntDetonationStartTimes.get(b.id) ?? 0);
           return;
         }
-        const tntRowShatterAt = tntRowShatterTimes.get(b.row);
-        const visualDelay = tntRowShatterAt !== undefined
-          ? tntRowShatterAt
-          : detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id)
+        const originalTntVisualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id)
           ? Math.max(rowPlaybackOffset + delay, tntBlastRemovalTimes.get(b.id) ?? TNT_PRE_EXPLOSION_SECONDS)
           : rowPlaybackOffset + delay;
+        const tntRowShatterAt = shouldSyncTntThreeRowShatter ? tntRowShatterTimes.get(b.row) : undefined;
+        const visualDelay = tntRowShatterAt !== undefined ? tntRowShatterAt : originalTntVisualDelay;
 
         if (b.isCollectible) {
 
