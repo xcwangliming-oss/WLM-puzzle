@@ -37648,6 +37648,8 @@ function setupDOMUI() {
 
     resetAndApplyActiveModeStyle();
 
+    syncInitialBoardColorsFromCurrentBoard();
+
 
 
     syncModeButtonsUI();

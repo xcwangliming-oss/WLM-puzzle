@@ -92,5 +92,5 @@ test('selected color rules persist into the recorded playback start board', () =
   assert.notEqual(multiCollectStart, -1);
   const colorRuleHandlers = source.slice(colorButtonStart, multiCollectStart);
   const syncCount = (colorRuleHandlers.match(/syncInitialBoardColorsFromCurrentBoard\(\);/g) || []).length;
-  assert.ok(syncCount >= 4, 'color, single-color, rainbow, and custom two-color handlers must sync playback start colors');
+  assert.ok(syncCount >= 5, 'color, single-color, rainbow, rainbow-fixed, and custom two-color handlers must sync playback start colors');
 });
