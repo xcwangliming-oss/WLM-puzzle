@@ -13284,6 +13284,13 @@ function playCollectibleFlyAnimation(b: Block) {
 
   const boardRect = boardWrapper.getBoundingClientRect();
 
+  // DOM rectangles are viewport pixels, while the flying image is positioned
+  // inside boardWrapper's unscaled coordinate system.
+  const boardScaleX = boardWrapper.offsetWidth > 0 ? boardRect.width / boardWrapper.offsetWidth : 1;
+  const boardScaleY = boardWrapper.offsetHeight > 0 ? boardRect.height / boardWrapper.offsetHeight : 1;
+  const toBoardLocalX = (viewportX: number) => (viewportX - boardRect.left) / Math.max(boardScaleX, 0.0001);
+  const toBoardLocalY = (viewportY: number) => (viewportY - boardRect.top) / Math.max(boardScaleY, 0.0001);
+
 
 
   
@@ -13334,11 +13341,11 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-  const startLeft = globalX - boardRect.left;
+  const startLeft = toBoardLocalX(globalX);
 
 
 
-  const startTop = globalY - boardRect.top;
+  const startTop = toBoardLocalY(globalY);
 
 
 
@@ -13392,20 +13399,25 @@ function playCollectibleFlyAnimation(b: Block) {
 
     const targetRect = targetEl.getBoundingClientRect();
 
+    const targetWidth = targetRect.width / Math.max(boardScaleX, 0.0001);
+    const targetHeight = targetRect.height / Math.max(boardScaleY, 0.0001);
+    const targetLocalLeft = toBoardLocalX(targetRect.left);
+    const targetLocalTop = toBoardLocalY(targetRect.top);
+
 
 
     if (multiTargetImageEl) {
-      targetSize = Math.max(1, Math.min(targetRect.width, targetRect.height));
-      targetLeft = targetRect.left - boardRect.left + (targetRect.width - targetSize) / 2;
-      targetTop = targetRect.top - boardRect.top + (targetRect.height - targetSize) / 2;
+      targetSize = Math.max(1, Math.min(targetWidth, targetHeight));
+      targetLeft = targetLocalLeft + (targetWidth - targetSize) / 2;
+      targetTop = targetLocalTop + (targetHeight - targetSize) / 2;
     } else if (avatarTargetEl) {
-      targetSize = Math.max(36, Math.min(58, targetRect.width));
-      targetLeft = targetRect.left - boardRect.left + (targetRect.width - targetSize) / 2;
-      targetTop = targetRect.top - boardRect.top + (targetRect.height - targetSize) / 2;
+      targetSize = Math.max(36, Math.min(58, targetWidth));
+      targetLeft = targetLocalLeft + (targetWidth - targetSize) / 2;
+      targetTop = targetLocalTop + (targetHeight - targetSize) / 2;
     } else {
-      targetLeft = targetRect.left - boardRect.left;
-      targetTop = targetRect.top - boardRect.top;
-      targetSize = Math.max(36, targetRect.width);
+      targetLeft = targetLocalLeft;
+      targetTop = targetLocalTop;
+      targetSize = Math.max(36, targetWidth);
     }
 
 

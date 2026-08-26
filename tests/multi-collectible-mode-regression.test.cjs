@@ -86,7 +86,7 @@ test('multi collectible flight targets matching left-side collectible', () => {
   assert.match(flyBody, /dataset\.multiCollectibleId === multiItem\.id/);
   assert.match(flyBody, /multiTargetEl\?\.querySelector<HTMLElement>\('img'\)/);
   assert.match(flyBody, /const targetEl = multiTargetImageEl \|\| avatarTargetEl/);
-  assert.match(flyBody, /targetSize = Math\.max\(1, Math\.min\(targetRect\.width, targetRect\.height\)\)/);
+  assert.match(flyBody, /targetSize = Math\.max\(1, Math\.min\(targetWidth, targetHeight\)\)/);
   assert.match(flyBody, /multiItem\.count\+\+/);
   assert.match(flyBody, /syncMultiCollectibleHudCounts\(\)/);
 });

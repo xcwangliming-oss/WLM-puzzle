@@ -55,7 +55,7 @@ assert.match(
 );
 assert.match(
   source,
-  /if \(avatarTargetEl\) \{[\s\S]*?Math\.min\(58, targetRect\.width\)[\s\S]*?\(targetRect\.width - targetSize\) \/ 2[\s\S]*?\(targetRect\.height - targetSize\) \/ 2/,
+  /if \(avatarTargetEl\) \{[\s\S]*?Math\.min\(58, targetWidth\)[\s\S]*?\(targetWidth - targetSize\) \/ 2[\s\S]*?\(targetHeight - targetSize\) \/ 2/,
   'the enlarged avatar must receive a centered collectible without enlarging the flying icon',
 );
 assert.match(
