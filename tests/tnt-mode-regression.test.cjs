@@ -19,7 +19,7 @@ rulesModule.filename = rulesPath;
 rulesModule.paths = Module._nodeModulePaths(path.dirname(rulesPath));
 rulesModule._compile(compiled, rulesPath);
 
-const { getTntBlastCellKeys, isTntBlock, resolveTntBlast } = rulesModule.exports;
+const { getTntBlastCellKeys, getTntThreeRowBlastCellKeys, isTntBlock, resolveTntBlast } = rulesModule.exports;
 
 assert.equal(isTntBlock({ propType: 'tnt', length: 1 }), true, 'TNT must be a 1x1 special block');
 assert.equal(isTntBlock({ propType: 'tnt', length: 2 }), false, 'TNT must not be a multi-cell prop');
@@ -28,6 +28,11 @@ assert.deepEqual(
   [...getTntBlastCellKeys(0, 0, 4, 4)].sort(),
   ['0:0', '0:1', '1:0', '1:1'],
   'corner TNT blasts should be clipped to the board',
+);
+assert.deepEqual(
+  [...getTntThreeRowBlastCellKeys(2, 5, 5)].sort(),
+  ['1:0', '1:1', '1:2', '1:3', '1:4', '2:0', '2:1', '2:2', '2:3', '2:4', '3:0', '3:1', '3:2', '3:3', '3:4'],
+  'three-row TNT blasts should cover the row above, current row, and row below',
 );
 
 const blocks = [
@@ -49,11 +54,17 @@ assert.deepEqual(
   [1, 5],
   'chained TNT ids should preserve detonation order',
 );
+assert.deepEqual(
+  new Set(resolveTntBlast(blocks, [1], 10, 10, 'three-rows').removedIds),
+  new Set([1, 2, 3, 4, 5, 6]),
+  'three-row TNT mode should remove blocks across the three affected full rows',
+);
 
 const mainSource = fs.readFileSync(path.join(root, 'src', 'main.ts'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
 assert.match(html, /id="btn-tnt-mode"[\s\S]*?三消TNT/, 'editor should expose a TNT mode button');
+assert.match(html, /id="tnt-blast-mode-group"[\s\S]*?data-tnt-blast-mode="area-3x3"[\s\S]*?3x3[\s\S]*?data-tnt-blast-mode="three-rows"[\s\S]*?三整行/, 'editor should expose TNT blast mode buttons');
 assert.match(mainSource, /let isTntMode = false;/, 'TNT mode should have explicit runtime state');
 assert.match(mainSource, /tntSpawnChance:\s*10/, 'TNT mode should use a configurable default spawn chance');
 assert.match(mainSource, /resolveTntBlast\([\s\S]*?blocksToRemove\.map\(block => block\.id\)/, 'elimination should expand removals through TNT blast rules');
@@ -72,14 +83,21 @@ assert.match(mainSource, /const anim = new PIXI\.AnimatedSprite\(textures\)[\s\S
 assert.match(mainSource, /function getTntDetonationStartTimes\(tntIds: number\[\], initialTntIds: Set<number>\)[\s\S]*?initialTntIds\.has\(id\)[\s\S]*?startTimes\.set\(id, 0\)[\s\S]*?chainIndex \* TNT_PRE_EXPLOSION_SECONDS/, 'initial row TNT should detonate together while chained TNT starts sequentially');
 assert.match(mainSource, /const initialDetonatingTntIds = new Set\(blocksToRemove\.filter\(block => isTntBlock\(block\)\)\.map\(block => block\.id\)\);[\s\S]*?getTntDetonationStartTimes\(tntBlast\.tntIds, initialDetonatingTntIds\)/, 'TNT timing should distinguish row-cleared TNT from chained TNT');
 assert.match(mainSource, /const blastAt = detonatingTntIds\.size > 0 \? \(tntBlastRemovalTimes\.get\(block\.id\) \?\? TNT_PRE_EXPLOSION_SECONDS\) : 0;/, 'TNT blast removals should wait for the relevant TNT explosion time');
-assert.match(mainSource, /isTntBlock\(block\)[\s\S]*?blockStart \+ TNT_PRE_EXPLOSION_SECONDS[\s\S]*?Math\.min\(previous, blastAt\)/, 'overlapping non-TNT blast blocks should be removed by the earliest TNT explosion');
+assert.match(mainSource, /const initialRemovedBlockIds = new Set\(blocksToRemove\.map\(block => block\.id\)\);[\s\S]*?tntBlastIdSet\.has\(b\.id\) && !initialRemovedBlockIds\.has\(b\.id\)/, 'row-cleared blocks should keep normal row timing even when a TNT in that row also blasts them');
+assert.match(mainSource, /resolveTntBlast\([\s\S]*?PARAMS\.gridCols,[\s\S]*?tntBlastMode[\s\S]*?\);/, 'elimination should pass the selected TNT blast mode into the blast resolver');
+assert.match(mainSource, /getTntBlastRemovalTimes\([\s\S]*?mode: TntBlastMode[\s\S]*?getTntBlastCells\(tnt\.row, tnt\.col, PARAMS\.totalRows, PARAMS\.gridCols, mode\)[\s\S]*?Math\.min\(previous, blastAt\)/, 'overlapping non-TNT blast blocks should be removed by the earliest TNT explosion in the selected mode');
+assert.match(mainSource, /const shouldSyncTntThreeRowShatter = tntBlastMode === 'three-rows' && detonatingTntIds\.size > 0;[\s\S]*?const tntRowShatterTimes = new Map<number, number>\(\);[\s\S]*?if \(shouldSyncTntThreeRowShatter\)[\s\S]*?tntBlastRemovalTimes\.get\(block\.id\)[\s\S]*?tntRowShatterTimes\.set\(block\.row[\s\S]*?tntRowShatterTimes\.forEach\(\(blastAt, row\)[\s\S]*?playRowShatterEffect\(row, explosionColor, rowBlocks, propSkipCols\)/, 'three-row TNT mode should play all affected row shatters at the TNT blast time');
+assert.match(mainSource, /const originalTntVisualDelay = detonatingTntIds\.size > 0 && tntBlastIdSet\.has\(b\.id\)[\s\S]*?Math\.max\(rowPlaybackOffset \+ delay[\s\S]*?: rowPlaybackOffset \+ delay;[\s\S]*?const tntRowShatterAt = shouldSyncTntThreeRowShatter \? tntRowShatterTimes\.get\(b\.row\) : undefined;[\s\S]*?const visualDelay = tntRowShatterAt !== undefined \? tntRowShatterAt : originalTntVisualDelay;/, '3x3 TNT should keep the original timing while three-row mode can override affected rows to one blast time');
+assert.match(mainSource, /if \(!shouldSyncTntThreeRowShatter && PARAMS\.effectType !== 'gem-shatter'\)[\s\S]*?const tntExtraShatterGroups = new Map[\s\S]*?group\.cols\.add\(block\.col \+ offset\)[\s\S]*?playRowShatterEffect\(group\.row, explosionColor, group\.blocks, new Set\(\), group\.cols\)/, '3x3 TNT extra blast blocks should play localized shatter for their affected cells');
 assert.match(mainSource, /function seedTntBlocksOnCurrentBoard\(\)[\s\S]*?Math\.max\(1,[\s\S]*?convertBlockToTnt/, 'turning on TNT mode should convert existing 1x1 blocks immediately');
 assert.match(mainSource, /btnTntMode\.onclick[\s\S]*?seedTntBlocksOnCurrentBoard\(\);/, 'TNT mode button should visibly seed the current board');
 assert.match(mainSource, /const TNT_STORAGE_IMAGE = 'custom_tnt_image_b64';/, 'custom TNT image should persist locally');
 assert.match(mainSource, /const TNT_STORAGE_ARMED_IMAGE = 'custom_tnt_armed_image_b64';/, 'custom TNT armed image should persist locally');
+assert.match(mainSource, /let tntBlastMode: TntBlastMode = 'area-3x3';[\s\S]*?const TNT_STORAGE_BLAST_MODE = 'tnt_blast_mode';/, 'TNT blast mode should default to 3x3 and persist locally');
 assert.match(mainSource, /id='tnt-image-slot'[\s\S]*?id='tnt-armed-slot'[\s\S]*?id='input-tnt-image'[\s\S]*?id='input-tnt-armed-image'[\s\S]*?id='btn-clear-tnt-image'[\s\S]*?id='btn-clear-tnt-armed'/, 'style panel should expose TNT bomb and armed-state upload controls');
 assert.match(mainSource, /TNT 炸弹贴图[\s\S]*?grid-template-columns:1fr 1fr[\s\S]*?炸弹[\s\S]*?未引爆[\s\S]*?引爆[\s\S]*?开始晃动/, 'TNT upload should show left idle bomb and right armed-shake bomb cards');
 assert.match(mainSource, /id='prop-eat-slot'[\s\S]*?id='toggle-obstacle-eater'[\s\S]*?id='btn-clear-prop-style'[\s\S]*?TNT 炸弹贴图/, 'obstacle options should stay with the obstacle upload section above TNT options');
+assert.match(mainSource, /querySelectorAll<HTMLButtonElement>\('\.tnt-blast-mode-btn'\)[\s\S]*?localStorage\.setItem\(TNT_STORAGE_BLAST_MODE, tntBlastMode\)/, 'TNT blast mode buttons should update UI state and localStorage');
 assert.match(mainSource, /function applyTntImageFile\([\s\S]*?localStorage\.setItem\(TNT_STORAGE_IMAGE[\s\S]*?refreshTntBlockTextures/, 'uploaded TNT images should refresh existing TNT blocks');
 assert.match(mainSource, /function getImagePixelBounds\([\s\S]*?alpha <= alphaThreshold[\s\S]*?function trimTransparentImageDataUrl\([\s\S]*?getImagePixelBounds\(ctx, canvas\.width, canvas\.height, 8\)[\s\S]*?cropCanvasToDataUrl/, 'uploaded TNT armed image should have transparent padding trim support');
 assert.match(mainSource, /function normalizeTntArmedImageDataUrl\([\s\S]*?customTntImage[\s\S]*?getImagePixelBounds\(idleCtx[\s\S]*?180\)[\s\S]*?getImagePixelBounds\(armedCtx[\s\S]*?180\)[\s\S]*?idleBody\.minX[\s\S]*?armedBody\.minX/, 'uploaded TNT armed image should normalize its opaque bomb body against the idle bomb body');
@@ -93,7 +111,7 @@ assert.match(mainSource, /if \(sprite\.parent !== tntEffectsContainer\) tntEffec
 assert.match(mainSource, /tntEffectsContainer\.addChild\(anim\)/, 'TNT animation effects should render in the top layer');
 assert.match(mainSource, /if \(b\.sprite\.parent\) b\.sprite\.parent\.removeChild\(b\.sprite\);/, 'removed TNT sprites should be cleaned up from their actual parent layer');
 assert.match(mainSource, /function playTntBurstWave[\s\S]*?wave\.circle[\s\S]*?scale[\s\S]*?1\.8/, 'TNT burst should add a compact center-out impact wave');
-assert.match(mainSource, /tntBlastRemovalTimes\.get\(block\.id\)[\s\S]*?tl\.to\(block\.sprite, \{ alpha: 0/, 'TNT extra blast blocks should wait for the blast and fade without scaling huge');
+assert.match(mainSource, /tntBlastRemovalTimes\.get\(block\.id\)[\s\S]*?tl\.to\(block\.sprite\.scale, \{ y: 0[\s\S]*?tl\.to\(block\.sprite, \{ alpha: 0/, 'TNT extra blast blocks should wait for the blast, shatter, and shrink away');
 assert.match(mainSource, /function scheduleTntDetonation[\s\S]*?sprite\.zIndex = 20003[\s\S]*?sprite\.zIndex = 20004/, 'detonating TNT should stay above shatter and explosion effects');
 assert.ok(fs.existsSync(path.join(root, 'public', 'assets', 'sounds', 'tnt-explosion.mp3')), 'TNT explosion sound should be bundled');
 assert.ok(fs.existsSync(path.join(root, 'public', 'assets', 'tnt', 'explosion-frames', 'frame-00.png')), 'transparent explosion frame sequence should be bundled');

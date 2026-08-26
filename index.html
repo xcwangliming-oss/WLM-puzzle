@@ -915,6 +915,15 @@
         </div>
         <div style="margin-top: 6px;">
           <div style="display: flex; align-items: center; gap: 8px;">
+            <label style="font-size: 11px; color: #ddd; white-space: nowrap;">TNT爆炸:</label>
+            <div id="tnt-blast-mode-group" style="display: flex; gap: 4px; background: #1a1a25; padding: 2px; border-radius: 6px; border: 1px solid #444; flex: 1; justify-content: space-around;">
+              <button type="button" class="tnt-blast-mode-btn active" data-tnt-blast-mode="area-3x3" title="引爆周围3x3范围" style="flex: 1; border: none; background: #3b6bdc; color: white; padding: 4px 0; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.1s;">3x3</button>
+              <button type="button" class="tnt-blast-mode-btn" data-tnt-blast-mode="three-rows" title="引爆上中下三整行" style="flex: 1; border: none; background: transparent; color: #aaa; padding: 4px 0; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.1s;">三整行</button>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 6px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
             <label style="font-size: 11px; color: #ddd; white-space: nowrap;">破碎颜色:</label>
             <select id="select-shatter-color" style="flex: 1; background: #1a1a25; border: 1px solid #444; color: white; padding: 4px; border-radius: 6px; font-size: 12px; cursor: pointer; outline: none;">
               <option value="default">默认 (跟随方块)</option>

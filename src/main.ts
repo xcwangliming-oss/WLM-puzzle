@@ -38,7 +38,7 @@ import {
   releaseNewlyUnsupportedNoGravityBlocks,
   releaseNoGravityBlocksInRange,
 } from './noGravityRules.ts'
-import { getTntBlastCellKeys, isTntBlock, resolveTntBlast } from './tntRules.ts'
+import { getTntBlastCells, isTntBlock, resolveTntBlast, type TntBlastMode } from './tntRules.ts'
 import { getTriggeredVisibleFullRows } from './playbackRowRules.ts'
 
 const EDITOR_STAGE_BASE_WIDTH = 2020;
@@ -337,6 +337,7 @@ function queueCustomPropStyle(style: unknown): void {
             boardMechanic: exportBoardMechanic,
             gameRule: exportGameRule,
             isTntMode,
+            tntBlastMode,
             collectedCount
         },
         multiCollectible: {
@@ -433,6 +434,11 @@ function queueCustomPropStyle(style: unknown): void {
     isMaterialChangingMode = loadedGameRule === 'material';
     isNoGravityMode = loadedGameRule === 'no-gravity';
     isTntMode = loadedGameRule === 'tnt' || !!(saveData.isTntMode ?? savedModes.isTntMode);
+    const loadedTntBlastMode = saveData.tntBlastMode ?? savedModes.tntBlastMode;
+    if (loadedTntBlastMode === 'three-rows' || loadedTntBlastMode === 'area-3x3') {
+      tntBlastMode = loadedTntBlastMode;
+      localStorage.setItem(TNT_STORAGE_BLAST_MODE, tntBlastMode);
+    }
 
     const savedBackground = saveData.background;
     if (savedBackground) {
@@ -1041,6 +1047,8 @@ const TNT_STORAGE_IMAGE = 'custom_tnt_image_b64';
 let tntArmedTextureCache: PIXI.Texture | null = null;
 let customTntArmedImage: HTMLImageElement | null = null;
 const TNT_STORAGE_ARMED_IMAGE = 'custom_tnt_armed_image_b64';
+let tntBlastMode: TntBlastMode = 'area-3x3';
+const TNT_STORAGE_BLAST_MODE = 'tnt_blast_mode';
 
 
 
@@ -26897,6 +26905,7 @@ function getTntBlastRemovalTimes(
   allBlocks: Block[],
   tntIds: number[],
   tntStartTimes: Map<number, number>,
+  mode: TntBlastMode,
 ): Map<number, number> {
   const removalTimes = new Map<number, number>();
   tntIds.forEach(tntId => {
@@ -26904,7 +26913,7 @@ function getTntBlastRemovalTimes(
     const tntStart = tntStartTimes.get(tntId);
     if (!tnt || tntStart === undefined) return;
     const blastAt = tntStart + TNT_PRE_EXPLOSION_SECONDS;
-    const blastCells = getTntBlastCellKeys(tnt.row, tnt.col, PARAMS.totalRows, PARAMS.gridCols);
+    const blastCells = getTntBlastCells(tnt.row, tnt.col, PARAMS.totalRows, PARAMS.gridCols, mode);
     allBlocks.forEach(block => {
       for (let offset = 0; offset < Math.max(1, block.length); offset++) {
         if (!blastCells.has(`${block.row}:${block.col + offset}`)) continue;
@@ -27287,17 +27296,19 @@ function checkEliminations() {
     const blocksToRemove = lockedSequentialIdSet
       ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
       : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    const initialRemovedBlockIds = new Set(blocksToRemove.map(block => block.id));
     const tntBlast = resolveTntBlast(
       blocks.filter(b => !b.isProp),
       blocksToRemove.map(block => block.id),
       PARAMS.totalRows,
       PARAMS.gridCols,
+      tntBlastMode,
     );
     const tntBlastIdSet = new Set(tntBlast.removedIds);
     const detonatingTntIds = new Set(tntBlast.tntIds);
     const initialDetonatingTntIds = new Set(blocksToRemove.filter(block => isTntBlock(block)).map(block => block.id));
     const tntDetonationStartTimes = getTntDetonationStartTimes(tntBlast.tntIds, initialDetonatingTntIds);
-    const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes);
+    const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes, tntBlastMode);
     const expandedBlocksToRemove = blocks.filter(b => !b.isProp && tntBlastIdSet.has(b.id));
     const tntBlastExtraBlocks = expandedBlocksToRemove.filter(block => !fullRows.includes(block.row));
 
@@ -27516,6 +27527,34 @@ function checkEliminations() {
     const rowPlaybackGap = PARAMS.rowClearOrder === 'bottom-up' && rowsForPlayback.length > 1
       ? 0.8
       : 0;
+    const shouldSyncTntThreeRowShatter = tntBlastMode === 'three-rows' && detonatingTntIds.size > 0;
+    const tntRowShatterTimes = new Map<number, number>();
+    if (shouldSyncTntThreeRowShatter) {
+      expandedBlocksToRemove.forEach(block => {
+        const blastAt = tntBlastRemovalTimes.get(block.id);
+        if (blastAt === undefined) return;
+        const previous = tntRowShatterTimes.get(block.row);
+        tntRowShatterTimes.set(block.row, previous === undefined ? blastAt : Math.min(previous, blastAt));
+      });
+    }
+
+    const getRowExplosionColor = (row: number, rowBlocks: Block[]) => {
+      const draggedBlockInRow = rowBlocks.find(b => b.id === draggedBlockId);
+      if (draggedBlockInRow) return draggedBlockInRow.color;
+      const fallingBlock = rowBlocks.find(b => blocksThatFell.has(b.id));
+      return fallingBlock ? fallingBlock.color : (rowBlocks[0] ? rowBlocks[0].color : 'pink');
+    };
+
+    tntRowShatterTimes.forEach((blastAt, row) => {
+      const rowBlocks = expandedBlocksToRemove.filter(b => b.row === row);
+      const explosionColor = getRowExplosionColor(row, rowBlocks);
+      const propSkipCols = initialPropColsByRow.get(row) || new Set<number>();
+      tl.call(() => {
+        if (PARAMS.effectType !== 'gem-shatter') {
+          playRowShatterEffect(row, explosionColor, rowBlocks, propSkipCols);
+        }
+      }, [], blastAt);
+    });
 
     rowsForPlayback.forEach((r, rowPlaybackIndex) => {
       const rowPlaybackOffset = rowPlaybackIndex * rowPlaybackGap;
@@ -27530,35 +27569,7 @@ function checkEliminations() {
 
 
 
-      let explosionColor = 'pink';
-
-
-
-      const draggedBlockInRow = rowBlocks.find(b => b.id === draggedBlockId);
-
-
-
-      if (draggedBlockInRow) {
-
-
-
-        explosionColor = draggedBlockInRow.color;
-
-
-
-      } else {
-
-
-
-        const fallingBlock = rowBlocks.find(b => blocksThatFell.has(b.id));
-
-
-
-        explosionColor = fallingBlock ? fallingBlock.color : (rowBlocks[0] ? rowBlocks[0].color : 'pink');
-
-
-
-      }
+      const explosionColor = getRowExplosionColor(r, rowBlocks);
 
 
 
@@ -27574,7 +27585,7 @@ function checkEliminations() {
         if (rowPlaybackIndex === 0) {
           triggerComboTextEffect(fullRows, comboCount, rowBlocks.length > 0 ? rowBlocks : blocksToRemove);
         }
-        if (PARAMS.effectType !== 'gem-shatter') {
+        if (!(shouldSyncTntThreeRowShatter && tntRowShatterTimes.has(r)) && PARAMS.effectType !== 'gem-shatter') {
           playRowShatterEffect(r, explosionColor, rowBlocks, propSkipCols);
         }
 
@@ -27676,9 +27687,11 @@ function checkEliminations() {
           scheduleTntDetonation(tl, b, tntDetonationStartTimes.get(b.id) ?? 0);
           return;
         }
-        const visualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id)
+        const originalTntVisualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id) && !initialRemovedBlockIds.has(b.id)
           ? Math.max(rowPlaybackOffset + delay, tntBlastRemovalTimes.get(b.id) ?? TNT_PRE_EXPLOSION_SECONDS)
           : rowPlaybackOffset + delay;
+        const tntRowShatterAt = shouldSyncTntThreeRowShatter ? tntRowShatterTimes.get(b.row) : undefined;
+        const visualDelay = tntRowShatterAt !== undefined ? tntRowShatterAt : originalTntVisualDelay;
 
         if (b.isCollectible) {
 
@@ -27772,6 +27785,27 @@ function checkEliminations() {
 
     });
 
+    if (!shouldSyncTntThreeRowShatter && PARAMS.effectType !== 'gem-shatter') {
+      const tntExtraShatterGroups = new Map<string, { row: number; blastAt: number; blocks: Block[]; cols: Set<number> }>();
+      tntBlastExtraBlocks.forEach(block => {
+        if (detonatingTntIds.has(block.id)) return;
+        const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
+        const key = `${blastAt}:${block.row}`;
+        const group = tntExtraShatterGroups.get(key) || { row: block.row, blastAt, blocks: [], cols: new Set<number>() };
+        group.blocks.push(block);
+        for (let offset = 0; offset < Math.max(1, block.length); offset++) {
+          group.cols.add(block.col + offset);
+        }
+        tntExtraShatterGroups.set(key, group);
+      });
+      tntExtraShatterGroups.forEach(group => {
+        const explosionColor = getRowExplosionColor(group.row, group.blocks);
+        tl.call(() => {
+          playRowShatterEffect(group.row, explosionColor, group.blocks, new Set(), group.cols);
+        }, [], group.blastAt);
+      });
+    }
+
     tntBlastExtraBlocks.forEach(block => {
       const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
       if (block.isCollectible) {
@@ -27783,6 +27817,7 @@ function checkEliminations() {
         scheduleTntDetonation(tl, block, tntDetonationStartTimes.get(block.id) ?? 0);
         return;
       }
+      tl.to(block.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, blastAt);
       tl.to(block.sprite, { alpha: 0, duration: 0.12, ease: 'power2.in' }, blastAt);
     });
 
@@ -32865,6 +32900,30 @@ function setupDOMUI() {
 
 
 
+
+  const tntBlastModeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.tnt-blast-mode-btn'));
+  const syncTntBlastModeUI = () => {
+    tntBlastModeButtons.forEach(button => {
+      const active = button.dataset.tntBlastMode === tntBlastMode;
+      button.classList.toggle('active', active);
+      button.style.background = active ? '#3b6bdc' : 'transparent';
+      button.style.color = active ? 'white' : '#aaa';
+    });
+  };
+  const savedTntBlastMode = localStorage.getItem(TNT_STORAGE_BLAST_MODE);
+  if (savedTntBlastMode === 'three-rows' || savedTntBlastMode === 'area-3x3') {
+    tntBlastMode = savedTntBlastMode;
+  }
+  tntBlastModeButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const mode = button.dataset.tntBlastMode;
+      if (mode !== 'three-rows' && mode !== 'area-3x3') return;
+      tntBlastMode = mode;
+      localStorage.setItem(TNT_STORAGE_BLAST_MODE, tntBlastMode);
+      syncTntBlastModeUI();
+    });
+  });
+  syncTntBlastModeUI();
 
   // 隐藏文案 checkbox
 
