@@ -38,6 +38,7 @@ import {
   releaseNewlyUnsupportedNoGravityBlocks,
   releaseNoGravityBlocksInRange,
 } from './noGravityRules.ts'
+import { getTntBlastCellKeys, isTntBlock, resolveTntBlast } from './tntRules.ts'
 import { getTriggeredVisibleFullRows } from './playbackRowRules.ts'
 
 const EDITOR_STAGE_BASE_WIDTH = 2020;
@@ -184,6 +185,7 @@ let hasTriggeredCTA = false;
 };
 
 function getActiveGameRuleForExport(): string {
+    if (isTntMode) return 'tnt';
     if (isCollectMode) return 'collect';
     if (isColorChangingMode) return 'color';
     if (isSingleColorMode) return 'single-color';
@@ -334,6 +336,7 @@ function queueCustomPropStyle(style: unknown): void {
             boardAdvanceMode: exportBoardAdvanceMode,
             boardMechanic: exportBoardMechanic,
             gameRule: exportGameRule,
+            isTntMode,
             collectedCount
         },
         multiCollectible: {
@@ -429,6 +432,7 @@ function queueCustomPropStyle(style: unknown): void {
     isRainbowFixedMode = loadedGameRule === 'rainbow-fixed';
     isMaterialChangingMode = loadedGameRule === 'material';
     isNoGravityMode = loadedGameRule === 'no-gravity';
+    isTntMode = loadedGameRule === 'tnt' || !!(saveData.isTntMode ?? savedModes.isTntMode);
 
     const savedBackground = saveData.background;
     if (savedBackground) {
@@ -676,6 +680,8 @@ const PARAMS = {
 
   // Multi-row elimination playback order. Keep the legacy simultaneous behavior by default.
   rowClearOrder: 'simultaneous',
+
+  tntSpawnChance: 10,
 
 
 
@@ -1019,6 +1025,23 @@ let isMaterialChangingMode = false;
 
 let isNoGravityMode = false;
 
+let isTntMode = false;
+
+const TNT_COLOR = 'tnt';
+const TNT_PROP_TYPE = 'tnt';
+const TNT_EXPLOSION_FRAME_COUNT = 15;
+const TNT_EXPLOSION_ALIASES = Array.from({ length: TNT_EXPLOSION_FRAME_COUNT }, (_, i) => `tnt_explosion_${i}`);
+const TNT_PRE_EXPLOSION_FRAME_COUNT = 30;
+const TNT_PRE_EXPLOSION_ALIASES = Array.from({ length: TNT_PRE_EXPLOSION_FRAME_COUNT }, (_, i) => `tnt_pre_explosion_${i}`);
+const TNT_PRE_EXPLOSION_SECONDS = 0.8;
+const TNT_EXPLOSION_SOUND_URL = '/assets/sounds/tnt-explosion.mp3';
+let tntTextureCache: PIXI.Texture | null = null;
+let customTntImage: HTMLImageElement | null = null;
+const TNT_STORAGE_IMAGE = 'custom_tnt_image_b64';
+let tntArmedTextureCache: PIXI.Texture | null = null;
+let customTntArmedImage: HTMLImageElement | null = null;
+const TNT_STORAGE_ARMED_IMAGE = 'custom_tnt_armed_image_b64';
+
 
 
 let activeMaterialIndex = 0;
@@ -1272,7 +1295,7 @@ interface BoardBlockState {
 
 
 
-  propType?: 'row-bomb' | 'peppermint';
+  propType?: 'row-bomb' | 'peppermint' | 'tnt';
 
   propDir?: 'left' | 'right';
 
@@ -3674,7 +3697,7 @@ async function applyMaterialPack(textures: Record<string, string>) {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -3742,7 +3765,7 @@ async function restoreDefaultTextures() {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4032,7 +4055,7 @@ function applyCachedMaterialPack(cachedTextures: Record<string, PIXI.Texture>) {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4344,7 +4367,7 @@ function applyCurrentTwoColors() {
 
 
 
-  blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+  blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4396,7 +4419,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4440,7 +4463,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4492,7 +4515,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4536,7 +4559,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -15612,6 +15635,7 @@ function createGameAudio(src: string): HTMLAudioElement {
 const sounds = {
 
   propElim: createGameAudio((DEFAULT_SOUND_SOURCES as any).propElim || '/audio/prop_elim.ogg'),
+  tntExplosion: createGameAudio(TNT_EXPLOSION_SOUND_URL),
 
   fall: createGameAudio(DEFAULT_SOUND_SOURCES.fall),
 
@@ -16000,6 +16024,7 @@ function initAudioContext() {
   connectAudio(sounds.fall);
 
   connectAudio((sounds as any).propElim);
+  connectAudio((sounds as any).tntExplosion);
   connectAudio(sounds.spawn);
 
 
@@ -16114,6 +16139,17 @@ function playSound(audio: HTMLAudioElement) {
 
 }
 
+function playTntSound() {
+  if (!audioSourcesInitialized) {
+    initAudioContext();
+  }
+  const source = (sounds as any).tntExplosion as HTMLAudioElement;
+  if (!source) return;
+  const audio = source.cloneNode(true) as HTMLAudioElement;
+  audio.volume = source.volume;
+  audio.play().catch(err => console.warn('TNT audio playback failed:', err));
+}
+
 
 
 
@@ -16162,7 +16198,7 @@ interface Block {
 
 
 
-  propType?: 'row-bomb' | 'peppermint';
+  propType?: 'row-bomb' | 'peppermint' | 'tnt';
 
   propDir?: 'left' | 'right';
 
@@ -17091,6 +17127,8 @@ let nextBlockId = 1;
 
 
 let blocksContainer: PIXI.Container;
+
+let tntEffectsContainer: PIXI.Container;
 
 
 
@@ -18773,10 +18811,17 @@ async function init() {
 
 
   blocksContainer = new PIXI.Container();
+  blocksContainer.sortableChildren = true;
 
 
 
   worldContainer.addChild(blocksContainer);
+
+  tntEffectsContainer = new PIXI.Container();
+  tntEffectsContainer.sortableChildren = true;
+  tntEffectsContainer.zIndex = 100000;
+  worldContainer.sortableChildren = true;
+  worldContainer.addChild(tntEffectsContainer);
 
 
 
@@ -18842,6 +18887,13 @@ async function init() {
       }
     }
     await PIXI.Assets.load(playableColors.flatMap(color => [1, 2, 3, 4].map(length => `${color}-${length}`)));
+    TNT_EXPLOSION_ALIASES.forEach((alias, i) => {
+      PIXI.Assets.add({ alias, src: `assets/tnt/explosion-frames/frame-${i.toString().padStart(2, '0')}.png` });
+    });
+    TNT_PRE_EXPLOSION_ALIASES.forEach((alias, i) => {
+      PIXI.Assets.add({ alias, src: `assets/tnt/pre-explosion-frames/frame-${i.toString().padStart(2, '0')}.png` });
+    });
+    await PIXI.Assets.load([...TNT_EXPLOSION_ALIASES, ...TNT_PRE_EXPLOSION_ALIASES]);
     assetsLoaded = true;
   } else {
   // Initialize DBs early in the background
@@ -19085,6 +19137,8 @@ async function init() {
 
 
     await loadCollectionAvatarStyle();
+    await restoreCustomTntImage();
+    await restoreCustomTntArmedImage();
 
 
 
@@ -19160,6 +19214,14 @@ async function init() {
   await PIXI.Assets.load(colors.flatMap(c => [1,2,3,4].map(l => `${c}-${l}`)));
 
 
+
+  TNT_EXPLOSION_ALIASES.forEach((alias, i) => {
+    PIXI.Assets.add({ alias, src: `assets/tnt/explosion-frames/frame-${i.toString().padStart(2, '0')}.png` });
+  });
+  TNT_PRE_EXPLOSION_ALIASES.forEach((alias, i) => {
+    PIXI.Assets.add({ alias, src: `assets/tnt/pre-explosion-frames/frame-${i.toString().padStart(2, '0')}.png` });
+  });
+  await PIXI.Assets.load([...TNT_EXPLOSION_ALIASES, ...TNT_PRE_EXPLOSION_ALIASES]);
 
   assetsLoaded = true;
   
@@ -20967,11 +21029,168 @@ function canPlaceBlock(col: number, row: number, length: number): boolean {
 
 
 
+function getTntTexture(): PIXI.Texture {
+  if (tntTextureCache) return tntTextureCache;
+
+  const cell = PARAMS.cellSize || 50;
+  if (customTntImage) {
+    const texture = PIXI.Texture.from(customTntImage);
+    tntTextureCache = texture;
+    return texture;
+  }
+
+  const g = new PIXI.Graphics();
+  g.roundRect(2, 2, cell - 4, cell - 4, 8);
+  g.fill({ color: 0x27212c });
+  g.stroke({ width: 2, color: 0xffcf4a, alpha: 0.95 });
+  g.circle(cell / 2, cell / 2, cell * 0.3);
+  g.fill({ color: 0xe83232 });
+  g.stroke({ width: 2, color: 0xffffff, alpha: 0.85 });
+  g.moveTo(cell * 0.58, cell * 0.28);
+  g.lineTo(cell * 0.76, cell * 0.08);
+  g.stroke({ width: Math.max(2, cell * 0.06), color: 0xffd45c, alpha: 1 });
+  const texture = app.renderer.generateTexture(g);
+  g.destroy();
+  tntTextureCache = texture;
+  return texture;
+}
+
+function convertBlockToTnt(block: Block) {
+  if (block.isCollectible || block.isProp || block.length !== 1 || isTntBlock(block)) return false;
+  block.color = TNT_COLOR;
+  block.propType = TNT_PROP_TYPE;
+  block.sprite.texture = getTntTexture();
+  block.sprite.width = PARAMS.cellSize;
+  block.sprite.height = PARAMS.cellSize;
+  return true;
+}
+
+function refreshTntBlockTextures() {
+  tntTextureCache = null;
+  const texture = getTntTexture();
+  blocks.forEach(block => {
+    if (!isTntBlock(block)) return;
+    block.sprite.texture = texture;
+    block.sprite.width = PARAMS.cellSize;
+    block.sprite.height = PARAMS.cellSize;
+  });
+  if (manualSelectedBlock?.color === TNT_COLOR) {
+    initOrUpdateManualPreviewSprite(1, TNT_COLOR, false);
+  }
+}
+
+async function applyTntImageFile(file: File): Promise<void> {
+  if (file.type && !file.type.startsWith('image/')) return;
+  const dataUrl = await readPropImageFile(file);
+  customTntImage = await loadPropImage(dataUrl);
+  localStorage.setItem(TNT_STORAGE_IMAGE, dataUrl);
+  refreshTntBlockTextures();
+  refreshPropStylePanel();
+}
+
+function importTntImage(): void {
+  const input = document.getElementById('input-tnt-image') as HTMLInputElement | null;
+  if (input) {
+    input.value = '';
+    input.click();
+  }
+}
+
+function getTntArmedTexture(): PIXI.Texture {
+  if (tntArmedTextureCache) return tntArmedTextureCache;
+  if (customTntArmedImage) {
+    tntArmedTextureCache = PIXI.Texture.from(customTntArmedImage);
+    return tntArmedTextureCache;
+  }
+  return getTntTexture();
+}
+
+async function applyTntArmedImageFile(file: File): Promise<void> {
+  if (file.type && !file.type.startsWith('image/')) return;
+  const dataUrl = await readPropImageFile(file);
+  const normalizedDataUrl = await normalizeTntArmedImageDataUrl(dataUrl);
+  customTntArmedImage = await loadPropImage(normalizedDataUrl);
+  tntArmedTextureCache = null;
+  localStorage.setItem(TNT_STORAGE_ARMED_IMAGE, normalizedDataUrl);
+  refreshPropStylePanel();
+}
+
+function importTntArmedImage(): void {
+  const input = document.getElementById('input-tnt-armed-image') as HTMLInputElement | null;
+  if (input) {
+    input.value = '';
+    input.click();
+  }
+}
+
+function clearCustomTntImage(): void {
+  customTntImage = null;
+  localStorage.removeItem(TNT_STORAGE_IMAGE);
+  refreshTntBlockTextures();
+  refreshPropStylePanel();
+}
+
+function clearCustomTntArmedImage(): void {
+  customTntArmedImage = null;
+  tntArmedTextureCache = null;
+  localStorage.removeItem(TNT_STORAGE_ARMED_IMAGE);
+  refreshPropStylePanel();
+}
+
+async function restoreCustomTntImage(): Promise<void> {
+  const stored = localStorage.getItem(TNT_STORAGE_IMAGE);
+  if (!stored) return;
+  try {
+    customTntImage = await loadPropImage(stored);
+    tntTextureCache = null;
+  } catch (error) {
+    console.warn('Failed to restore custom TNT image.', error);
+    customTntImage = null;
+    localStorage.removeItem(TNT_STORAGE_IMAGE);
+  }
+}
+
+async function restoreCustomTntArmedImage(): Promise<void> {
+  localStorage.removeItem('custom_tnt_explosion_frames');
+  const stored = localStorage.getItem(TNT_STORAGE_ARMED_IMAGE);
+  if (!stored) return;
+  try {
+    const normalizedStored = await normalizeTntArmedImageDataUrl(stored);
+    customTntArmedImage = await loadPropImage(normalizedStored);
+    tntArmedTextureCache = null;
+    if (normalizedStored !== stored) localStorage.setItem(TNT_STORAGE_ARMED_IMAGE, normalizedStored);
+  } catch (error) {
+    console.warn('Failed to restore custom TNT armed image.', error);
+    customTntArmedImage = null;
+    localStorage.removeItem(TNT_STORAGE_ARMED_IMAGE);
+  }
+}
+
+function seedTntBlocksOnCurrentBoard() {
+  const candidates = blocks.filter(block => !block.isCollectible && !block.isProp && block.length === 1 && !isTntBlock(block));
+  if (candidates.length === 0) return 0;
+  const targetCount = Math.max(1, Math.round(candidates.length * PARAMS.tntSpawnChance / 100));
+  const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+  let converted = 0;
+  for (const block of shuffled.slice(0, targetCount)) {
+    if (convertBlockToTnt(block)) converted++;
+  }
+  if (converted > 0) captureBoardState();
+  return converted;
+}
+
 function initOrUpdateManualPreviewSprite(length: number, color: string, visible: boolean = false, propDir: 'left' | 'right' = 'left') {
 
 
 
-  if (color === 'prop-peppermint' || color === 'prop-row-bomb') {
+  if (color === TNT_COLOR) {
+    if (manualPreviewSprite) {
+      blocksContainer.removeChild(manualPreviewSprite);
+      manualPreviewSprite.destroy();
+    }
+    manualPreviewSprite = new PIXI.Sprite(getTntTexture());
+    blocksContainer.addChild(manualPreviewSprite);
+  } else if (color === 'prop-peppermint' || color === 'prop-row-bomb') {
 
 
 
@@ -21075,7 +21294,7 @@ function initOrUpdateManualPreviewSprite(length: number, color: string, visible:
 
 
 
-    let texture = PIXI.Assets.get(`${color}-${length}`);
+    let texture = color === TNT_COLOR ? getTntTexture() : PIXI.Assets.get(`${color}-${length}`);
 
 
 
@@ -21199,7 +21418,7 @@ function updateManualPreview(col: number, row: number) {
 
 
 
-      let texture = PIXI.Assets.get(`${color}-${length}`);
+      let texture = color === TNT_COLOR ? getTntTexture() : PIXI.Assets.get(`${color}-${length}`);
 
 
 
@@ -21652,6 +21871,112 @@ function loadPropImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
+type ImagePixelBounds = { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number };
+
+function getImagePixelBounds(ctx: CanvasRenderingContext2D, width: number, height: number, alphaThreshold: number): ImagePixelBounds | null {
+  const pixels = ctx.getImageData(0, 0, width, height).data;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const alpha = pixels[(y * width + x) * 4 + 3];
+      if (alpha <= alphaThreshold) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < minX || maxY < minY) return null;
+  return { minX, minY, maxX, maxY, width: maxX - minX + 1, height: maxY - minY + 1 };
+}
+
+function drawImageToCanvas(image: HTMLImageElement): HTMLCanvasElement | null {
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  if (width <= 0 || height <= 0) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0);
+  return canvas;
+}
+
+function cropCanvasToDataUrl(canvas: HTMLCanvasElement, minX: number, minY: number, cropWidth: number, cropHeight: number): string | null {
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = cropWidth;
+  cropCanvas.height = cropHeight;
+  const cropCtx = cropCanvas.getContext('2d');
+  if (!cropCtx) return null;
+  cropCtx.drawImage(canvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  return cropCanvas.toDataURL('image/png');
+}
+
+async function trimTransparentImageDataUrl(dataUrl: string): Promise<string> {
+  const image = await loadPropImage(dataUrl);
+  const canvas = drawImageToCanvas(image);
+  if (!canvas) return dataUrl;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return dataUrl;
+  const bounds = getImagePixelBounds(ctx, canvas.width, canvas.height, 8);
+  if (!bounds) return dataUrl;
+  const pad = Math.max(2, Math.round(Math.max(canvas.width, canvas.height) * 0.03));
+  const minX = Math.max(0, bounds.minX - pad);
+  const minY = Math.max(0, bounds.minY - pad);
+  const maxX = Math.min(canvas.width - 1, bounds.maxX + pad);
+  const maxY = Math.min(canvas.height - 1, bounds.maxY + pad);
+  const cropWidth = maxX - minX + 1;
+  const cropHeight = maxY - minY + 1;
+  if (cropWidth === canvas.width && cropHeight === canvas.height) return dataUrl;
+  return cropCanvasToDataUrl(canvas, minX, minY, cropWidth, cropHeight) || dataUrl;
+}
+
+async function normalizeTntArmedImageDataUrl(dataUrl: string): Promise<string> {
+  if (!customTntImage) return trimTransparentImageDataUrl(dataUrl);
+
+  const armedImage = await loadPropImage(dataUrl);
+  const idleCanvas = drawImageToCanvas(customTntImage);
+  const armedCanvas = drawImageToCanvas(armedImage);
+  if (!idleCanvas || !armedCanvas) return dataUrl;
+
+  const idleCtx = idleCanvas.getContext('2d');
+  const armedCtx = armedCanvas.getContext('2d');
+  if (!idleCtx || !armedCtx) return dataUrl;
+
+  const idleBody = getImagePixelBounds(idleCtx, idleCanvas.width, idleCanvas.height, 180);
+  const armedBody = getImagePixelBounds(armedCtx, armedCanvas.width, armedCanvas.height, 180);
+  if (!idleBody || !armedBody) return trimTransparentImageDataUrl(dataUrl);
+
+  const leftRatio = idleBody.minX / Math.max(1, idleBody.width);
+  const rightRatio = (idleCanvas.width - idleBody.maxX - 1) / Math.max(1, idleBody.width);
+  const topRatio = idleBody.minY / Math.max(1, idleBody.height);
+  const bottomRatio = (idleCanvas.height - idleBody.maxY - 1) / Math.max(1, idleBody.height);
+
+  let minX = Math.floor(armedBody.minX - armedBody.width * leftRatio);
+  let maxX = Math.ceil(armedBody.maxX + armedBody.width * rightRatio);
+  let minY = Math.floor(armedBody.minY - armedBody.height * topRatio);
+  let maxY = Math.ceil(armedBody.maxY + armedBody.height * bottomRatio);
+
+  minX = Math.max(0, minX);
+  minY = Math.max(0, minY);
+  maxX = Math.min(armedCanvas.width - 1, maxX);
+  maxY = Math.min(armedCanvas.height - 1, maxY);
+
+  const cropWidth = maxX - minX + 1;
+  const cropHeight = maxY - minY + 1;
+  if (cropWidth <= 0 || cropHeight <= 0) return trimTransparentImageDataUrl(dataUrl);
+  if (cropWidth === armedCanvas.width && cropHeight === armedCanvas.height) return dataUrl;
+  return cropCanvasToDataUrl(armedCanvas, minX, minY, cropWidth, cropHeight) || dataUrl;
+}
+
 function loadCustomPropEatFrameImages(): Promise<HTMLImageElement[]> {
   const frames = customPropEatFrames.filter(frame => typeof frame === 'string' && frame.length > 0);
   const loadKey = frames.join('\u0000');
@@ -21816,6 +22141,12 @@ function refreshPropStylePanel(): void {
   const cp  = document.getElementById('prop-candy-placeholder')   as HTMLElement | null;
   const btn = document.getElementById('btn-clear-prop-style')     as HTMLButtonElement | null;
   const bdg = document.getElementById('prop-custom-badge')        as HTMLElement | null;
+  const tntThumb = document.getElementById('tnt-image-thumb') as HTMLImageElement | null;
+  const tntPlaceholder = document.getElementById('tnt-image-placeholder') as HTMLElement | null;
+  const tntClearBtn = document.getElementById('btn-clear-tnt-image') as HTMLButtonElement | null;
+  const tntArmedThumb = document.getElementById('tnt-armed-thumb') as HTMLImageElement | null;
+  const tntArmedPlaceholder = document.getElementById('tnt-armed-placeholder') as HTMLElement | null;
+  const tntArmedClearBtn = document.getElementById('btn-clear-tnt-armed') as HTMLButtonElement | null;
   
   if (mt) { mt.src = customPropMachineFrames[0] || ''; mt.style.display = customPropMachineFrames.length > 0 ? 'block' : 'none'; }
   if (cma) { cma.src = customPropMachineAttackFrames[0] || ''; cma.style.display = customPropMachineAttackFrames.length > 0 ? 'block' : 'none'; }
@@ -21832,6 +22163,12 @@ function refreshPropStylePanel(): void {
   if (cmap) cmap.style.display = customPropMachineAttackFrames.length > 0 ? 'none' : 'block';
   if (eap) eap.style.display = customPropEatFrames.length > 0 ? 'none' : 'block';
   if (cp) cp.style.display = customPropCandyImg   ? 'none' : 'block';
+  if (tntThumb) { tntThumb.src = customTntImage?.src || ''; tntThumb.style.display = customTntImage ? 'block' : 'none'; }
+  if (tntPlaceholder) tntPlaceholder.style.display = customTntImage ? 'none' : 'block';
+  if (tntClearBtn) tntClearBtn.style.display = customTntImage ? 'inline-block' : 'none';
+  if (tntArmedThumb) { tntArmedThumb.src = customTntArmedImage?.src || ''; tntArmedThumb.style.display = customTntArmedImage ? 'block' : 'none'; }
+  if (tntArmedPlaceholder) tntArmedPlaceholder.style.display = customTntArmedImage ? 'none' : 'block';
+  if (tntArmedClearBtn) tntArmedClearBtn.style.display = customTntArmedImage ? 'inline-block' : 'none';
   
   const hasCustom = !!(customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0 || customPropCandyImg);
   if (btn) btn.style.display = hasCustom ? 'inline-block' : 'none';
@@ -21886,12 +22223,25 @@ function initPropStylePanel(): void {
       <div id='prop-eat-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
         <img id='prop-eat-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-eat-placeholder' style='font-size:10px;color:#aaa;'>鐐瑰嚮涓婁紶</div><div id='prop-eat-count' style='font-size:9px;color:#777;'>鐐瑰嚮涓婁紶</div>
       </div>
-      <input id='input-prop-machine' type='file' accept='image/*' multiple hidden/>
-      <input id='input-prop-machine-attack' type='file' accept='image/*' multiple hidden/>
-      <input id='input-prop-eat' type='file' accept='image/*' multiple hidden/>
       <label style='display:flex;align-items:center;gap:5px;padding:5px 6px;background:#1e1e2e;border:1px solid #555;border-radius:5px;cursor:pointer;font-size:10px;color:#ddd;'><input id='toggle-obstacle-eater' type='checkbox' style='margin:0;accent-color:#7c3aed;'/><span>启用吃障碍角色（消除时间×2）</span></label>
       <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
       <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会保持整图缩放；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
+      <div style='font-size:10px;color:#aaa;margin-top:2px;'>TNT 炸弹贴图</div>
+      <div style='display:grid;grid-template-columns:1fr 1fr;gap:5px;'>
+        <div id='tnt-image-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>炸弹</div><img id='tnt-image-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='tnt-image-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div style='font-size:9px;color:#777;'>未引爆</div>
+        </div>
+        <div id='tnt-armed-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>引爆</div><img id='tnt-armed-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='tnt-armed-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div style='font-size:9px;color:#777;'>开始晃动</div>
+        </div>
+      </div>
+      <input id='input-prop-machine' type='file' accept='image/*' multiple hidden/>
+      <input id='input-prop-machine-attack' type='file' accept='image/*' multiple hidden/>
+      <input id='input-prop-eat' type='file' accept='image/*' multiple hidden/>
+      <input id='input-tnt-image' type='file' accept='image/*' hidden/>
+      <input id='input-tnt-armed-image' type='file' accept='image/*' hidden/>
+      <button id='btn-clear-tnt-image' onclick='clearCustomTntImage()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认 TNT</button>
+      <button id='btn-clear-tnt-armed' onclick='clearCustomTntArmedImage()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认引爆</button>
     </div>`;
   panel.appendChild(sec);
   if (collectibleManagerSection && collectibleManagerSection.parentElement !== panel) {
@@ -21926,6 +22276,38 @@ function initPropStylePanel(): void {
   bindFrameInput('machine', 'input-prop-machine', 'prop-machine-count');
   bindFrameInput('machine_attack', 'input-prop-machine-attack', 'prop-machine-attack-count');
   bindFrameInput('eat', 'input-prop-eat', 'prop-eat-count');
+  const tntInput = document.getElementById('input-tnt-image') as HTMLInputElement | null;
+  if (tntInput) {
+    const handleTntFile = async () => {
+      const file = tntInput.files?.[0];
+      if (!file) return;
+      try {
+        await applyTntImageFile(file);
+      } catch (error) {
+        console.error('Failed to import custom TNT image.', error);
+      } finally {
+        tntInput.value = '';
+      }
+    };
+    tntInput.onchange = handleTntFile;
+    tntInput.oninput = handleTntFile;
+  }
+  const tntArmedInput = document.getElementById('input-tnt-armed-image') as HTMLInputElement | null;
+  if (tntArmedInput) {
+    const handleTntArmedFile = async () => {
+      const file = tntArmedInput.files?.[0];
+      if (!file) return;
+      try {
+        await applyTntArmedImageFile(file);
+      } catch (error) {
+        console.error('Failed to import custom TNT armed image.', error);
+      } finally {
+        tntArmedInput.value = '';
+      }
+    };
+    tntArmedInput.onchange = handleTntArmedFile;
+    tntArmedInput.oninput = handleTntArmedFile;
+  }
   ([['prop-candy-slot', 'candy'], ['prop-machine-slot', 'machine'], ['prop-machine-attack-slot', 'machine_attack'], ['prop-eat-slot', 'eat']] as const).forEach(([id, role]) => {
     const el = document.getElementById(id) as HTMLElement | null;
     if (!el) return;
@@ -21934,6 +22316,20 @@ function initPropStylePanel(): void {
     el.addEventListener('mouseenter', () => el.style.borderColor = '#7c3aed');
     el.addEventListener('mouseleave', () => el.style.borderColor = '#555');
   });
+  const tntSlot = document.getElementById('tnt-image-slot') as HTMLElement | null;
+  if (tntSlot) {
+    tntSlot.onclick = event => { event.preventDefault(); event.stopPropagation(); importTntImage(); };
+    tntSlot.addEventListener('pointerdown', event => event.stopPropagation());
+    tntSlot.addEventListener('mouseenter', () => tntSlot.style.borderColor = '#f59e0b');
+    tntSlot.addEventListener('mouseleave', () => tntSlot.style.borderColor = '#555');
+  }
+  const tntArmedSlot = document.getElementById('tnt-armed-slot') as HTMLElement | null;
+  if (tntArmedSlot) {
+    tntArmedSlot.onclick = event => { event.preventDefault(); event.stopPropagation(); importTntArmedImage(); };
+    tntArmedSlot.addEventListener('pointerdown', event => event.stopPropagation());
+    tntArmedSlot.addEventListener('mouseenter', () => tntArmedSlot.style.borderColor = '#f59e0b');
+    tntArmedSlot.addEventListener('mouseleave', () => tntArmedSlot.style.borderColor = '#555');
+  }
   bindObstacleEaterToggle();
   refreshPropStylePanel();
 }
@@ -22879,7 +23275,7 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
 
 
 
-function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left', collectibleId?: string) {
+function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint' | 'tnt', propDir: 'left' | 'right' = 'left', collectibleId?: string) {
 
 
 
@@ -22955,7 +23351,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-      texture = PIXI.Assets.get(`${color}-${length}`);
+      texture = color === TNT_COLOR ? getTntTexture() : PIXI.Assets.get(`${color}-${length}`);
 
 
 
@@ -26166,7 +26562,7 @@ function changeColorsInPairs() {
 
 
 
-    if (b.isCollectible || b.isProp) return;
+    if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -26270,7 +26666,7 @@ function changeSingleColor() {
 
 
 
-    if (b.isCollectible || b.isProp) return;
+    if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -26338,6 +26734,194 @@ function getRowsForLockedSequentialBlocks(ids: number[] | null): number[] {
   if (!ids || ids.length === 0) return [];
   const idSet = new Set(ids);
   return Array.from(new Set(blocks.filter(block => idSet.has(block.id)).map(block => block.row)));
+}
+
+function playTntExplosionEffect(block: Block) {
+  const textures = TNT_EXPLOSION_ALIASES
+    .map(alias => PIXI.Assets.get(alias))
+    .filter((texture): texture is PIXI.Texture => Boolean(texture));
+  if (textures.length === 0) return;
+
+  if (textures.length === 1) {
+    const sprite = new PIXI.Sprite(textures[0]);
+    sprite.anchor.set(0.5);
+    sprite.x = block.col * PARAMS.cellSize + PARAMS.cellSize / 2;
+    sprite.y = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+    sprite.width = PARAMS.cellSize * 6;
+    sprite.scale.y = sprite.scale.x;
+    sprite.blendMode = 'add';
+    sprite.zIndex = 20006;
+    tntEffectsContainer.addChild(sprite);
+    gsap.to(sprite.scale, { x: sprite.scale.x * 1.08, y: sprite.scale.y * 1.08, duration: 0.22, ease: 'power2.out' });
+    gsap.to(sprite, {
+      alpha: 0,
+      duration: 0.22,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (sprite.parent) sprite.parent.removeChild(sprite);
+        sprite.destroy();
+      },
+    });
+    return;
+  }
+
+  const anim = new PIXI.AnimatedSprite(textures);
+  anim.anchor.set(0.5);
+  anim.loop = false;
+  anim.animationSpeed = 0.72;
+  anim.x = block.col * PARAMS.cellSize + PARAMS.cellSize / 2;
+  anim.y = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+  anim.width = PARAMS.cellSize * 6;
+  anim.scale.y = anim.scale.x;
+  anim.blendMode = 'add';
+  anim.zIndex = 20006;
+  anim.onComplete = () => {
+    if (anim.parent) anim.parent.removeChild(anim);
+    anim.destroy();
+  };
+  tntEffectsContainer.addChild(anim);
+  anim.play();
+}
+
+function playTntPreExplosionEffect(block: Block, durationSeconds = TNT_PRE_EXPLOSION_SECONDS) {
+  const textures = TNT_PRE_EXPLOSION_ALIASES
+    .map(alias => PIXI.Assets.get(alias))
+    .filter((texture): texture is PIXI.Texture => Boolean(texture));
+  if (textures.length === 0) return;
+
+  const anim = new PIXI.AnimatedSprite(textures);
+  anim.anchor.set(0.5);
+  anim.loop = true;
+  anim.animationSpeed = 1;
+  anim.x = block.col * PARAMS.cellSize + PARAMS.cellSize / 2;
+  anim.y = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+  anim.width = PARAMS.cellSize * 1.45;
+  anim.scale.y = anim.scale.x;
+  anim.blendMode = 'add';
+  anim.zIndex = 20000;
+  tntEffectsContainer.addChild(anim);
+  anim.play();
+  gsap.to(anim, {
+    alpha: 0,
+    duration: 0.08,
+    delay: Math.max(0, durationSeconds - 0.08),
+    onComplete: () => {
+      if (anim.parent) anim.parent.removeChild(anim);
+      anim.destroy();
+    },
+  });
+}
+
+function playTntBurstWave(block: Block) {
+  const cell = PARAMS.cellSize || 50;
+  const wave = new PIXI.Graphics();
+  wave.zIndex = 20002;
+  wave.alpha = 0.95;
+  wave.x = block.col * cell + cell / 2;
+  wave.y = block.row * cell + cell / 2;
+  wave.circle(0, 0, cell * 0.32);
+  wave.stroke({ width: Math.max(3, cell * 0.08), color: 0xfff1a3, alpha: 1 });
+  wave.circle(0, 0, cell * 0.18);
+  wave.fill({ color: 0xff5a1f, alpha: 0.28 });
+  tntEffectsContainer.addChild(wave);
+  gsap.to(wave.scale, { x: 1.8, y: 1.8, duration: 0.16, ease: 'power3.out' });
+  gsap.to(wave, {
+    alpha: 0,
+    duration: 0.18,
+    ease: 'power2.out',
+    onComplete: () => {
+      if (wave.parent) wave.parent.removeChild(wave);
+      wave.destroy();
+    },
+  });
+}
+
+function scheduleTntDetonation(tl: gsap.core.Timeline, block: Block, at: number) {
+  const sprite = block.sprite;
+  tl.call(() => {
+    sprite.zIndex = 20003;
+    if (sprite.parent !== tntEffectsContainer) tntEffectsContainer.addChild(sprite);
+    if (sprite.parent) sprite.parent.sortChildren();
+  }, [], at);
+  sprite.anchor?.set?.(0.5);
+  sprite.x = block.col * PARAMS.cellSize + PARAMS.cellSize / 2;
+  sprite.y = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+  sprite.width = PARAMS.cellSize;
+  sprite.height = PARAMS.cellSize;
+  let baseScaleX = sprite.scale.x;
+  let baseScaleY = sprite.scale.y;
+
+  tl.call(() => {
+    playTntSound();
+    sprite.texture = getTntArmedTexture();
+    sprite.width = PARAMS.cellSize;
+    sprite.height = PARAMS.cellSize;
+    baseScaleX = sprite.scale.x;
+    baseScaleY = sprite.scale.y;
+    playTntPreExplosionEffect(block, TNT_PRE_EXPLOSION_SECONDS);
+  }, [], at);
+  tl.to(sprite.scale, { x: () => baseScaleX * 1.35, y: () => baseScaleY * 1.35, duration: TNT_PRE_EXPLOSION_SECONDS, ease: 'sine.inOut' }, at);
+  tl.to(sprite, {
+    x: `+=${PARAMS.cellSize * 0.08}`,
+    y: `-=${PARAMS.cellSize * 0.04}`,
+    duration: 0.04,
+    repeat: 19,
+    yoyo: true,
+    ease: 'none',
+  }, at);
+  tl.call(() => {
+    sprite.zIndex = 20004;
+    if (sprite.parent) sprite.parent.sortChildren();
+    playTntBurstWave(block);
+    playTntExplosionEffect(block);
+  }, [], at + TNT_PRE_EXPLOSION_SECONDS);
+  tl.to(sprite.scale, { x: () => baseScaleX * 2.5, y: () => baseScaleY * 2.5, duration: 0.06, ease: 'power4.out' }, at + TNT_PRE_EXPLOSION_SECONDS);
+  tl.to(sprite, { alpha: 0, duration: 0.06, ease: 'power4.in' }, at + TNT_PRE_EXPLOSION_SECONDS);
+}
+
+function getTntDetonationStartTimes(tntIds: number[], initialTntIds: Set<number>): Map<number, number> {
+  const startTimes = new Map<number, number>();
+  let chainIndex = 1;
+  tntIds.forEach(id => {
+    if (initialTntIds.has(id)) {
+      startTimes.set(id, 0);
+      return;
+    }
+    startTimes.set(id, chainIndex * TNT_PRE_EXPLOSION_SECONDS);
+    chainIndex++;
+  });
+  return startTimes;
+}
+
+function getTntBlastRemovalTimes(
+  allBlocks: Block[],
+  tntIds: number[],
+  tntStartTimes: Map<number, number>,
+): Map<number, number> {
+  const removalTimes = new Map<number, number>();
+  tntIds.forEach(tntId => {
+    const tnt = allBlocks.find(block => block.id === tntId);
+    const tntStart = tntStartTimes.get(tntId);
+    if (!tnt || tntStart === undefined) return;
+    const blastAt = tntStart + TNT_PRE_EXPLOSION_SECONDS;
+    const blastCells = getTntBlastCellKeys(tnt.row, tnt.col, PARAMS.totalRows, PARAMS.gridCols);
+    allBlocks.forEach(block => {
+      for (let offset = 0; offset < Math.max(1, block.length); offset++) {
+        if (!blastCells.has(`${block.row}:${block.col + offset}`)) continue;
+        if (isTntBlock(block)) {
+          const blockStart = tntStartTimes.get(block.id);
+          if (blockStart !== undefined) {
+            removalTimes.set(block.id, blockStart + TNT_PRE_EXPLOSION_SECONDS);
+          }
+          break;
+        }
+        const previous = removalTimes.get(block.id);
+        removalTimes.set(block.id, previous === undefined ? blastAt : Math.min(previous, blastAt));
+        break;
+      }
+    });
+  });
+  return removalTimes;
 }
 
 function checkEliminations() {
@@ -26703,6 +27287,19 @@ function checkEliminations() {
     const blocksToRemove = lockedSequentialIdSet
       ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
       : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    const tntBlast = resolveTntBlast(
+      blocks.filter(b => !b.isProp),
+      blocksToRemove.map(block => block.id),
+      PARAMS.totalRows,
+      PARAMS.gridCols,
+    );
+    const tntBlastIdSet = new Set(tntBlast.removedIds);
+    const detonatingTntIds = new Set(tntBlast.tntIds);
+    const initialDetonatingTntIds = new Set(blocksToRemove.filter(block => isTntBlock(block)).map(block => block.id));
+    const tntDetonationStartTimes = getTntDetonationStartTimes(tntBlast.tntIds, initialDetonatingTntIds);
+    const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes);
+    const expandedBlocksToRemove = blocks.filter(b => !b.isProp && tntBlastIdSet.has(b.id));
+    const tntBlastExtraBlocks = expandedBlocksToRemove.filter(block => !fullRows.includes(block.row));
 
     if (isNoGravityMode) {
       releaseNewlyUnsupportedNoGravityBlocks(
@@ -26714,7 +27311,7 @@ function checkEliminations() {
 
 
 
-    if (blocksToRemove.some(b => b.isCollectible)) {
+    if (expandedBlocksToRemove.some(b => b.isCollectible)) {
 
 
 
@@ -26749,7 +27346,7 @@ function checkEliminations() {
       onComplete: () => {
 
 
-        blocksToRemove.forEach(b => {
+        expandedBlocksToRemove.forEach(b => {
           if (isCollectMode && b.isCollectible && !multiCollectibleModeEnabled) {
             const coin = new PIXI.Sprite(activeCollectibleTexture || PIXI.Texture.WHITE);
             coin.width = b.sprite.width;
@@ -26794,13 +27391,12 @@ function checkEliminations() {
               }
             });
           }
-          blocksContainer.removeChild(b.sprite);
+          if (b.sprite.parent) b.sprite.parent.removeChild(b.sprite);
         });
 
 
-        blocks = lockedSequentialIdSet
-          ? blocks.filter(b => b.isProp || !lockedSequentialIdSet.has(b.id))
-          : blocks.filter(b => b.isProp || !fullRows.includes(b.row));
+        const removedBlockIds = new Set(expandedBlocksToRemove.map(block => block.id));
+        blocks = blocks.filter(b => b.isProp || !removedBlockIds.has(b.id));
 
 
 
@@ -27076,6 +27672,14 @@ function checkEliminations() {
 
 
 
+        if (detonatingTntIds.has(b.id)) {
+          scheduleTntDetonation(tl, b, tntDetonationStartTimes.get(b.id) ?? 0);
+          return;
+        }
+        const visualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id)
+          ? Math.max(rowPlaybackOffset + delay, tntBlastRemovalTimes.get(b.id) ?? TNT_PRE_EXPLOSION_SECONDS)
+          : rowPlaybackOffset + delay;
+
         if (b.isCollectible) {
 
 
@@ -27088,7 +27692,7 @@ function checkEliminations() {
 
 
 
-          }, [], rowPlaybackOffset + delay);
+          }, [], visualDelay);
 
 
 
@@ -27096,8 +27700,8 @@ function checkEliminations() {
 
 
 
-        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, rowPlaybackOffset + delay);
-        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, rowPlaybackOffset + delay);
+        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, visualDelay);
+        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, visualDelay);
 
         if (PARAMS.effectType === 'gem-shatter') {
           tl.call(() => {
@@ -27139,7 +27743,7 @@ function checkEliminations() {
                 anim.play();
               }
             }
-          }, [], rowPlaybackOffset + delay);
+          }, [], visualDelay);
         }
 
 
@@ -27168,11 +27772,19 @@ function checkEliminations() {
 
     });
 
-
-
-
-
-
+    tntBlastExtraBlocks.forEach(block => {
+      const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
+      if (block.isCollectible) {
+        tl.call(() => {
+          playCollectibleFlyAnimation(block);
+        }, [], blastAt);
+      }
+      if (detonatingTntIds.has(block.id)) {
+        scheduleTntDetonation(tl, block, tntDetonationStartTimes.get(block.id) ?? 0);
+        return;
+      }
+      tl.to(block.sprite, { alpha: 0, duration: 0.12, ease: 'power2.in' }, blastAt);
+    });
 
   } else {
 
@@ -27512,10 +28124,11 @@ function generateRandomLayout() {
 
 
         const isCollectibleBlock = isCollectMode && len === 1 && Math.random() < 0.3;
+        const isTntGeneratedBlock = !isCollectibleBlock && isTntMode && len === 1 && Math.random() < PARAMS.tntSpawnChance / 100;
 
 
 
-        const b = spawnBlock(c, r, len, color, undefined, undefined, isCollectibleBlock);
+        const b = spawnBlock(c, r, len, isTntGeneratedBlock ? TNT_COLOR : color, undefined, undefined, isCollectibleBlock, false, isTntGeneratedBlock ? TNT_PROP_TYPE : undefined);
 
 
 
@@ -29587,13 +30200,15 @@ function setupInteraction() {
 
             const isColl = color === 'collectible';
 
+            const isTntManualBlock = color === TNT_COLOR;
             const isPropBlock = color === 'prop-row-bomb' || color === 'prop-peppermint';
 
-            let propTypeVal: 'row-bomb' | 'peppermint' | undefined = undefined;
+            let propTypeVal: 'row-bomb' | 'peppermint' | 'tnt' | undefined = undefined;
 
             if (color === 'prop-peppermint') propTypeVal = 'peppermint';
 
             else if (color === 'prop-row-bomb') propTypeVal = 'row-bomb';
+            else if (isTntManualBlock) propTypeVal = TNT_PROP_TYPE;
 
 
 
@@ -29616,12 +30231,14 @@ function setupInteraction() {
             } else if (isPropBlock) {
 
               spawnColor = 'red'; // Props use a default color for gravity/data purposes
+            } else if (isTntManualBlock) {
+              spawnColor = TNT_COLOR;
 
             }
 
 
 
-            spawnBlock(col, row, length, spawnColor, undefined, undefined, isColl, isPropBlock, propTypeVal, manualSelectedBlock.propDir || 'left');
+            spawnBlock(col, row, isTntManualBlock ? 1 : length, spawnColor, undefined, undefined, isColl, isPropBlock, propTypeVal, manualSelectedBlock.propDir || 'left');
 
 
 
@@ -34133,11 +34750,38 @@ function setupDOMUI() {
 
     manualBlockPalette.appendChild(propSection);
 
-
-
-
-
-
+    const tntSection = document.createElement('div');
+    tntSection.className = 'palette-tnt-section';
+    tntSection.style.marginBottom = '12px';
+    tntSection.style.borderBottom = '1px solid #444';
+    tntSection.style.paddingBottom = '8px';
+    const tntTitle = document.createElement('div');
+    tntTitle.innerText = 'TNT 炸弹道具';
+    tntTitle.style.color = '#ffd45c';
+    tntTitle.style.fontSize = '12px';
+    tntTitle.style.fontWeight = 'bold';
+    tntTitle.style.textAlign = 'center';
+    tntTitle.style.marginBottom = '6px';
+    tntSection.appendChild(tntTitle);
+    const tntRow = document.createElement('div');
+    tntRow.className = 'palette-row';
+    tntRow.style.justifyContent = 'center';
+    const tntBtn = document.createElement('div');
+    tntBtn.className = 'palette-block-btn';
+    tntBtn.innerText = 'TNT';
+    tntBtn.style.background = 'linear-gradient(135deg, #ffcf4a, #e83232)';
+    tntBtn.style.width = '44px';
+    tntBtn.style.fontSize = '11px';
+    tntBtn.title = '放置 1x1 TNT 炸弹';
+    tntBtn.onclick = () => {
+      document.querySelectorAll('.palette-block-btn').forEach(el => el.classList.remove('active'));
+      tntBtn.classList.add('active');
+      manualSelectedBlock = { length: 1, color: TNT_COLOR };
+      initOrUpdateManualPreviewSprite(1, TNT_COLOR, false);
+    };
+    tntRow.appendChild(tntBtn);
+    tntSection.appendChild(tntRow);
+    manualBlockPalette.appendChild(tntSection);
 
     const colors = ['red', 'blue', 'green', 'yellow', 'pink'];
 
@@ -36049,6 +36693,8 @@ function setupDOMUI() {
 
   const btnMultiCollectMode = document.getElementById('btn-multi-collect-mode')!;
 
+  const btnTntMode = document.getElementById('btn-tnt-mode')!;
+
 
 
   const btnNoGravityMode = document.getElementById('btn-nogravity-mode')!;
@@ -36287,7 +36933,7 @@ function setupDOMUI() {
 
 
 
-                      !isMaterialChangingMode;
+                      !isMaterialChangingMode && !isTntMode;
 
 
 
@@ -36346,6 +36992,8 @@ function setupDOMUI() {
     setBtnActive(btnCollectMode, isCollectMode && !multiCollectibleModeEnabled);
 
     setBtnActive(btnMultiCollectMode, isCollectMode && multiCollectibleModeEnabled);
+
+    setBtnActive(btnTntMode, isTntMode);
 
 
 
@@ -36707,6 +37355,8 @@ function setupDOMUI() {
 
     isMaterialChangingMode = false;
 
+    isTntMode = false;
+
 
 
 
@@ -36821,7 +37471,7 @@ function setupDOMUI() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -36985,11 +37635,31 @@ function setupDOMUI() {
 
 
 
+  btnTntMode.onclick = async () => {
+    stopGameplayModeTimer();
+    deactivateCollectMode();
+    isTntMode = !isTntMode;
+    if (isTntMode) {
+      isColorChangingMode = false;
+      isSingleColorMode = false;
+      isCustomTwoColorMode = false;
+      isRainbowMode = false;
+      isRainbowFixedMode = false;
+      isMaterialChangingMode = false;
+      btnColorMode.innerHTML = '<span class="icon">🎨</span>变色模式';
+      btnSingleColorMode.innerHTML = '<span class="icon">🎨</span>单色变色';
+      seedTntBlocksOnCurrentBoard();
+    }
+    syncModeButtonsUI();
+    if (currentMode === 'manual') buildManualBlockPalette();
+  };
+
   btnColorMode.onclick = async () => {
 
 
 
     deactivateCollectMode();
+    isTntMode = false;
 
 
 
@@ -37157,7 +37827,7 @@ function setupDOMUI() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -37200,6 +37870,7 @@ function setupDOMUI() {
 
 
     deactivateCollectMode();
+    isTntMode = false;
 
 
 
@@ -37358,6 +38029,7 @@ function setupDOMUI() {
 
 
     deactivateCollectMode();
+    isTntMode = false;
 
 
 
@@ -37509,7 +38181,7 @@ function setupDOMUI() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -37898,6 +38570,7 @@ function setupDOMUI() {
 
 
       deactivateCollectMode();
+      isTntMode = false;
 
 
 
@@ -38045,7 +38718,7 @@ function setupDOMUI() {
 
 
 
-      if (b.isCollectible || b.isProp) return;
+      if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -38116,6 +38789,7 @@ function setupDOMUI() {
 
 
     isCollectMode = true;
+    isTntMode = false;
 
     multiCollectibleModeEnabled = false;
 
@@ -38355,6 +39029,7 @@ function setupDOMUI() {
     if (isCollectMode && multiCollectibleModeEnabled) return;
 
     isCollectMode = true;
+    isTntMode = false;
 
     multiCollectibleModeEnabled = true;
 
@@ -43351,6 +44026,10 @@ function stopRecording() {
 
 (window as any).getBlocks = () => blocks;
 
+(window as any).getTntBlocks = () => blocks
+  .filter(block => isTntBlock(block))
+  .map(block => ({ id: block.id, row: block.row, col: block.col, length: block.length, color: block.color, propType: block.propType }));
+
 
 
 (window as any).getCurrentMode = () => currentMode;
@@ -43457,8 +44136,10 @@ customPropStyleSystemReady = true;
 loadCustomPropImages();
 applyPendingCustomPropStyle();
 setTimeout(() => { initPropStylePanel(); }, 600);
-(window as any).importPropImage      = (role: 'machine'|'candy') => importPropImage(role);
+  (window as any).importPropImage      = (role: 'machine'|'candy') => importPropImage(role);
   (window as any).clearCustomPropImages = clearCustomPropImages;
+  (window as any).clearCustomTntImage = clearCustomTntImage;
+  (window as any).clearCustomTntArmedImage = clearCustomTntArmedImage;
   (window as any).parseMaterialTextureName = (fileName: string) => parseMaterialTextureName(fileName);
 
 
@@ -43614,6 +44295,8 @@ setTimeout(() => { initPropStylePanel(); }, 600);
       col: block.col,
       row: block.row,
       length: block.length,
+      color: block.color,
+      propType: block.propType,
       noGravity: !!block.noGravity
     })),
 
@@ -43757,7 +44440,7 @@ interface SimBlock {
 
 
 
-  propType?: 'row-bomb' | 'peppermint';
+  propType?: 'row-bomb' | 'peppermint' | 'tnt';
 
   propDir?: 'left' | 'right';
 
