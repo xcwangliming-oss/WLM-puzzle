@@ -41,7 +41,8 @@ import {
 import { getTriggeredVisibleFullRows } from './playbackRowRules.ts'
 
 const EDITOR_STAGE_BASE_WIDTH = 2020;
-const EDITOR_STAGE_BASE_HEIGHT = 995;
+const EDITOR_STAGE_BASE_HEIGHT = 1180;
+const EDITOR_GAME_UI_HEIGHT = 987;
 const EDITOR_STAGE_MARGIN = 8;
 
 function syncEditorStageScale(): void {
@@ -52,6 +53,7 @@ function syncEditorStageScale(): void {
   const scale = Math.min(1, availableWidth / EDITOR_STAGE_BASE_WIDTH, availableHeight / EDITOR_STAGE_BASE_HEIGHT);
   root.style.setProperty('--editor-stage-width', `${EDITOR_STAGE_BASE_WIDTH}px`);
   root.style.setProperty('--editor-stage-height', `${EDITOR_STAGE_BASE_HEIGHT}px`);
+  root.style.setProperty('--editor-game-ui-height', `${EDITOR_GAME_UI_HEIGHT}px`);
   root.style.setProperty('--editor-stage-scale', scale.toFixed(4));
 }
 

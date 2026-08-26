@@ -34,7 +34,7 @@ body:not(.is-playable) {
 body:not(.is-playable) #tab-level {
   flex: 0 0 auto !important;
   width: var(--editor-stage-width, 2020px) !important;
-  height: var(--editor-stage-height, 995px) !important;
+  height: var(--editor-stage-height, 1180px) !important;
   transform: scale(var(--editor-stage-scale, 1));
   transform-origin: top left;
   overflow: hidden !important;
@@ -862,7 +862,7 @@ body:not(.is-playable) #tab-level {
 
 body:not(.is-playable) #game-ui {
   flex: 0 0 700px;
-  height: calc(var(--editor-stage-height, 995px) - 8px);
+  height: var(--editor-game-ui-height, 987px);
 }
 
 body:not(.is-playable) #material-panel,
@@ -880,7 +880,7 @@ body:not(.is-playable) #material-panel {
 
 body:not(.is-playable) #style-assets-panel {
   width: 250px;
-  max-height: calc(var(--editor-stage-height, 995px) - 8px);
+  max-height: calc(var(--editor-stage-height, 1180px) - 8px);
   overflow-y: auto;
   padding: 6px;
   gap: 5px;
@@ -888,12 +888,12 @@ body:not(.is-playable) #style-assets-panel {
 
 body:not(.is-playable) #script-panel {
   flex: 0 0 232px;
-  max-height: calc(100vh - 8px);
+  max-height: calc(var(--editor-stage-height, 1180px) - 8px);
 }
 
 body:not(.is-playable) #script-steps-panel {
   flex: 0 0 158px;
-  max-height: calc(100vh - 8px);
+  max-height: calc(var(--editor-stage-height, 1180px) - 8px);
 }
 
 #script-step-list {
