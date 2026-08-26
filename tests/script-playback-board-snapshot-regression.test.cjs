@@ -79,3 +79,18 @@ test('recorded elimination waves require a visible trigger before clearing pendi
   assert.doesNotMatch(source, /function alignRecordedWaveRowsToCurrentFullRows\(/);
   assert.doesNotMatch(body, /return visibleRecordedRows;/);
 });
+
+test('selected color rules persist into the recorded playback start board', () => {
+  assert.match(
+    source,
+    /function syncInitialBoardColorsFromCurrentBoard\(\)[\s\S]*?initialBlock\.color = currentBlock\.color/,
+  );
+
+  const colorButtonStart = source.indexOf('btnColorMode.onclick = async () =>');
+  const multiCollectStart = source.indexOf('btnMultiCollectMode.onclick = async () =>', colorButtonStart);
+  assert.notEqual(colorButtonStart, -1);
+  assert.notEqual(multiCollectStart, -1);
+  const colorRuleHandlers = source.slice(colorButtonStart, multiCollectStart);
+  const syncCount = (colorRuleHandlers.match(/syncInitialBoardColorsFromCurrentBoard\(\);/g) || []).length;
+  assert.ok(syncCount >= 4, 'color, single-color, rainbow, and custom two-color handlers must sync playback start colors');
+});

@@ -50,8 +50,8 @@ assert.match(
 );
 assert.match(
   source,
-  /const avatarTargetEl = getCollectionAvatarTargetElement\(\);[\s\S]*?const multiTargetEl = multiItem[\s\S]*?const targetEl = multiTargetEl \|\| avatarTargetEl \|\| document\.getElementById\('collectible-header-icon'\)/,
-  'collectibles must target multi-collectible HUD first, then the center avatar, then the old right-icon fallback',
+  /const avatarTargetEl = getCollectionAvatarTargetElement\(\);[\s\S]*?const multiTargetEl = multiItem[\s\S]*?const multiTargetImageEl = multiTargetEl\?\.querySelector<HTMLElement>\('img'\)[\s\S]*?const targetEl = multiTargetImageEl \|\| avatarTargetEl \|\| document\.getElementById\('collectible-header-icon'\)/,
+  'collectibles must target the matching multi-collectible icon first, then the center avatar, then the old right-icon fallback',
 );
 assert.match(
   source,

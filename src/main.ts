@@ -4258,8 +4258,29 @@ function captureBoardState() {
 
 }
 
+function syncInitialBoardColorsFromCurrentBoard() {
+  if (initialBoardBlocks.length === 0) return;
+  const currentBlocksById = new Map(blocks.map(block => [block.id, block]));
 
+  initialBoardBlocks.forEach(initialBlock => {
+    if (initialBlock.id === undefined || initialBlock.isCollectible || initialBlock.isProp) return;
+    const currentBlock = currentBlocksById.get(initialBlock.id);
+    if (!currentBlock || currentBlock.isCollectible || currentBlock.isProp) return;
+    initialBlock.color = currentBlock.color;
+  });
+}
 
+function syncInitialBoardCollectibleIdsFromCurrentBoard() {
+  if (initialBoardBlocks.length === 0) return;
+  const currentBlocksById = new Map(blocks.map(block => [block.id, block]));
+
+  initialBoardBlocks.forEach(initialBlock => {
+    if (initialBlock.id === undefined || !initialBlock.isCollectible) return;
+    const currentBlock = currentBlocksById.get(initialBlock.id);
+    if (!currentBlock?.isCollectible) return;
+    initialBlock.collectibleId = currentBlock.collectibleId;
+  });
+}
 
 
 
@@ -10892,6 +10913,7 @@ function refreshExistingMultiCollectibleBlocks() {
     const item = getNextMultiCollectibleItem();
     spawnBlock(col, row, length, color, id, noGravity, true, false, undefined, 'left', item?.id);
   });
+  syncInitialBoardCollectibleIdsFromCurrentBoard();
 }
 
 async function rebuildMultiCollectibleItems() {
@@ -13313,8 +13335,9 @@ function playCollectibleFlyAnimation(b: Block) {
     ? Array.from(document.querySelectorAll<HTMLElement>('.multi-collectible-target'))
       .find(el => el.dataset.multiCollectibleId === multiItem.id) || null
     : null;
+  const multiTargetImageEl = multiTargetEl?.querySelector<HTMLElement>('img') || null;
 
-  const targetEl = multiTargetEl || avatarTargetEl || document.getElementById('collectible-header-icon');
+  const targetEl = multiTargetImageEl || avatarTargetEl || document.getElementById('collectible-header-icon');
 
 
 
@@ -13334,8 +13357,8 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-    if (multiTargetEl) {
-      targetSize = Math.max(42, Math.min(64, targetRect.width));
+    if (multiTargetImageEl) {
+      targetSize = Math.max(1, Math.min(targetRect.width, targetRect.height));
       targetLeft = targetRect.left - boardRect.left + (targetRect.width - targetSize) / 2;
       targetTop = targetRect.top - boardRect.top + (targetRect.height - targetSize) / 2;
     } else if (avatarTargetEl) {
@@ -35859,6 +35882,8 @@ function setupDOMUI() {
 
         applyCurrentTwoColors();
 
+        syncInitialBoardColorsFromCurrentBoard();
+
 
 
       }
@@ -35910,6 +35935,8 @@ function setupDOMUI() {
 
 
         applyCurrentTwoColors();
+
+        syncInitialBoardColorsFromCurrentBoard();
 
 
 
@@ -37107,6 +37134,8 @@ function setupDOMUI() {
 
     });
 
+    syncInitialBoardColorsFromCurrentBoard();
+
 
 
     syncModeButtonsUI();
@@ -37262,6 +37291,8 @@ function setupDOMUI() {
 
 
     applyCurrentTwoColors();
+
+    syncInitialBoardColorsFromCurrentBoard();
 
 
 
@@ -37454,6 +37485,8 @@ function setupDOMUI() {
 
 
     });
+
+    syncInitialBoardColorsFromCurrentBoard();
 
 
 
@@ -37990,6 +38023,8 @@ function setupDOMUI() {
 
 
     });
+
+    syncInitialBoardColorsFromCurrentBoard();
 
 
 

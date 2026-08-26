@@ -66,6 +66,8 @@ test('old recorded collectible blocks do not adopt current multi collectible slo
 
 test('changing multi collectible slots refreshes existing collectible blocks', () => {
   assert.match(source, /const item = getNextMultiCollectibleItem\(\);[\s\S]*?spawnBlock\(col, row, length, color, id, noGravity, true, false, undefined, 'left', item\?\.id\)/);
+  assert.match(source, /function syncInitialBoardCollectibleIdsFromCurrentBoard\(\)[\s\S]*?initialBlock\.collectibleId = currentBlock\.collectibleId/);
+  assert.match(source, /function refreshExistingMultiCollectibleBlocks\(\)[\s\S]*?syncInitialBoardCollectibleIdsFromCurrentBoard\(\);/);
   assert.match(source, /select\.addEventListener\('change', async \(\) => \{[\s\S]*?await rebuildMultiCollectibleItems\(\);[\s\S]*?refreshExistingMultiCollectibleBlocks\(\);/);
   assert.match(source, /countSelect\?\.addEventListener\('change', async \(\) => \{[\s\S]*?await rebuildMultiCollectibleItems\(\);[\s\S]*?refreshExistingMultiCollectibleBlocks\(\);/);
   assert.match(source, /async function rebuildMultiCollectibleItems\(\) \{[\s\S]*?normalizeMultiCollectibleSlotIds\(\);[\s\S]*?const selectedIds = multiCollectibleSlotIds\.slice/);
@@ -82,6 +84,9 @@ test('multi collectible flight targets matching left-side collectible', () => {
   assert.match(flyBody, /if \(multiCollectibleModeEnabled && !multiItem\) return;/);
   assert.match(flyBody, /\.multi-collectible-target/);
   assert.match(flyBody, /dataset\.multiCollectibleId === multiItem\.id/);
+  assert.match(flyBody, /multiTargetEl\?\.querySelector<HTMLElement>\('img'\)/);
+  assert.match(flyBody, /const targetEl = multiTargetImageEl \|\| avatarTargetEl/);
+  assert.match(flyBody, /targetSize = Math\.max\(1, Math\.min\(targetRect\.width, targetRect\.height\)\)/);
   assert.match(flyBody, /multiItem\.count\+\+/);
   assert.match(flyBody, /syncMultiCollectibleHudCounts\(\)/);
 });
