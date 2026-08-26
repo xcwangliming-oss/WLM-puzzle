@@ -33,7 +33,30 @@ import {
 } from './boardMechanics.ts'
 import { getFailureOverlayMotion } from './failureOverlay.ts'
 import { getPlayableBlockLoadError } from './playableStateContract.ts'
-import { getNoGravityPlaybackMaxRow, releaseNoGravityBlocksInRange } from './noGravityRules.ts'
+import {
+  getNoGravityPlaybackMaxRow,
+  releaseNewlyUnsupportedNoGravityBlocks,
+  releaseNoGravityBlocksInRange,
+} from './noGravityRules.ts'
+import { getTntBlastCellKeys, isTntBlock, resolveTntBlast } from './tntRules.ts'
+import { getTriggeredVisibleFullRows } from './playbackRowRules.ts'
+
+const EDITOR_STAGE_BASE_WIDTH = 2020;
+const EDITOR_STAGE_BASE_HEIGHT = 1180;
+const EDITOR_GAME_UI_HEIGHT = 987;
+const EDITOR_STAGE_MARGIN = 8;
+
+function syncEditorStageScale(): void {
+  if (isStandalonePlayable || document.body.classList.contains('is-playable')) return;
+  const root = document.documentElement;
+  const availableWidth = Math.max(320, window.innerWidth - EDITOR_STAGE_MARGIN * 2);
+  const availableHeight = Math.max(240, window.innerHeight - EDITOR_STAGE_MARGIN * 2);
+  const scale = Math.min(1, availableWidth / EDITOR_STAGE_BASE_WIDTH, availableHeight / EDITOR_STAGE_BASE_HEIGHT);
+  root.style.setProperty('--editor-stage-width', `${EDITOR_STAGE_BASE_WIDTH}px`);
+  root.style.setProperty('--editor-stage-height', `${EDITOR_STAGE_BASE_HEIGHT}px`);
+  root.style.setProperty('--editor-game-ui-height', `${EDITOR_GAME_UI_HEIGHT}px`);
+  root.style.setProperty('--editor-stage-scale', scale.toFixed(4));
+}
 
 function showFailureImpact() {
   const overlay = document.getElementById('game-failure-overlay');
@@ -162,6 +185,7 @@ let hasTriggeredCTA = false;
 };
 
 function getActiveGameRuleForExport(): string {
+    if (isTntMode) return 'tnt';
     if (isCollectMode) return 'collect';
     if (isColorChangingMode) return 'color';
     if (isSingleColorMode) return 'single-color';
@@ -193,6 +217,8 @@ type CustomPropStylePayload = {
     candy?: string;
     machineFrames?: string[];
     machineAttackFrames?: string[];
+    eatFrames?: string[];
+    obstacleEaterEnabled?: boolean;
 };
 
 let pendingCustomPropStyle: CustomPropStylePayload | null = null;
@@ -230,7 +256,11 @@ function getExportableCustomPropStyle(): CustomPropStylePayload | undefined {
             }
         } catch {}
     }
-    return style.candy || style.machineFrames?.length || style.machineAttackFrames?.length ? style : undefined;
+    if (Array.isArray(customPropEatFrames) && customPropEatFrames.length > 0) {
+        style.eatFrames = customPropEatFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    if (obstacleEaterEnabled) style.obstacleEaterEnabled = true;
+    return style.candy || style.machineFrames?.length || style.machineAttackFrames?.length || style.eatFrames?.length || style.obstacleEaterEnabled ? style : undefined;
 }
 
 function queueCustomPropStyle(style: unknown): void {
@@ -246,7 +276,13 @@ function queueCustomPropStyle(style: unknown): void {
     if (Array.isArray(source.machineAttackFrames)) {
         normalized.machineAttackFrames = source.machineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
     }
-    if (!normalized.candy && !normalized.machineFrames?.length && !normalized.machineAttackFrames?.length) return;
+    if (Array.isArray(source.eatFrames)) {
+        normalized.eatFrames = source.eatFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    }
+    if (typeof source.obstacleEaterEnabled === 'boolean') {
+        normalized.obstacleEaterEnabled = source.obstacleEaterEnabled;
+    }
+    if (!normalized.candy && !normalized.machineFrames?.length && !normalized.machineAttackFrames?.length && !normalized.eatFrames?.length && normalized.obstacleEaterEnabled === undefined) return;
     pendingCustomPropStyle = normalized;
     if (customPropStyleSystemReady) applyPendingCustomPropStyle();
 }
@@ -269,6 +305,7 @@ function queueCustomPropStyle(style: unknown): void {
             color: block.color,
             noGravity: block.noGravity,
             isCollectible: block.isCollectible,
+            collectibleId: block.collectibleId,
             isProp: block.isProp,
             propType: block.propType,
             propDir: block.propDir,
@@ -299,7 +336,14 @@ function queueCustomPropStyle(style: unknown): void {
             boardAdvanceMode: exportBoardAdvanceMode,
             boardMechanic: exportBoardMechanic,
             gameRule: exportGameRule,
+            isTntMode,
             collectedCount
+        },
+        multiCollectible: {
+            enabled: multiCollectibleModeEnabled,
+            slotCount: multiCollectibleSlotCount,
+            slotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount),
+            assets: getExportableMultiCollectibleAssets()
         },
         isFixedBoardMode: exportBoardAdvanceMode === 'fixed',
         isFallingMode,
@@ -313,7 +357,20 @@ function queueCustomPropStyle(style: unknown): void {
         background: {
             enabled: recordingBackgroundEnabled,
             dataUrl: recordingBackgroundDataUrl,
-            activeId: recordingBackgroundActiveId
+            activeId: recordingBackgroundActiveId,
+            mode: recordingBackgroundMode,
+            solidVariant: solidBackgroundVariant,
+            solidGroup: solidBackgroundGroup,
+            solidColorId: solidBackgroundColorId,
+            solidColors: SOLID_BACKGROUND_COLORS.filter(color => color.custom),
+            marqueeBorder: marqueeBorderEnabled
+        },
+        topUi: {
+            mode: topUiMode
+        },
+        visualEffects: {
+            comboText: comboTextEffectEnabled,
+            praiseText: praiseTextEffectEnabled
         },
         audio: {
             vocalPack: activeVocalPack,
@@ -375,16 +432,77 @@ function queueCustomPropStyle(style: unknown): void {
     isRainbowFixedMode = loadedGameRule === 'rainbow-fixed';
     isMaterialChangingMode = loadedGameRule === 'material';
     isNoGravityMode = loadedGameRule === 'no-gravity';
+    isTntMode = loadedGameRule === 'tnt' || !!(saveData.isTntMode ?? savedModes.isTntMode);
 
     const savedBackground = saveData.background;
-    if (savedBackground && typeof savedBackground.dataUrl === 'string') {
-        recordingBackgroundEnabled = savedBackground.enabled === true && savedBackground.dataUrl.length > 0;
-        recordingBackgroundDataUrl = recordingBackgroundEnabled ? savedBackground.dataUrl : '';
-        recordingBackgroundActiveId = recordingBackgroundEnabled
-            ? (typeof savedBackground.activeId === 'string' ? savedBackground.activeId : 'playable-background')
-            : NO_BACKGROUND_ID;
-        loadRecordingBackgroundImage(recordingBackgroundDataUrl);
+    if (savedBackground) {
+        const savedMode = savedBackground.mode === 'solid' ? 'solid' : 'image';
+        recordingBackgroundMode = savedMode;
+        applyCustomSolidBackgroundColors(savedBackground.solidColors);
+        if (savedBackground.solidVariant === 'animated' || savedBackground.solidVariant === 'solid') {
+            solidBackgroundVariant = savedBackground.solidVariant;
+        }
+        solidBackgroundGroup = normalizeSolidBackgroundGroup(savedBackground.solidGroup);
+        if (
+            typeof savedBackground.solidColorId === 'string' &&
+            SOLID_BACKGROUND_COLORS.some(color => color.id === savedBackground.solidColorId)
+        ) {
+            const savedColor = SOLID_BACKGROUND_COLORS.find(color => color.id === savedBackground.solidColorId);
+            if (savedColor && savedBackground.solidGroup !== 'dark' && savedBackground.solidGroup !== 'light' && savedBackground.solidGroup !== 'custom') {
+                solidBackgroundGroup = savedColor.group;
+            }
+            solidBackgroundColorId = savedBackground.solidColorId;
+        }
+        if (typeof savedBackground.marqueeBorder === 'boolean') {
+            marqueeBorderEnabled = savedBackground.marqueeBorder;
+        }
+        if (savedMode === 'solid') {
+            recordingBackgroundEnabled = savedBackground.enabled === true;
+            recordingBackgroundDataUrl = '';
+            recordingBackgroundActiveId = recordingBackgroundEnabled ? SOLID_BACKGROUND_ID : NO_BACKGROUND_ID;
+        } else if (typeof savedBackground.dataUrl === 'string') {
+            recordingBackgroundEnabled = savedBackground.enabled === true && savedBackground.dataUrl.length > 0;
+            recordingBackgroundDataUrl = recordingBackgroundEnabled ? savedBackground.dataUrl : '';
+            recordingBackgroundActiveId = recordingBackgroundEnabled
+                ? (typeof savedBackground.activeId === 'string' ? savedBackground.activeId : 'playable-background')
+                : NO_BACKGROUND_ID;
+        }
+        persistRecordingBackgroundState();
+        loadRecordingBackgroundImage(recordingBackgroundMode === 'image' ? recordingBackgroundDataUrl : '');
         syncRecordingBackgroundUI();
+    }
+
+    if (saveData.topUi?.mode === 'heart' || saveData.topUi?.mode === 'classic') {
+        topUiMode = saveData.topUi.mode;
+        localStorage.setItem('topUiMode', topUiMode);
+        syncTopUiMode();
+    }
+
+    if (saveData.visualEffects) {
+        if (typeof saveData.visualEffects.comboText === 'boolean') {
+            comboTextEffectEnabled = saveData.visualEffects.comboText;
+            localStorage.setItem('comboTextEffectEnabled', String(comboTextEffectEnabled));
+        }
+        if (typeof saveData.visualEffects.praiseText === 'boolean') {
+            praiseTextEffectEnabled = saveData.visualEffects.praiseText;
+            localStorage.setItem('praiseTextEffectEnabled', String(praiseTextEffectEnabled));
+        }
+        syncClearTextEffectUI();
+    }
+
+    if (saveData.multiCollectible) {
+        applyMultiCollectibleAssetPayload(saveData.multiCollectible.assets);
+        multiCollectibleModeEnabled = saveData.multiCollectible.enabled === true;
+        if (Number.isFinite(Number(saveData.multiCollectible.slotCount))) {
+            multiCollectibleSlotCount = Math.max(2, Math.min(5, Number(saveData.multiCollectible.slotCount) || 2));
+        }
+        if (Array.isArray(saveData.multiCollectible.slotIds)) {
+            multiCollectibleSlotIds = saveData.multiCollectible.slotIds.map(String).slice(0, 5);
+        }
+        persistMultiCollectibleSettings();
+        rebuildMultiCollectibleItems().catch(error => {
+            console.warn('Failed to rebuild shared multi collectible items:', error);
+        });
     }
 
     const savedAudio = saveData.audio;
@@ -469,6 +587,7 @@ function queueCustomPropStyle(style: unknown): void {
         color: typeof sb.color === 'string' ? sb.color : 'red',
         noGravity: !!sb.noGravity,
         isCollectible: !!sb.isCollectible,
+        collectibleId: typeof sb.collectibleId === 'string' ? sb.collectibleId : undefined,
         isProp: !!sb.isProp,
         propType: sb.propType,
         propDir: sb.propDir || 'left'
@@ -484,7 +603,8 @@ function queueCustomPropStyle(style: unknown): void {
             sb.isCollectible,
             sb.isProp,
             sb.propType,
-            sb.propDir || 'left'
+            sb.propDir || 'left',
+            typeof sb.collectibleId === 'string' ? sb.collectibleId : undefined
         );
     });
 
@@ -552,11 +672,16 @@ const PARAMS = {
 
 
 
-  shatterMode: 2,
+  shatterMode: 1,
 
 
 
   effectType: 'default',
+
+  // Multi-row elimination playback order. Keep the legacy simultaneous behavior by default.
+  rowClearOrder: 'simultaneous',
+
+  tntSpawnChance: 10,
 
 
 
@@ -577,6 +702,12 @@ const PROBS = {
 
 
 };
+
+let previewRenderRows = DEFAULT_BOARD_ROWS;
+
+function getPreviewRenderRows(): number {
+  return Math.max(1, Math.min(PARAMS.totalRows, previewRenderRows || PARAMS.viewportRows));
+}
 
 
 
@@ -693,6 +824,8 @@ isFixedBoardMode = boardMechanic === 'fixed';
 let scriptPlaybackAdvanceMode: BoardAdvanceMode | null = null;
 
 let scriptPlaybackMechanic: BoardMechanic | null = null;
+
+let scriptPlaybackUsesRecordedScrollTrack = false;
 
 
 
@@ -817,6 +950,30 @@ let activeCollectibleTextures: PIXI.Texture[] | null = null;
 
 
 let customCollectibles: { id: number; name: string; texture: string }[] = [];
+const sharedCollectibleAssets = new Map<number, { id: number; name: string; texture: string }>();
+
+type ExportedCollectibleAsset = { id: string; name: string; src: string };
+
+type MultiCollectibleItem = {
+  id: string;
+  name: string;
+  src: string;
+  count: number;
+  texture: PIXI.Texture | null;
+};
+
+let multiCollectibleModeEnabled = localStorage.getItem('multiCollectibleModeEnabled') === 'true';
+let multiCollectibleSlotCount = Math.max(2, Math.min(5, parseInt(localStorage.getItem('multiCollectibleSlotCount') || '2', 10) || 2));
+let multiCollectibleSlotIds: string[] = (() => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('multiCollectibleSlotIds') || '[]');
+    return Array.isArray(parsed) ? parsed.map(String).slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+})();
+let multiCollectibleItems: MultiCollectibleItem[] = [];
+let nextMultiCollectibleIndex = 0;
 
 type CollectionAvatarState = 'idle' | 'collect';
 
@@ -867,6 +1024,23 @@ let isMaterialChangingMode = false;
 
 
 let isNoGravityMode = false;
+
+let isTntMode = false;
+
+const TNT_COLOR = 'tnt';
+const TNT_PROP_TYPE = 'tnt';
+const TNT_EXPLOSION_FRAME_COUNT = 15;
+const TNT_EXPLOSION_ALIASES = Array.from({ length: TNT_EXPLOSION_FRAME_COUNT }, (_, i) => `tnt_explosion_${i}`);
+const TNT_PRE_EXPLOSION_FRAME_COUNT = 30;
+const TNT_PRE_EXPLOSION_ALIASES = Array.from({ length: TNT_PRE_EXPLOSION_FRAME_COUNT }, (_, i) => `tnt_pre_explosion_${i}`);
+const TNT_PRE_EXPLOSION_SECONDS = 0.8;
+const TNT_EXPLOSION_SOUND_URL = '/assets/sounds/tnt-explosion.mp3';
+let tntTextureCache: PIXI.Texture | null = null;
+let customTntImage: HTMLImageElement | null = null;
+const TNT_STORAGE_IMAGE = 'custom_tnt_image_b64';
+let tntArmedTextureCache: PIXI.Texture | null = null;
+let customTntArmedImage: HTMLImageElement | null = null;
+const TNT_STORAGE_ARMED_IMAGE = 'custom_tnt_armed_image_b64';
 
 
 
@@ -986,6 +1160,8 @@ const gameplayRiseInterval = 3500;
 
 
 
+const SCRIPT_PLAYBACK_DATA_VERSION = 5;
+
 interface ScriptStep {
 
 
@@ -1023,6 +1199,12 @@ interface ScriptStep {
 
 
   eliminationWaves?: number[][];
+
+  eliminationWaveScrollYs?: number[];
+
+  boardBefore?: BoardBlockState[];
+
+  playbackDataVersion?: number;
 
 
 
@@ -1105,6 +1287,7 @@ interface BoardBlockState {
 
 
   isCollectible?: boolean;
+  collectibleId?: string;
 
 
 
@@ -1112,7 +1295,7 @@ interface BoardBlockState {
 
 
 
-  propType?: 'row-bomb' | 'peppermint';
+  propType?: 'row-bomb' | 'peppermint' | 'tnt';
 
   propDir?: 'left' | 'right';
 
@@ -1123,6 +1306,77 @@ interface BoardBlockState {
 
 
 
+
+
+
+function spawnRecordedBlockState(sb: BoardBlockState | any) {
+  const shouldUseSingleCollectible =
+    sb?.isCollectible === true &&
+    (sb.collectibleId === undefined || sb.collectibleId === null || sb.collectibleId === '');
+  const previousMultiCollectibleMode = multiCollectibleModeEnabled;
+  if (shouldUseSingleCollectible) multiCollectibleModeEnabled = false;
+  try {
+    spawnBlock(
+      sb.col,
+      sb.row,
+      sb.length,
+      sb.color,
+      sb.id,
+      sb.noGravity,
+      sb.isCollectible,
+      sb.isProp,
+      sb.propType,
+      sb.propDir || 'left',
+      sb.collectibleId
+    );
+  } finally {
+    multiCollectibleModeEnabled = previousMultiCollectibleMode;
+  }
+}
+
+function captureCurrentBoardBlockStates(): BoardBlockState[] {
+  return blocks.map(b => ({
+    id: b.id,
+    col: b.col,
+    row: b.row,
+    length: b.length,
+    color: b.color,
+    noGravity: b.noGravity,
+    isCollectible: b.isCollectible,
+    isProp: b.isProp,
+    propType: b.propType,
+    propDir: b.propDir,
+    collectibleId: b.collectibleId
+  }));
+}
+
+function restoreBoardBlockStates(states: BoardBlockState[]) {
+  clearAllBlocks();
+  states.forEach(sb => {
+    spawnRecordedBlockState(sb);
+  });
+}
+
+function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
+  if (blocks.length !== states.length) return false;
+
+  const currentById = new Map<number | undefined, Block>(blocks.map(block => [block.id, block]));
+
+  for (const state of states) {
+    const block = currentById.get(state.id);
+    if (!block) return false;
+    if (block.col !== state.col) return false;
+    if (block.row !== state.row) return false;
+    if (block.length !== state.length) return false;
+    if (!!block.isCollectible !== !!state.isCollectible) return false;
+    if (!!block.isProp !== !!state.isProp) return false;
+    if (block.propType !== state.propType) return false;
+    if ((block.propDir || 'left') !== (state.propDir || 'left')) return false;
+    if (block.collectibleId !== state.collectibleId) return false;
+  }
+
+  return true;
+}
 
 
 
@@ -1143,6 +1397,12 @@ let activeRecordingStepIndex: number | null = null;
 
 
 let activeEliminationWaveIndex = 0;
+
+let pendingSequentialClearBlockIds: number[][] = [];
+
+let pendingOffscreenFullRowBlockIds: number[][] = [];
+
+let forcedPlaybackFullRows: number[] | null = null;
 
 
 
@@ -3172,6 +3432,17 @@ class CollectibleDB {
 
   }
 
+  async putCollectible(id: number, name: string, texture: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) return resolve();
+      const transaction = this.db.transaction(this.storeName, 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.put({ id, name, texture });
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
 
 
 
@@ -3426,7 +3697,7 @@ async function applyMaterialPack(textures: Record<string, string>) {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -3494,7 +3765,7 @@ async function restoreDefaultTextures() {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -3784,7 +4055,7 @@ function applyCachedMaterialPack(cachedTextures: Record<string, PIXI.Texture>) {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -3994,7 +4265,8 @@ function captureBoardState() {
 
     propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -4012,8 +4284,29 @@ function captureBoardState() {
 
 }
 
+function syncInitialBoardColorsFromCurrentBoard() {
+  if (initialBoardBlocks.length === 0) return;
+  const currentBlocksById = new Map(blocks.map(block => [block.id, block]));
 
+  initialBoardBlocks.forEach(initialBlock => {
+    if (initialBlock.id === undefined || initialBlock.isCollectible || initialBlock.isProp) return;
+    const currentBlock = currentBlocksById.get(initialBlock.id);
+    if (!currentBlock || currentBlock.isCollectible || currentBlock.isProp) return;
+    initialBlock.color = currentBlock.color;
+  });
+}
 
+function syncInitialBoardCollectibleIdsFromCurrentBoard() {
+  if (initialBoardBlocks.length === 0) return;
+  const currentBlocksById = new Map(blocks.map(block => [block.id, block]));
+
+  initialBoardBlocks.forEach(initialBlock => {
+    if (initialBlock.id === undefined || !initialBlock.isCollectible) return;
+    const currentBlock = currentBlocksById.get(initialBlock.id);
+    if (!currentBlock?.isCollectible) return;
+    initialBlock.collectibleId = currentBlock.collectibleId;
+  });
+}
 
 
 
@@ -4074,7 +4367,7 @@ function applyCurrentTwoColors() {
 
 
 
-  blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+  blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4126,7 +4419,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4170,7 +4463,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4222,7 +4515,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4266,7 +4559,7 @@ function resetAndApplyActiveModeStyle() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -4478,7 +4771,7 @@ function restoreBoardState(options: { preserveWorldY?: boolean } = {}) {
 
 
 
-    spawnBlock(ib.col, ib.row, ib.length, ib.color, ib.id, ib.noGravity, ib.isCollectible, ib.isProp, ib.propType, ib.propDir || 'left');
+    spawnRecordedBlockState(ib);
 
 
 
@@ -4582,6 +4875,18 @@ function getVisibleBottomRowForWorldY(worldY: number): number {
 
 
 
+function getVisibleRowRangeForWorldY(worldY: number): { minRow: number; maxRow: number } {
+
+  const minRow = Math.max(0, Math.floor(-worldY / PARAMS.cellSize));
+
+  const maxRow = getVisibleBottomRowForWorldY(worldY);
+
+  return { minRow, maxRow };
+
+}
+
+
+
 
 
 
@@ -4659,6 +4964,10 @@ function getStepGravityMaxRow(step: ScriptStep): number {
 
 
   const recordedVisibleBottomRow = getVisibleBottomRowForWorldY(getStepScrollY(step));
+
+  if (isPlayingScript && isNoGravityMode && scriptPlaybackAdvanceMode === 'fixed') {
+    return getVisibleBottomRowForWorldY(worldContainer ? worldContainer.y : getStepScrollY(step));
+  }
 
 
 
@@ -5076,6 +5385,12 @@ function appendStepEliminationWave(stepIndex: number | null, rows: number[]) {
 
   step.eliminationWaves = waves;
 
+  const waveScrollYs = Array.isArray(step.eliminationWaveScrollYs)
+    ? [...step.eliminationWaveScrollYs]
+    : [];
+  waveScrollYs.push(worldContainer ? worldContainer.y : getStepScrollY(step));
+  step.eliminationWaveScrollYs = waveScrollYs;
+
 
 
   mergeStepEliminatedRows(stepIndex, wave);
@@ -5140,38 +5455,234 @@ function getFullRowsFromOccupancy(occ: number[][], minRow = 0, maxRow = PARAMS.t
 
 }
 
+function getFullRowBlockIds(row: number): number[] {
+  return blocks
+    .filter(block => !block.isProp && block.row === row)
+    .map(block => block.id)
+    .sort((a, b) => a - b);
+}
 
+function refreshPendingOffscreenFullRows(occ: number[][]): number[] {
+  const refreshed: number[][] = [];
+  const rows: number[] = [];
+
+  pendingOffscreenFullRowBlockIds.forEach(ids => {
+    const idSet = new Set(ids);
+    const members = blocks.filter(block => !block.isProp && idSet.has(block.id));
+    if (members.length !== ids.length || members.length === 0) return;
+
+    const row = members[0].row;
+    if (!members.every(block => block.row === row)) return;
+    if (!getFullRowsFromOccupancy(occ, row, row).includes(row)) return;
+
+    refreshed.push([...ids]);
+    rows.push(row);
+  });
+
+  pendingOffscreenFullRowBlockIds = refreshed;
+  return rows;
+}
+
+function rememberOffscreenFullRows(occ: number[][], minVisibleRow: number, maxVisibleRow: number): number[] {
+  const pendingRows = refreshPendingOffscreenFullRows(occ);
+
+  getFullRowsFromOccupancy(occ)
+    .filter(row => row < minVisibleRow || row > maxVisibleRow)
+    .forEach(row => {
+      if (pendingRows.includes(row)) return;
+      const ids = getFullRowBlockIds(row);
+      if (ids.length > 0) pendingOffscreenFullRowBlockIds.push(ids);
+    });
+
+  return refreshPendingOffscreenFullRows(occ);
+}
+
+function getTriggeredFullRowsFromOccupancy(occ: number[][], minVisibleRow: number, maxVisibleRow: number): number[] {
+  const pendingRows = rememberOffscreenFullRows(occ, minVisibleRow, maxVisibleRow);
+  const visibleFullRows = getFullRowsFromOccupancy(occ, minVisibleRow, maxVisibleRow);
+  const rowsToClear = getTriggeredVisibleFullRows(visibleFullRows, pendingRows);
+
+  if (rowsToClear.length === 0) return [];
+
+  const clearedRows = new Set(rowsToClear);
+  pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
+    const member = blocks.find(block => ids.includes(block.id));
+    return member ? !clearedRows.has(member.row) : false;
+  });
+
+  return rowsToClear;
+}
 
 function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): number[] {
 
-  const playbackMaxRow = getRecordedStepPhysicsMaxRow(step);
+  const visualWorldY = worldContainer ? worldContainer.y : getStepScrollY(step);
 
-  const actualFullRows = getFullRowsFromOccupancy(occ, 0, playbackMaxRow);
+  const visualRange = getEliminationVisibleRowRangeForWorldY(visualWorldY);
+
+  const recordedRange = scriptPlaybackMechanic === 'scroll' && scriptPlaybackUsesRecordedScrollTrack
+
+    ? getEliminationVisibleRowRangeForWorldY(getStepScrollY(step))
+
+    : visualRange;
+
+  const playbackMinRow = Math.max(visualRange.minRow, recordedRange.minRow);
+
+  const playbackMaxRow = Math.min(visualRange.maxRow, recordedRange.maxRow);
+
+  const visibleFullRows = getFullRowsFromOccupancy(occ, playbackMinRow, playbackMaxRow);
+
+  const allFullRows = getFullRowsFromOccupancy(occ);
 
   const allowed = getPlaybackAllowedRows(step);
 
-  if (allowed.length === 0) return actualFullRows;
+  if (step.playbackDataVersion === SCRIPT_PLAYBACK_DATA_VERSION) {
 
-  const recordedRowsStillFull = actualFullRows.filter(r => allowed.includes(r));
+    const pendingRows = rememberOffscreenFullRows(
+      occ,
+      visualRange.minRow,
+      visualRange.maxRow
+    );
 
-  if (recordedRowsStillFull.length > 0) return recordedRowsStillFull;
+    if (allowed.length === 0) {
+      const recordedWaves = normalizeEliminationWaves(step.eliminationWaves);
+      const recordedChainFinished = recordedWaves.length > 0
+        && activeEliminationWaveIndex >= recordedWaves.length;
+      const liveClearChainActive = hasAnyEliminationThisStep
+        && (recordedWaves.length === 0 || recordedChainFinished);
 
-  if (actualFullRows.length > 0) {
+      // The camera keeps moving while a recorded clear is animating. Gravity can
+      // therefore complete another row after the authored waves are exhausted.
+      // Continue only that active scroll-playback chain, and still require a
+      // newly completed row inside the current fully-visible physics boundary.
+      if (
+        scriptPlaybackMechanic === 'scroll'
+        && scriptPlaybackUsesRecordedScrollTrack
+        && (isPlayingStepTransition || liveClearChainActive)
+      ) {
+        const continuingVisibleRows = getFullRowsFromOccupancy(
+          occ,
+          visualRange.minRow,
+          visualRange.maxRow
+        );
+        const rowsToClear = getTriggeredVisibleFullRows(continuingVisibleRows, pendingRows);
 
-    console.warn('[Playback] recorded elimination rows did not match current board; using actual full rows for this wave.', {
+        if (rowsToClear.length === 0) return [];
+
+        const clearedRows = new Set(rowsToClear);
+        pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
+          const member = blocks.find(block => ids.includes(block.id));
+          return member ? !clearedRows.has(member.row) : false;
+        });
+
+        return rowsToClear;
+      }
+
+      return [];
+    }
+
+    const allowedFullRows = allFullRows.filter(row => allowed.includes(row));
+    const rowsToClear = getTriggeredVisibleFullRows(
+      visibleFullRows,
+      pendingRows,
+      allowedFullRows
+    );
+
+    const rowsClearingNow = new Set(rowsToClear);
+    allowedFullRows.forEach(row => {
+      if (rowsClearingNow.has(row) || pendingRows.includes(row)) return;
+      const ids = getFullRowBlockIds(row);
+      if (ids.length > 0) pendingOffscreenFullRowBlockIds.push(ids);
+    });
+
+    if (rowsToClear.length === 0) return [];
+
+    const clearedRows = new Set(rowsToClear);
+    pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
+      const member = blocks.find(block => ids.includes(block.id));
+      return member ? !clearedRows.has(member.row) : false;
+    });
+
+    return rowsToClear;
+
+  }
+
+  if (visibleFullRows.length === 0) return [];
+
+  if (allowed.length === 0) return allFullRows;
+
+  if (!visibleFullRows.some(r => allowed.includes(r))) {
+
+    console.warn('[Playback] recorded elimination rows did not match current board; using current full rows for this recorded wave.', {
 
       allowed,
 
-      actualFullRows,
+      visibleFullRows,
 
       activeEliminationWaveIndex
 
     });
 
+    return allFullRows;
+
   }
 
-  return actualFullRows;
+  return allFullRows.filter(row => allowed.includes(row));
 
+}
+
+function getFullyVisibleRowRangeForWorldY(worldY: number): { minRow: number; maxRow: number } {
+  const viewportTop = -worldY;
+  const viewportBottom = viewportTop + getViewportGameHeight();
+  const minRow = Math.max(0, Math.ceil(viewportTop / PARAMS.cellSize));
+  const maxRow = Math.min(
+    PARAMS.totalRows - 1,
+    Math.floor(viewportBottom / PARAMS.cellSize) - 1
+  );
+  return { minRow, maxRow: Math.max(minRow - 1, maxRow) };
+}
+
+function getEliminationVisibleRowRangeForWorldY(worldY: number): { minRow: number; maxRow: number } {
+  let visibleGameTop = 0;
+  let visibleGameBottom = getViewportGameHeight();
+  const boardClip = document.getElementById('board-clip');
+  const canvas = app?.canvas;
+
+  if (boardClip && canvas) {
+    const clipRect = boardClip.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const rendererHeight = app.renderer.height;
+    const scaleY = rendererHeight > 0 ? canvasRect.height / rendererHeight : 0;
+    const visibleTop = Math.max(clipRect.top, canvasRect.top);
+    const visibleBottom = Math.min(clipRect.bottom, canvasRect.bottom);
+
+    if (scaleY > 0 && visibleBottom > visibleTop) {
+      const rendererTop = (visibleTop - canvasRect.top) / scaleY;
+      const rendererBottom = (visibleBottom - canvasRect.top) / scaleY;
+      visibleGameTop = Math.max(0, rendererTop - PADDING);
+      visibleGameBottom = Math.min(getPreviewRendererGameHeight(), rendererBottom - PADDING);
+    }
+  }
+
+  if (visibleGameBottom <= visibleGameTop) {
+    visibleGameTop = 0;
+    visibleGameBottom = getViewportGameHeight();
+  }
+
+  const viewportTop = -worldY + visibleGameTop;
+  const viewportBottom = -worldY + visibleGameBottom;
+  const minRow = Math.max(0, Math.ceil(viewportTop / PARAMS.cellSize));
+  const maxRow = Math.min(
+    PARAMS.totalRows - 1,
+    Math.floor(viewportBottom / PARAMS.cellSize) - 1
+  );
+  return { minRow, maxRow: Math.max(minRow - 1, maxRow) };
+}
+
+function getCurrentVisiblePlaybackFullRows(stepIndex: number | null): number[] {
+  if (stepIndex === null) return [];
+  const step = scriptSteps[stepIndex];
+  if (!step) return [];
+  return getPlaybackFullRowsFromOccupancy(getGridOccupancy(), step);
 }
 
 
@@ -5186,6 +5697,101 @@ function shouldAdvancePlaybackWave(step: ScriptStep): boolean {
 
 }
 
+function shouldContinuePlaybackClearChain(stepIndex: number | null): boolean {
+
+  if (stepIndex === null || isRepairingScript) return true;
+
+  if (getCurrentVisiblePlaybackFullRows(stepIndex).length > 0) return true;
+
+  const step = scriptSteps[stepIndex];
+
+  if (!step) return false;
+
+  const waves = normalizeEliminationWaves(step.eliminationWaves);
+
+  if (waves.length === 0) {
+    if (
+      scriptPlaybackMechanic === 'scroll'
+      && scriptPlaybackUsesRecordedScrollTrack
+      && hasAnyEliminationThisStep
+    ) return true;
+
+    return getPlaybackAllowedRows(step).length > 0;
+  }
+
+  if (
+    scriptPlaybackMechanic === 'scroll'
+    && scriptPlaybackUsesRecordedScrollTrack
+    && activeEliminationWaveIndex >= waves.length
+    && hasAnyEliminationThisStep
+  ) return true;
+
+  return activeEliminationWaveIndex < waves.length;
+
+}
+
+function getNextPlaybackWaveWorldY(stepIndex: number | null): number | null {
+
+  if (stepIndex === null || isRepairingScript) return null;
+
+  const step = scriptSteps[stepIndex];
+
+  if (!step) return null;
+
+  const nextWave = normalizeEliminationWaves(step.eliminationWaves)[activeEliminationWaveIndex];
+
+  if (!nextWave || nextWave.length === 0) return null;
+
+  const currentY = worldContainer ? worldContainer.y : getStepScrollY(step);
+  const visibleRange = getFullyVisibleRowRangeForWorldY(currentY);
+  const waveMin = Math.min(...nextWave);
+  const waveMax = Math.max(...nextWave);
+
+  if (waveMin >= visibleRange.minRow && waveMax <= visibleRange.maxRow) return null;
+
+  const recordedWaveY = step.eliminationWaveScrollYs?.[activeEliminationWaveIndex];
+  if (Number.isFinite(recordedWaveY)) return clampWorldY(recordedWaveY!);
+
+  const visibleRowSpan = Math.max(0, PARAMS.viewportRows - 1);
+  const waveCenter = (waveMin + waveMax) / 2;
+  const targetTopRow = Math.max(0, Math.round(waveCenter - visibleRowSpan / 2));
+
+  return clampWorldY(getWorldYFromScrollRow(targetTopRow));
+
+}
+
+function alignInstantPlaybackViewportToNextWave() {
+  if (activeSimulatingStepIndex === null || isRepairingScript) return;
+  if (getCurrentVisiblePlaybackFullRows(activeSimulatingStepIndex).length > 0) return;
+
+  const nextWaveWorldY = getNextPlaybackWaveWorldY(activeSimulatingStepIndex);
+  if (nextWaveWorldY !== null) setWorldY(nextWaveWorldY);
+}
+
+function continueGravityAfterElimination() {
+
+  const hasVisibleFullRows = getCurrentVisiblePlaybackFullRows(activeSimulatingStepIndex).length > 0;
+  const shouldCheckNextClear = hasVisibleFullRows
+    || shouldContinuePlaybackClearChain(activeSimulatingStepIndex);
+  const nextWaveWorldY = shouldCheckNextClear && !hasVisibleFullRows
+    ? getNextPlaybackWaveWorldY(activeSimulatingStepIndex)
+    : null;
+  const applyNextGravity = () => {
+    isAnimating = false;
+    applyGravity(shouldCheckNextClear);
+  };
+
+  if (nextWaveWorldY !== null) {
+    void animateRecordedScrollTo(
+      nextWaveWorldY,
+      Math.max(150, Math.max(0, Number(PARAMS.gravityDuration) || 0) * 1000)
+    ).then(applyNextGravity);
+    return;
+  }
+
+  applyNextGravity();
+
+}
 
 
 
@@ -5197,6 +5803,8 @@ function scriptNeedsPlaybackRepair(): boolean {
 
 
   return scriptSteps.some(step => {
+
+    if (step.playbackDataVersion !== SCRIPT_PLAYBACK_DATA_VERSION) return true;
 
 
 
@@ -5257,6 +5865,8 @@ function runPhysicsInstant() {
 
 
     safetyCounter++;
+
+    alignInstantPlaybackViewportToNextWave();
 
 
 
@@ -5484,15 +6094,15 @@ function runPhysicsInstant() {
 
 
 
-      const minVisibleY = -worldContainer.y;
+      const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
-      const minRow = Math.max(0, Math.floor(minVisibleY / PARAMS.cellSize));
+      const minRow = visibleRange.minRow;
 
 
 
-      const maxRow = getVisibleBottomRowForWorldY(worldContainer.y);
+      const maxRow = visibleRange.maxRow;
 
 
 
@@ -5531,6 +6141,10 @@ function runPhysicsInstant() {
 
 
 
+
+      const triggeredFullRows = getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
+      fullRows.length = 0;
+      fullRows.push(...triggeredFullRows);
 
       if (isRepairingScript && activeRepairEliminationBudget !== null) {
 
@@ -5720,49 +6334,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-  const currentBlocksBackup: BoardBlockState[] = blocks.map(b => ({
-
-
-
-    id: b.id,
-
-
-
-    col: b.col,
-
-
-
-    row: b.row,
-
-
-
-    length: b.length,
-
-
-
-    color: b.color,
-
-
-
-    noGravity: b.noGravity,
-
-
-
-    isCollectible: b.isCollectible,
-
-
-
-    isProp: b.isProp,
-
-
-
-    propType: b.propType,
-
-        propDir: b.propDir
-
-
-
-  }));
+  const currentBlocksBackup: BoardBlockState[] = captureCurrentBoardBlockStates();
 
 
 
@@ -5810,7 +6382,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-      spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+      spawnRecordedBlockState(sb);
 
 
 
@@ -5860,6 +6432,8 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
       const existingEliminationEvents = getStepEliminationEventCount(step);
 
+      const hasCurrentPlaybackData = step.playbackDataVersion === SCRIPT_PLAYBACK_DATA_VERSION;
+
 
 
       const hasValidExistingWaves = existingWaves.length > 0 && !hasRepeatedWaveRows(existingWaves);
@@ -5900,7 +6474,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
       const useExistingEliminations = preserveExistingEliminations
 
-
+        && hasCurrentPlaybackData
 
         && (hasValidExistingWaves || hasLegacyFlatEliminations);
 
@@ -6004,6 +6578,8 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
         console.warn(`[Script repair] Block not found for step ${i + 1}; the damaged legacy step was skipped.`);
 
+        step.playbackDataVersion = SCRIPT_PLAYBACK_DATA_VERSION;
+
 
 
         continue;
@@ -6011,6 +6587,10 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
       }
+
+
+
+      step.boardBefore = captureCurrentBoardBlockStates();
 
 
 
@@ -6043,6 +6623,8 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
         console.warn(`[Script repair] Step ${i + 1} target column ${step.toCol} is occupied; the damaged legacy step was skipped.`);
+
+        step.playbackDataVersion = SCRIPT_PLAYBACK_DATA_VERSION;
 
 
 
@@ -6094,7 +6676,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-      activeRepairEliminationBudget = !useExistingEliminations && existingEliminationEvents > 0
+      activeRepairEliminationBudget = !useExistingEliminations && hasCurrentPlaybackData && existingEliminationEvents > 0
 
 
 
@@ -6115,6 +6697,7 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
         runPhysicsInstant();
+        step.playbackDataVersion = SCRIPT_PLAYBACK_DATA_VERSION;
 
 
 
@@ -6166,19 +6749,9 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
 
-    clearAllBlocks();
+    restoreBoardBlockStates(currentBlocksBackup);
 
-
-
-    currentBlocksBackup.forEach(cb => {
-
-
-
-      spawnBlock(cb.col, cb.row, cb.length, cb.color, cb.id, cb.noGravity, cb.isCollectible, cb.isProp, cb.propType, cb.propDir || 'left');
-
-
-
-    });
+    pendingOffscreenFullRowBlockIds = [];
 
 
 
@@ -6798,6 +7371,48 @@ function waitForScriptPlaybackDelay(durationMs: number): Promise<void> {
 
 
 
+async function waitForRecordedScrollStepPosition(step: ScriptStep): Promise<void> {
+  if (!worldContainer || scriptPlaybackStopRequested) return;
+
+  const targetY = clampWorldY(getStepScrollY(step));
+
+  while (!scriptPlaybackStopRequested) {
+    if (!isAnimating && activeSimulatingStepIndex !== null) {
+      const visibleRows = getImmediatePlayableFullRows();
+
+      if (visibleRows.length > 0) {
+        forcedPlaybackFullRows = visibleRows;
+        try {
+          checkEliminations();
+        } finally {
+          forcedPlaybackFullRows = null;
+        }
+        await waitForPhysics();
+        continue;
+      }
+    }
+
+    if (!isAnimating) {
+      const targetBlock = step.blockId
+        ? blocks.find(block => block.id === step.blockId)
+        : blocks.find(block => block.col === step.fromCol && block.row === step.row);
+      const visibleRange = getFullyVisibleRowRangeForWorldY(worldContainer.y);
+
+      if (
+        targetBlock
+        && targetBlock.row >= visibleRange.minRow
+        && targetBlock.row <= visibleRange.maxRow
+      ) return;
+    }
+
+    if (!isAnimating && worldContainer.y <= targetY + 1) return;
+
+    await waitForScriptPlaybackDelay(20);
+  }
+}
+
+
+
 function getInitialScriptPauseMs() {
 
 
@@ -6939,42 +7554,6 @@ function animateRecordedScrollTo(targetY: number, durationMs: number): Promise<v
 
 
   });
-
-
-
-}
-
-
-
-
-
-
-
-function getRecordedScrollDurationMs(fromY: number, toY: number, minimumMs = 0): number {
-
-
-
-  if (!Number.isFinite(fromY) || !Number.isFinite(toY)) {
-
-
-
-    return Math.max(0, minimumMs);
-
-
-
-  }
-
-
-
-  const speedPxPerSec = Math.max(1, Number(PARAMS.scrollSpeed) || 1);
-
-
-
-  const distancePx = Math.abs(toY - fromY);
-
-
-
-  return Math.max(minimumMs, (distancePx / speedPxPerSec) * 1000);
 
 
 
@@ -7169,7 +7748,9 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
     && selectedStepIndex < scriptSteps.length;
 
-  const useRecordedScrollTrack = autoScroll && hasMeaningfulRecordedScrollTrack();
+  const useRecordedScrollTrack = hasMeaningfulRecordedScrollTrack();
+
+  scriptPlaybackUsesRecordedScrollTrack = useRecordedScrollTrack;
 
   const shouldAlignToStepScroll = isResuming || useRecordedScrollTrack;
 
@@ -7229,7 +7810,9 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
   if (scriptPlaybackMechanic === 'scroll') {
 
-    // Reset/replay must start the continuous-scroll ticker from the restored camera.
+    // Recorded scripts use the ticker for camera movement only. Legacy scripts
+
+    // keep the original row-shifting infinite-scroll behavior.
 
     continuousScrollOffset = Math.max(0, -(worldContainer ? worldContainer.y : virtualScrollY));
 
@@ -7265,11 +7848,11 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-  // The optional pause only delays scripted block movement. Continuous board
+  // Orange autoplay starts its single scroll owner immediately. Recorded
 
 
 
-  // scrolling still starts immediately so the opening two seconds stay alive.
+  // scripts take the camera-only branch in advanceContinuousScroll().
 
 
 
@@ -7309,6 +7892,13 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
+    const step = scriptSteps[i];
+
+    if (autoScroll && useRecordedScrollTrack) {
+      await waitForRecordedScrollStepPosition(step);
+      if (scriptPlaybackStopRequested) break;
+    }
+
     selectedStepIndex = i;
 
 
@@ -7329,14 +7919,6 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    const step = scriptSteps[i];
-
-
-
-    const nextStep = scriptSteps[i + 1];
-
-
-
     if (shouldAlignEachStepScroll) {
 
 
@@ -7347,7 +7929,18 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
     }
 
+    if (useRecordedScrollTrack && !autoScroll) {
+      const targetY = getStepScrollY(step);
+      const sourceY = worldContainer ? worldContainer.y : targetY;
+      const scrollDurationMs = i === startIdx
+        ? 0
+        : Math.max(0, stepDelay) * 1000;
 
+      await animateRecordedScrollTo(
+        targetY,
+        scrollDurationMs
+      );
+    }
 
     let block = step.blockId ? blocks.find(b => b.id === step.blockId) : null;
 
@@ -7413,109 +8006,11 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    const stepStateBefore: BoardBlockState[] = blocks.map(b => ({
-
-
-
-      id: b.id,
-
-
-
-      col: b.col,
-
-
-
-      row: b.row,
-
-
-
-      length: b.length,
-
-
-
-      color: b.color,
-
-
-
-      noGravity: b.noGravity,
-
-
-
-      isCollectible: b.isCollectible,
-
-
-
-      isProp: b.isProp,
-
-
-
-      propType: b.propType,
-
-        propDir: b.propDir
-
-
-
-    }));
+    const stepStateBefore: BoardBlockState[] = captureCurrentBoardBlockStates();
 
 
 
     const stepWorldYBefore = worldContainer.y;
-
-
-
-
-
-
-
-    // In recorded scrolling playback, the viewport should start moving as soon
-
-
-
-    // as the step starts. Physics below still uses the recorded step boundary,
-
-
-
-    // so the moving camera cannot change which rows are allowed to clear.
-
-
-
-    if (autoScroll && useRecordedScrollTrack && nextStep && !scriptPlaybackStopRequested) {
-
-
-
-      const targetY = getStepScrollY(nextStep);
-
-
-
-      const sourceY = worldContainer ? worldContainer.y : getStepScrollY(step);
-
-
-
-      const scrollDurationMs = getRecordedScrollDurationMs(
-
-
-
-        sourceY,
-
-
-
-        targetY,
-
-
-
-        Math.max(0, stepDelay) * 1000
-
-
-
-      );
-
-
-
-      void animateRecordedScrollTo(targetY, scrollDurationMs);
-
-
-
-    }
 
 
 
@@ -7659,29 +8154,49 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
     block.noGravity = false;
 
-
-
-    const recordedStepWorldY = getStepScrollY(step);
-
-
-
-    releaseNoGravityBlocksInCurrentBoard(recordedStepWorldY, getStepGravityMaxRow(step));
+    releaseNoGravityBlocksInCurrentBoard(
+      worldContainer ? worldContainer.y : getStepScrollY(step),
+      getStepGravityMaxRow(step)
+    );
 
 
 
-    draggedBlockId = block.id;
+    const immediatePlaybackRows = getImmediatePlayableFullRows();
 
-    if (isRisingAdvanceActive()) {
-      pendingRisingRows = getRisingRowsForCompletedMove(risingEliminationWavesThisMove);
+    if (immediatePlaybackRows.length > 0) {
+
+      forcedPlaybackFullRows = immediatePlaybackRows;
+
+      try {
+
+        checkEliminations();
+
+      } finally {
+
+        forcedPlaybackFullRows = null;
+
+      }
+
+      await waitForPhysics();
+
     }
 
 
 
-    blocksThatFell.clear();
+    if (immediatePlaybackRows.length === 0) {
+      draggedBlockId = block.id;
+
+      if (isRisingAdvanceActive()) {
+        pendingRisingRows = getRisingRowsForCompletedMove(risingEliminationWavesThisMove);
+      }
 
 
 
-    blocksThatFell.add(block.id);
+      blocksThatFell.clear();
+
+
+
+      blocksThatFell.add(block.id);
 
 
 
@@ -7689,11 +8204,13 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    applyGravity(true);
+      applyGravity(true);
 
 
 
-    await waitForPhysics();
+      await waitForPhysics();
+
+    }
 
 
 
@@ -7717,19 +8234,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-      clearAllBlocks();
-
-
-
-      stepStateBefore.forEach(sb => {
-
-
-
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
-
-
-
-      });
+      restoreBoardBlockStates(stepStateBefore);
 
 
 
@@ -7765,15 +8270,11 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    // 4. Pause between completed steps. In recorded scrolling autoplay, the
+    // 4. Legacy scripts without a recorded camera track keep the configured
 
 
 
-    // camera is already moving independently, so do not let scroll distance
-
-
-
-    // stretch the script timing.
+    // pause. Recorded tracks own this interval at the start of the next step.
 
 
 
@@ -7781,39 +8282,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-      if (useRecordedScrollTrack && nextStep && !scriptPlaybackStopRequested) {
-
-
-
-        if (autoScroll) {
-
-
-
-          if (stepDelay > 0) {
-
-
-
-            await waitForScriptPlaybackDelay(stepDelay * 1000);
-
-
-
-          }
-
-
-
-        } else {
-
-
-
-          await animateRecordedScrollTo(getStepScrollY(nextStep), Math.max(0, stepDelay) * 1000);
-
-
-
-        }
-
-
-
-      } else if (stepDelay > 0) {
+      if ((!useRecordedScrollTrack || autoScroll) && stepDelay > 0) {
 
 
 
@@ -7901,7 +8370,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-  if (scriptPlaybackAdvanceMode === 'scroll') {
+  if (scriptPlaybackAdvanceMode === 'scroll' && !useRecordedScrollTrack) {
 
 
 
@@ -7920,6 +8389,8 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
   scriptPlaybackAdvanceMode = null;
 
   scriptPlaybackMechanic = null;
+
+  scriptPlaybackUsesRecordedScrollTrack = false;
 
 
 
@@ -8201,6 +8672,8 @@ function initGameplayModeBoard() {
 
 
     collectedCount = 0;
+
+    resetMultiCollectibleCounts();
 
 
 
@@ -9325,9 +9798,11 @@ async function showMaterialMapperDialog(files: File[]): Promise<Record<string, s
 
         slot.appendChild(emptyText);
 
-      }
+  }
 
-    }
+  syncTopUiMode();
+
+}
 
 
 
@@ -10353,6 +10828,275 @@ function getActiveCollectibleBase64(): string {
 
 }
 
+function getCollectibleSourceById(id: string): { id: string; name: string; src: string } | null {
+  const builtin = BUILTIN_COLLECTIBLES.find(item => item.id === id);
+  if (builtin) return { id: String(builtin.id), name: builtin.name, src: builtin.textureData };
+  const numericId = Number.parseInt(id, 10);
+  const custom = customCollectibles.find(item => item.id === numericId);
+  if (custom) return { id: String(custom.id), name: custom.name, src: custom.texture };
+  const shared = sharedCollectibleAssets.get(numericId);
+  if (shared) return { id: String(shared.id), name: shared.name, src: shared.texture };
+  return null;
+}
+
+function getAvailableCollectibleSources() {
+  const customById = new Set(customCollectibles.map(item => item.id));
+  const sharedOnly = Array.from(sharedCollectibleAssets.values()).filter(item => !customById.has(item.id));
+  return [
+    ...BUILTIN_COLLECTIBLES.map(item => ({ id: String(item.id), name: item.name, src: item.textureData })),
+    ...customCollectibles.map(item => ({ id: String(item.id), name: item.name, src: item.texture })),
+    ...sharedOnly.map(item => ({ id: String(item.id), name: item.name, src: item.texture }))
+  ];
+}
+
+function getExportableMultiCollectibleAssets(): ExportedCollectibleAsset[] {
+  const selectedIds = new Set(multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount).map(String));
+  initialBoardBlocks.forEach((block: any) => {
+    if (block?.isCollectible && block.collectibleId !== undefined) selectedIds.add(String(block.collectibleId));
+  });
+  blocks.forEach(block => {
+    if (block.isCollectible && block.collectibleId !== undefined) selectedIds.add(String(block.collectibleId));
+  });
+
+  const assetsById = new Map<number, { id: number; name: string; texture: string }>();
+  customCollectibles.forEach(item => assetsById.set(item.id, item));
+  sharedCollectibleAssets.forEach(item => assetsById.set(item.id, item));
+
+  return Array.from(assetsById.values())
+    .filter(item => selectedIds.has(String(item.id)) && typeof item.texture === 'string' && item.texture.startsWith('data:'))
+    .map(item => ({ id: String(item.id), name: item.name, src: item.texture }));
+}
+
+function applyMultiCollectibleAssetPayload(assets: unknown): void {
+  if (!Array.isArray(assets)) return;
+  const imported: { id: number; name: string; texture: string }[] = [];
+  assets.forEach(asset => {
+    if (!asset || typeof asset !== 'object') return;
+    const source = asset as Partial<ExportedCollectibleAsset>;
+    const numericId = Number.parseInt(String(source.id), 10);
+    if (!Number.isFinite(numericId) || !source.src || !source.src.startsWith('data:')) return;
+    const name = typeof source.name === 'string' && source.name.trim() ? source.name.trim() : `收集物${numericId}`;
+    imported.push({ id: numericId, name, texture: source.src });
+  });
+  if (imported.length === 0) return;
+
+  imported.forEach(item => {
+    sharedCollectibleAssets.set(item.id, item);
+    const existingIndex = customCollectibles.findIndex(existing => existing.id === item.id);
+    if (existingIndex >= 0) customCollectibles[existingIndex] = item;
+    else customCollectibles.push(item);
+    collectibleDB.putCollectible(item.id, item.name, item.texture).catch(error => {
+      console.warn('Failed to persist shared collectible asset:', error);
+    });
+  });
+}
+
+function persistMultiCollectibleSettings() {
+  localStorage.setItem('multiCollectibleModeEnabled', String(multiCollectibleModeEnabled));
+  localStorage.setItem('multiCollectibleSlotCount', String(multiCollectibleSlotCount));
+  localStorage.setItem('multiCollectibleSlotIds', JSON.stringify(multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount)));
+}
+
+function normalizeMultiCollectibleSlotIds() {
+  const sources = getAvailableCollectibleSources();
+  while (multiCollectibleSlotIds.length < multiCollectibleSlotCount) {
+    multiCollectibleSlotIds.push(sources[multiCollectibleSlotIds.length % Math.max(1, sources.length)]?.id || 'coin');
+  }
+  multiCollectibleSlotIds = multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount);
+}
+
+function getMultiCollectibleItem(id?: string) {
+  if (!id) return null;
+  return multiCollectibleItems.find(item => item.id === String(id)) || null;
+}
+
+function getNextMultiCollectibleItem() {
+  if (!multiCollectibleModeEnabled || multiCollectibleItems.length === 0) return null;
+  const item = multiCollectibleItems[nextMultiCollectibleIndex % multiCollectibleItems.length];
+  nextMultiCollectibleIndex = (nextMultiCollectibleIndex + 1) % multiCollectibleItems.length;
+  return item;
+}
+
+function resetMultiCollectibleCounts() {
+  multiCollectibleItems.forEach(item => { item.count = 0; });
+  syncMultiCollectibleHudCounts();
+}
+
+function syncMultiCollectibleHudCounts() {
+  multiCollectibleItems.forEach(item => {
+    const countEl = Array.from(document.querySelectorAll<HTMLElement>('.multi-collectible-target-count'))
+      .find(el => el.dataset.multiCollectibleCount === item.id);
+    if (countEl) countEl.textContent = String(item.count);
+  });
+}
+
+function renderMultiCollectibleHud() {
+  const hud = document.getElementById('multi-collectible-hud');
+  const wrapper = document.getElementById('board-wrapper');
+  const header = document.getElementById('game-header');
+  if (!hud || !wrapper) return;
+  if (header && hud.parentElement !== header) {
+    header.appendChild(hud);
+  }
+  hud.innerHTML = '';
+  wrapper.classList.toggle('multi-collectible-live', isCollectMode && multiCollectibleModeEnabled && multiCollectibleItems.length > 0);
+  multiCollectibleItems.forEach(item => {
+    const target = document.createElement('div');
+    target.className = 'multi-collectible-target';
+    target.dataset.multiCollectibleId = item.id;
+    const img = document.createElement('img');
+    img.src = item.src;
+    img.alt = '';
+    const count = document.createElement('span');
+    count.className = 'multi-collectible-target-count';
+    count.dataset.multiCollectibleCount = item.id;
+    count.textContent = String(item.count);
+    target.append(img, count);
+    hud.appendChild(target);
+  });
+}
+
+function refreshExistingMultiCollectibleBlocks() {
+  if (!isCollectMode || !multiCollectibleModeEnabled || multiCollectibleItems.length === 0) return;
+  const collectibleBlocks = blocks.filter(b => b.isCollectible);
+  collectibleBlocks.forEach(b => {
+    const { col, row, length, color, id, noGravity } = b;
+    if (b.sprite.parent) {
+      blocksContainer.removeChild(b.sprite);
+    }
+    b.sprite.destroy();
+    blocks = blocks.filter(item => item.id !== id);
+    const item = getNextMultiCollectibleItem();
+    spawnBlock(col, row, length, color, id, noGravity, true, false, undefined, 'left', item?.id);
+  });
+  syncInitialBoardCollectibleIdsFromCurrentBoard();
+}
+
+async function rebuildMultiCollectibleItems() {
+  normalizeMultiCollectibleSlotIds();
+  const selectedIds = multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount);
+  multiCollectibleItems = [];
+  for (const id of selectedIds) {
+    const source = getCollectibleSourceById(id);
+    if (!source) continue;
+    let texture: PIXI.Texture | null = null;
+    try {
+      texture = await PIXI.Assets.load<PIXI.Texture>(source.src);
+    } catch {
+      texture = PIXI.Texture.from(source.src);
+    }
+    multiCollectibleItems.push({ ...source, count: 0, texture });
+  }
+  if (multiCollectibleItems.length === 0) {
+    const fallback = getCollectibleSourceById(String(activeCollectibleId)) || getAvailableCollectibleSources()[0];
+    if (fallback) {
+      const texture = await PIXI.Assets.load<PIXI.Texture>(fallback.src);
+      multiCollectibleItems.push({ ...fallback, count: 0, texture });
+      multiCollectibleSlotIds[0] = fallback.id;
+    }
+  }
+  persistMultiCollectibleSettings();
+  renderMultiCollectibleManager();
+  renderMultiCollectibleHud();
+}
+
+function renderMultiCollectibleManager() {
+  const enabledInput = document.getElementById('input-multi-collectible-mode') as HTMLInputElement | null;
+  const countSelect = document.getElementById('select-multi-collectible-count') as HTMLSelectElement | null;
+  const slotsEl = document.getElementById('multi-collectible-slots');
+  if (enabledInput) enabledInput.checked = multiCollectibleModeEnabled;
+  if (countSelect) countSelect.value = String(multiCollectibleSlotCount);
+  if (!slotsEl) return;
+
+  const sources = getAvailableCollectibleSources();
+  normalizeMultiCollectibleSlotIds();
+  slotsEl.innerHTML = '';
+  for (let i = 0; i < multiCollectibleSlotCount; i++) {
+    const row = document.createElement('div');
+    row.className = 'multi-collectible-slot';
+
+    const selected = getCollectibleSourceById(multiCollectibleSlotIds[i]) || sources[0];
+    const img = document.createElement('img');
+    img.src = selected?.src || '';
+    img.alt = '';
+
+    const select = document.createElement('select');
+    select.dataset.multiCollectibleSlot = String(i);
+    sources.forEach(source => {
+      const option = document.createElement('option');
+      option.value = source.id;
+      option.textContent = `${i + 1}. ${source.name}`;
+      option.selected = source.id === selected?.id;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', async () => {
+      multiCollectibleSlotIds[i] = select.value;
+      persistMultiCollectibleSettings();
+      await rebuildMultiCollectibleItems();
+      refreshExistingMultiCollectibleBlocks();
+    });
+
+    const uploadBtn = document.createElement('button');
+    uploadBtn.type = 'button';
+    uploadBtn.className = 'multi-collectible-upload';
+    uploadBtn.textContent = '上传';
+    uploadBtn.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async event => {
+          const base64 = event.target?.result as string;
+          if (!base64) return;
+          const cleanName = file.name.replace(/\.[^.]+$/, '').trim() || `多收集物${i + 1}`;
+          try {
+            const newId = await collectibleDB.addCollectible(cleanName, base64);
+            customCollectibles = await collectibleDB.getAllCollectibles();
+            multiCollectibleSlotIds[i] = String(newId);
+            persistMultiCollectibleSettings();
+            await rebuildMultiCollectibleItems();
+            refreshExistingMultiCollectibleBlocks();
+            await renderCollectibleList();
+          } catch (error) {
+            console.error(error);
+            alert('上传多收集物失败，请检查图片文件。');
+          }
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+    });
+
+    row.append(img, select, uploadBtn);
+    slotsEl.appendChild(row);
+  }
+}
+
+function bindMultiCollectibleManager() {
+  const enabledInput = document.getElementById('input-multi-collectible-mode') as HTMLInputElement | null;
+  enabledInput?.addEventListener('change', async () => {
+    multiCollectibleModeEnabled = enabledInput.checked;
+    if (multiCollectibleModeEnabled) isCollectMode = true;
+    persistMultiCollectibleSettings();
+    await rebuildMultiCollectibleItems();
+    refreshExistingMultiCollectibleBlocks();
+    resetMultiCollectibleCounts();
+    updateHeaderUI();
+    syncModeButtonsUI();
+  });
+
+  const countSelect = document.getElementById('select-multi-collectible-count') as HTMLSelectElement | null;
+  countSelect?.addEventListener('change', async () => {
+    multiCollectibleSlotCount = Math.max(2, Math.min(5, parseInt(countSelect.value, 10) || 2));
+    persistMultiCollectibleSettings();
+    await rebuildMultiCollectibleItems();
+    refreshExistingMultiCollectibleBlocks();
+  });
+}
+
 
 
 
@@ -10377,6 +11121,7 @@ function hasCollectionAvatar(): boolean {
 }
 
 function getCollectionAvatarTargetElement(): HTMLElement | null {
+  if (multiCollectibleModeEnabled) return null;
   if (!isCollectMode || !hasCollectionAvatar()) return null;
   return document.getElementById('collection-avatar-hud');
 }
@@ -10406,7 +11151,7 @@ function syncCollectionAvatarHUD(): void {
   const hud = document.getElementById('collection-avatar-hud');
   const image = document.getElementById('collection-avatar-image') as HTMLImageElement | null;
   if (!hud || !image) return;
-  const visible = isCollectMode && hasCollectionAvatar();
+  const visible = isCollectMode && hasCollectionAvatar() && !multiCollectibleModeEnabled;
   hud.classList.toggle('visible', visible);
   if (!visible) {
     image.removeAttribute('src');
@@ -10708,6 +11453,8 @@ function updateHeaderUI() {
 
   const currentLevel = levelInput ? levelInput.value : '284';
 
+  gameHeaderEl.classList.toggle('heart-header-mode', topUiMode === 'heart');
+
 
 
 
@@ -10731,6 +11478,7 @@ function updateHeaderUI() {
 
 
     headerItemEl.innerHTML = `<span class="collect-score-hud"><span class="collect-score-label">SCORE</span><span id="score-val" class="collect-score-value">${currentScore.toLocaleString()}</span></span><span id="level-val" style="display:none;">${currentLevel}</span>`;
+    setScoreTextEverywhere(currentScore.toLocaleString());
 
 
 
@@ -10738,19 +11486,15 @@ function updateHeaderUI() {
 
 
 
-    // Right side: Collectible Counter
-
-
-
-    const base64 = getActiveCollectibleBase64();
-
-
-
-    scoreHeaderItemEl.style.display = '';
-
-
-
-    scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:36px; height:36px; vertical-align:middle; margin-right:8px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
+    // Right side: single collectible counter. Multi-collectible mode uses the left HUD.
+    if (multiCollectibleModeEnabled) {
+      scoreHeaderItemEl.style.display = 'none';
+      scoreHeaderItemEl.innerHTML = `<span id="collect-val" style="display:none;">${collectedCount}</span>`;
+    } else {
+      const base64 = getActiveCollectibleBase64();
+      scoreHeaderItemEl.style.display = '';
+      scoreHeaderItemEl.innerHTML = `<img id="collectible-header-icon" src="${base64}" style="width:50px; height:50px; vertical-align:middle; margin-right:8px; border-radius: 4px;" /> x <span id="collect-val" style="font-weight:bold; font-size:28px; color:#ffffff; vertical-align:middle;">${collectedCount}</span>`;
+    }
 
 
 
@@ -10836,6 +11580,8 @@ function updateHeaderUI() {
 
     if (inputCollect) inputCollect.value = String(collectedCount);
 
+    renderMultiCollectibleHud();
+
 
 
   } else {
@@ -10871,6 +11617,7 @@ function updateHeaderUI() {
 
 
     scoreHeaderItemEl.innerHTML = `SCORE: <span id="score-val">${currentScore.toLocaleString()}</span>`;
+    setScoreTextEverywhere(currentScore.toLocaleString());
 
 
 
@@ -10901,6 +11648,8 @@ function updateHeaderUI() {
 
 
     }
+
+    renderMultiCollectibleHud();
 
 
 
@@ -11189,6 +11938,9 @@ async function renderCollectibleList() {
 
 
     customCollectibles = await collectibleDB.getAllCollectibles();
+    sharedCollectibleAssets.forEach(asset => {
+      if (!customCollectibles.some(item => item.id === asset.id)) customCollectibles.push(asset);
+    });
 
 
 
@@ -11753,6 +12505,8 @@ async function renderCollectibleList() {
 
 
   listContainer.appendChild(addCard);
+
+  await rebuildMultiCollectibleItems();
 
 
 
@@ -12480,7 +13234,10 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-  const base64 = getActiveCollectibleBase64();
+  const multiItem = multiCollectibleModeEnabled ? getMultiCollectibleItem(b.collectibleId) : null;
+  if (multiCollectibleModeEnabled && !multiItem) return;
+
+  const base64 = multiItem?.src || getActiveCollectibleBase64();
 
 
 
@@ -12546,6 +13303,13 @@ function playCollectibleFlyAnimation(b: Block) {
 
   const boardRect = boardWrapper.getBoundingClientRect();
 
+  // DOM rectangles are viewport pixels, while the flying image is positioned
+  // inside boardWrapper's unscaled coordinate system.
+  const boardScaleX = boardWrapper.offsetWidth > 0 ? boardRect.width / boardWrapper.offsetWidth : 1;
+  const boardScaleY = boardWrapper.offsetHeight > 0 ? boardRect.height / boardWrapper.offsetHeight : 1;
+  const toBoardLocalX = (viewportX: number) => (viewportX - boardRect.left) / Math.max(boardScaleX, 0.0001);
+  const toBoardLocalY = (viewportY: number) => (viewportY - boardRect.top) / Math.max(boardScaleY, 0.0001);
+
 
 
   
@@ -12596,11 +13360,11 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-  const startLeft = globalX - boardRect.left;
+  const startLeft = toBoardLocalX(globalX);
 
 
 
-  const startTop = globalY - boardRect.top;
+  const startTop = toBoardLocalY(globalY);
 
 
 
@@ -12630,9 +13394,13 @@ function playCollectibleFlyAnimation(b: Block) {
 
   const avatarTargetEl = getCollectionAvatarTargetElement();
 
+  const multiTargetEl = multiItem
+    ? Array.from(document.querySelectorAll<HTMLElement>('.multi-collectible-target'))
+      .find(el => el.dataset.multiCollectibleId === multiItem.id) || null
+    : null;
+  const multiTargetImageEl = multiTargetEl?.querySelector<HTMLElement>('img') || null;
 
-
-  const targetEl = avatarTargetEl || document.getElementById('collectible-header-icon');
+  const targetEl = multiTargetImageEl || avatarTargetEl || document.getElementById('collectible-header-icon');
 
 
 
@@ -12650,23 +13418,32 @@ function playCollectibleFlyAnimation(b: Block) {
 
     const targetRect = targetEl.getBoundingClientRect();
 
+    const targetWidth = targetRect.width / Math.max(boardScaleX, 0.0001);
+    const targetHeight = targetRect.height / Math.max(boardScaleY, 0.0001);
+    const targetLocalLeft = toBoardLocalX(targetRect.left);
+    const targetLocalTop = toBoardLocalY(targetRect.top);
 
 
-    if (avatarTargetEl) {
-      targetSize = Math.max(36, Math.min(58, targetRect.width));
-      targetLeft = targetRect.left - boardRect.left + (targetRect.width - targetSize) / 2;
-      targetTop = targetRect.top - boardRect.top + (targetRect.height - targetSize) / 2;
+
+    if (multiTargetImageEl) {
+      targetSize = Math.max(1, Math.min(targetWidth, targetHeight));
+      targetLeft = targetLocalLeft + (targetWidth - targetSize) / 2;
+      targetTop = targetLocalTop + (targetHeight - targetSize) / 2;
+    } else if (avatarTargetEl) {
+      targetSize = Math.max(36, Math.min(58, targetWidth));
+      targetLeft = targetLocalLeft + (targetWidth - targetSize) / 2;
+      targetTop = targetLocalTop + (targetHeight - targetSize) / 2;
     } else {
-      targetLeft = targetRect.left - boardRect.left;
-      targetTop = targetRect.top - boardRect.top;
-      targetSize = Math.max(36, targetRect.width);
+      targetLeft = targetLocalLeft;
+      targetTop = targetLocalTop;
+      targetSize = Math.max(36, targetWidth);
     }
 
 
 
-  } else if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
+  } else if (isRecordingBackgroundActive()) {
 
-    const recordingBoardBox = getMasterBoardContentRect(MASTER_UI.width, MASTER_UI.height);
+    const recordingBoardBox = { x: 0, y: 0, w: MASTER_UI.width, h: MASTER_UI.height };
 
     const recordingIconBox = getRecordingCollectIconRect(MASTER_UI.width, MASTER_UI.height);
 
@@ -12706,7 +13483,7 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-      const builtin = BUILTIN_COLLECTIBLES.find(c => c.id === activeCollectibleId);
+      const builtin = multiItem ? null : BUILTIN_COLLECTIBLES.find(c => c.id === activeCollectibleId);
 
 
 
@@ -12850,7 +13627,12 @@ function playCollectibleFlyAnimation(b: Block) {
 
 
 
-      if (avatarTargetEl) triggerCollectionAvatarCollectState();
+      if (multiItem) {
+        multiItem.count++;
+        syncMultiCollectibleHudCounts();
+      } else if (avatarTargetEl) {
+        triggerCollectionAvatarCollectState();
+      }
 
 
 
@@ -13011,6 +13793,10 @@ function deactivateCollectMode() {
 
 
     isCollectMode = false;
+
+    multiCollectibleModeEnabled = false;
+
+    persistMultiCollectibleSettings();
 
 
 
@@ -14849,6 +15635,7 @@ function createGameAudio(src: string): HTMLAudioElement {
 const sounds = {
 
   propElim: createGameAudio((DEFAULT_SOUND_SOURCES as any).propElim || '/audio/prop_elim.ogg'),
+  tntExplosion: createGameAudio(TNT_EXPLOSION_SOUND_URL),
 
   fall: createGameAudio(DEFAULT_SOUND_SOURCES.fall),
 
@@ -15237,6 +16024,7 @@ function initAudioContext() {
   connectAudio(sounds.fall);
 
   connectAudio((sounds as any).propElim);
+  connectAudio((sounds as any).tntExplosion);
   connectAudio(sounds.spawn);
 
 
@@ -15351,6 +16139,17 @@ function playSound(audio: HTMLAudioElement) {
 
 }
 
+function playTntSound() {
+  if (!audioSourcesInitialized) {
+    initAudioContext();
+  }
+  const source = (sounds as any).tntExplosion as HTMLAudioElement;
+  if (!source) return;
+  const audio = source.cloneNode(true) as HTMLAudioElement;
+  audio.volume = source.volume;
+  audio.play().catch(err => console.warn('TNT audio playback failed:', err));
+}
+
 
 
 
@@ -15391,13 +16190,15 @@ interface Block {
 
   isCollectible?: boolean;
 
+  collectibleId?: string;
+
 
 
   isProp?: boolean;
 
 
 
-  propType?: 'row-bomb' | 'peppermint';
+  propType?: 'row-bomb' | 'peppermint' | 'tnt';
 
   propDir?: 'left' | 'right';
 
@@ -15458,27 +16259,31 @@ function advanceContinuousScroll(deltaSec: number) {
 
 
 
-  if (
-
-
-
-    !worldContainer
-
-
-
-    || !isGameStarted
-
-
-
-    || getActiveBoardMechanic() !== 'scroll'
-
-
-
-  ) return;
+  if (!worldContainer || !isGameStarted || getActiveBoardMechanic() !== 'scroll') return;
 
 
 
   const cellSize = Math.max(1, PARAMS.cellSize || 1);
+
+
+
+  if (isPlayingScript && scriptPlaybackUsesRecordedScrollTrack) {
+
+
+
+    continuousScrollOffset += Math.max(1, PARAMS.scrollSpeed || 1) * deltaSec;
+
+
+
+    setWorldY(-continuousScrollOffset);
+
+
+
+    return;
+
+
+
+  }
 
 
 
@@ -16323,6 +17128,8 @@ let nextBlockId = 1;
 
 let blocksContainer: PIXI.Container;
 
+let tntEffectsContainer: PIXI.Container;
+
 
 
 let holeGraphics: PIXI.Graphics;
@@ -16419,10 +17226,7 @@ async function preloadStandaloneSelectedShatterEffects() {
 
 function getPreviewRendererGameHeight(): number {
 
-  // The phone frame is slightly taller than an exact viewport-row multiple.
-  // Render that fractional overscan so the board reaches the lower inner edge
-  // without changing the logical scroll viewport or stretching block cells.
-  return PARAMS.viewportRows * PARAMS.cellSize * BOARD_FRAME_VERTICAL_SCALE;
+  return getPreviewRenderRows() * PARAMS.cellSize;
 
 }
 
@@ -16868,11 +17672,11 @@ let recordingReadyResolver: ((started: boolean) => void) | null = null;
 
 
 
-const DIRECT_OUTPUT_RECORDING_FPS = 30;
+const DIRECT_OUTPUT_RECORDING_FPS = 60;
 
 
 
-const TRANSPARENT_RECORDING_FPS = 30;
+const TRANSPARENT_RECORDING_FPS = 60;
 
 
 
@@ -16900,15 +17704,140 @@ interface ManagedRecordingBackground {
 
 
 
+  kind?: 'image' | 'solid';
+
+
+
   builtin?: boolean;
 
 
 
 }
 
-
-
 const NO_BACKGROUND_ID = 'none';
+
+const SOLID_BACKGROUND_ID = 'solid';
+
+type RecordingBackgroundMode = 'image' | 'solid';
+
+type SolidBackgroundVariant = 'solid' | 'animated';
+
+type SolidBackgroundGroup = 'dark' | 'light' | 'custom';
+
+type SolidBackgroundColor = { id: string; name: string; from: string; to: string; group: SolidBackgroundGroup; custom?: boolean };
+
+type TopUiMode = 'classic' | 'heart';
+
+const HEART_IDLE_URL = '/assets/ui/heart-idle.webm';
+
+const HEART_CLEAR_URL = '/assets/ui/heart-clear.webm';
+
+const SOLID_BACKGROUND_COLORS: SolidBackgroundColor[] = [
+  { id: 'deep-blue', name: '深蓝紫', from: '#344372', to: '#563762', group: 'dark' },
+  { id: 'royal-violet', name: '皇家紫', from: '#3a356f', to: '#6b3c7f', group: 'dark' },
+  { id: 'berry', name: '莓果', from: '#5b315d', to: '#8a3f66', group: 'dark' },
+  { id: 'teal-night', name: '青夜', from: '#24546b', to: '#34416c', group: 'dark' },
+  { id: 'slate-indigo', name: '灰靛', from: '#3d4d78', to: '#3e3a68', group: 'dark' },
+  { id: 'rose-dusk', name: '玫瑰暮色', from: '#7b4265', to: '#4d3a6b', group: 'dark' },
+  { id: 'macaron-pink', name: '马卡龙粉', from: '#ffd1dc', to: '#f7a8c8', group: 'light' },
+  { id: 'macaron-mint', name: '马卡龙薄荷', from: '#c8f7dc', to: '#8ee6c0', group: 'light' },
+  { id: 'macaron-sky', name: '马卡龙天空蓝', from: '#c7e8ff', to: '#8fcaf5', group: 'light' },
+  { id: 'macaron-lavender', name: '马卡龙薰衣草', from: '#dec8ff', to: '#bfa1f2', group: 'light' },
+  { id: 'macaron-peach', name: '马卡龙蜜桃', from: '#ffd5bd', to: '#ffad9f', group: 'light' },
+  { id: 'macaron-cream', name: '马卡龙奶黄', from: '#fff1b8', to: '#ffd978', group: 'light' }
+];
+
+const DEFAULT_SOLID_BACKGROUND_COLOR_ID = 'deep-blue';
+
+const DEFAULT_SOLID_BACKGROUND_GROUP: SolidBackgroundGroup = 'dark';
+
+function normalizeHexColor(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+
+function mixHexColor(hex: string, target: string, amount: number): string {
+  const source = normalizeHexColor(hex) || '#344372';
+  const dest = normalizeHexColor(target) || '#000000';
+  const parse = (value: string, start: number) => Number.parseInt(value.slice(start, start + 2), 16);
+  const channel = (from: number, to: number) => Math.round(from + (to - from) * amount).toString(16).padStart(2, '0');
+  return `#${channel(parse(source, 1), parse(dest, 1))}${channel(parse(source, 3), parse(dest, 3))}${channel(parse(source, 5), parse(dest, 5))}`;
+}
+
+function normalizeSolidBackgroundGroup(value: unknown, fallback: SolidBackgroundGroup = 'dark'): SolidBackgroundGroup {
+  if (value === 'custom') return 'custom';
+  if (value === 'light') return 'light';
+  return fallback;
+}
+
+function createCustomSolidBackgroundColor(hex: string, index: number, group: SolidBackgroundGroup): SolidBackgroundColor {
+  return {
+    id: `custom-${hex.slice(1)}`,
+    name: `自定义${index}`,
+    from: mixHexColor(hex, '#ffffff', 0.18),
+    to: mixHexColor(hex, '#1b2048', 0.22),
+    group,
+    custom: true
+  };
+}
+
+function getCustomSolidBackgroundColors(): SolidBackgroundColor[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('customSolidBackgroundColors') || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item, index): SolidBackgroundColor | null => {
+        if (!item || typeof item !== 'object') return null;
+        const source = item as Partial<SolidBackgroundColor>;
+        const from = normalizeHexColor(source.from);
+        const to = normalizeHexColor(source.to);
+        if (!from || !to) return null;
+        return {
+          id: typeof source.id === 'string' && source.id ? source.id : `custom-import-${index}`,
+          name: typeof source.name === 'string' && source.name ? source.name : `自定义${index + 1}`,
+          from,
+          to,
+          group: normalizeSolidBackgroundGroup(source.group, 'custom'),
+          custom: true
+        } satisfies SolidBackgroundColor;
+      })
+      .filter((item): item is SolidBackgroundColor => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomSolidBackgroundColors() {
+  const customColors = SOLID_BACKGROUND_COLORS
+    .filter(color => color.custom)
+    .map(({ id, name, from, to, group, custom }) => ({ id, name, from, to, group, custom }));
+  localStorage.setItem('customSolidBackgroundColors', JSON.stringify(customColors));
+}
+
+function applyCustomSolidBackgroundColors(colors: unknown) {
+  if (!Array.isArray(colors)) return;
+  colors.forEach((color, index) => {
+    if (!color || typeof color !== 'object') return;
+    const source = color as Partial<SolidBackgroundColor>;
+    const from = normalizeHexColor(source.from);
+    const to = normalizeHexColor(source.to);
+    if (!from || !to) return;
+    const id = typeof source.id === 'string' && source.id ? source.id : `custom-import-${index}`;
+    if (SOLID_BACKGROUND_COLORS.some(existing => existing.id === id)) return;
+    SOLID_BACKGROUND_COLORS.push({
+      id,
+      name: typeof source.name === 'string' && source.name ? source.name : `自定义${SOLID_BACKGROUND_COLORS.length + 1}`,
+      from,
+      to,
+      group: normalizeSolidBackgroundGroup(source.group, 'custom'),
+      custom: true
+    });
+  });
+  saveCustomSolidBackgroundColors();
+}
+
+applyCustomSolidBackgroundColors(getCustomSolidBackgroundColors());
 
 
 
@@ -16950,7 +17879,7 @@ const MASTER_UI = {
 
 };
 
-const RECORDING_COLLECT_ICON_SIZE = 44;
+const RECORDING_COLLECT_ICON_SIZE = 60;
 
 const RECORDING_COLLECT_ICON_X_RATIO = 0.71;
 
@@ -17044,6 +17973,62 @@ let recordingBackgroundDataUrl = localStorage.getItem('recordingBackgroundDataUr
 
 let recordingBackgroundActiveId = localStorage.getItem('recordingBackgroundActiveId') || NO_BACKGROUND_ID;
 
+let recordingBackgroundMode: RecordingBackgroundMode =
+  localStorage.getItem('recordingBackgroundMode') === 'solid' ? 'solid' : 'image';
+
+let solidBackgroundVariant: SolidBackgroundVariant =
+  localStorage.getItem('solidBackgroundVariant') === 'animated' ? 'animated' : 'solid';
+
+let solidBackgroundGroup: SolidBackgroundGroup = normalizeSolidBackgroundGroup(localStorage.getItem('solidBackgroundGroup'));
+
+let solidBackgroundColorId = localStorage.getItem('solidBackgroundColorId') || DEFAULT_SOLID_BACKGROUND_COLOR_ID;
+
+let topUiMode: TopUiMode = localStorage.getItem('topUiMode') === 'heart' ? 'heart' : 'classic';
+
+let marqueeBorderEnabled = localStorage.getItem('marqueeBorderEnabled') === 'true';
+
+let comboTextEffectEnabled = localStorage.getItem('comboTextEffectEnabled') === 'true';
+
+let praiseTextEffectEnabled = localStorage.getItem('praiseTextEffectEnabled') === 'true';
+
+let heartClearTimer: number | null = null;
+
+const MARQUEE_CLEAR_DURATION_MS = 1350;
+
+let marqueeClearStartedAt = 0;
+
+let marqueeClearTimer: number | null = null;
+
+type PraiseWord = 'good' | 'great' | 'amazing' | 'excellent' | 'unbelievable';
+
+type ClearTextEffect = {
+  type: 'combo' | 'praise';
+  startedAt: number;
+  row?: number;
+  boardX?: number;
+  boardY?: number;
+  boardYRatio?: number;
+  comboCount?: number;
+  word?: PraiseWord;
+};
+
+const COMBO_TEXT_EFFECT_DURATION_MS = 1050;
+const PRAISE_TEXT_EFFECT_DURATION_MS = 920;
+const COMBO_TEXT_BASE_URL = '/assets/ui/clear-text/combo';
+const PRAISE_TEXT_BASE_URL = '/assets/ui/clear-text/praise';
+const COMBO_WORD_URLS = Array.from({ length: 5 }, (_, index) => `${COMBO_TEXT_BASE_URL}/combo${index + 1}.png`);
+const COMBO_DIGIT_URLS = Array.from({ length: 10 }, (_, index) => `${COMBO_TEXT_BASE_URL}/${index}.png`);
+const COMBO_COLOR_DIGIT_URLS = Array.from({ length: 10 }, (_, index) => `${COMBO_TEXT_BASE_URL}/color/${index}.png`);
+const PRAISE_WORD_URLS: Record<PraiseWord, string> = {
+  good: `${PRAISE_TEXT_BASE_URL}/good.png`,
+  great: `${PRAISE_TEXT_BASE_URL}/great.png`,
+  amazing: `${PRAISE_TEXT_BASE_URL}/amazing.png`,
+  excellent: `${PRAISE_TEXT_BASE_URL}/Excellent.png`,
+  unbelievable: `${PRAISE_TEXT_BASE_URL}/unbelievable.png`
+};
+const clearTextImageCache = new Map<string, HTMLImageElement>();
+const activeClearTextEffects: ClearTextEffect[] = [];
+
 
 
 let recordingBackgroundImage: HTMLImageElement | null = null;
@@ -17051,6 +18036,393 @@ let recordingBackgroundImage: HTMLImageElement | null = null;
 
 
 let recordingBackgroundImageLoaded = false;
+
+function getSolidBackgroundColorsForActiveGroup() {
+  return SOLID_BACKGROUND_COLORS.filter(color => color.group === solidBackgroundGroup);
+}
+
+function ensureSolidBackgroundColorInActiveGroup() {
+  const active = SOLID_BACKGROUND_COLORS.find(color => color.id === solidBackgroundColorId);
+  if (active?.group === solidBackgroundGroup) return;
+  const fallback = getSolidBackgroundColorsForActiveGroup()[0];
+  if (fallback) solidBackgroundColorId = fallback.id;
+}
+
+function getSolidBackgroundColor() {
+  ensureSolidBackgroundColorInActiveGroup();
+  return SOLID_BACKGROUND_COLORS.find(color => color.id === solidBackgroundColorId) || SOLID_BACKGROUND_COLORS[0];
+}
+
+function isSolidRecordingBackgroundActive() {
+  return recordingBackgroundEnabled && recordingBackgroundMode === 'solid';
+}
+
+function isImageRecordingBackgroundActive() {
+  return recordingBackgroundEnabled && recordingBackgroundMode === 'image' && !!recordingBackgroundDataUrl;
+}
+
+function isRecordingBackgroundActive() {
+  return isSolidRecordingBackgroundActive() || isImageRecordingBackgroundActive();
+}
+
+function persistRecordingBackgroundState() {
+  localStorage.setItem('recordingBackgroundActiveId', recordingBackgroundActiveId);
+  localStorage.setItem('recordingBackgroundDataUrl', recordingBackgroundDataUrl);
+  localStorage.setItem('recordingBackgroundEnabled', String(recordingBackgroundEnabled));
+  localStorage.setItem('recordingBackgroundMode', recordingBackgroundMode);
+  localStorage.setItem('solidBackgroundVariant', solidBackgroundVariant);
+  localStorage.setItem('solidBackgroundGroup', solidBackgroundGroup);
+  localStorage.setItem('solidBackgroundColorId', solidBackgroundColorId);
+  localStorage.setItem('marqueeBorderEnabled', String(marqueeBorderEnabled));
+  saveCustomSolidBackgroundColors();
+}
+
+function setScoreTextEverywhere(value: string) {
+  const scoreEl = document.getElementById('score-val');
+  const heartScoreEl = document.getElementById('heart-score-val');
+  if (scoreEl) scoreEl.innerText = value;
+  if (heartScoreEl) heartScoreEl.innerText = value;
+}
+
+function syncTopUiModeButtons() {
+  document.querySelectorAll<HTMLButtonElement>('[data-top-ui-mode]').forEach(button => {
+    const active = button.dataset.topUiMode === topUiMode;
+    button.classList.toggle('active', active);
+    button.style.background = active ? '#3b6bdc' : '#4a4a5e';
+  });
+}
+
+function syncTopUiMode() {
+  const gameHeaderEl = document.getElementById('game-header');
+  const boardWrapperEl = document.getElementById('board-wrapper');
+  const scoreEl = document.getElementById('score-val');
+  const heartScoreEl = document.getElementById('heart-score-val');
+  const heartGifEl = document.getElementById('heart-score-gif') as HTMLVideoElement | null;
+  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
+
+  gameHeaderEl?.classList.toggle('heart-header-mode', topUiMode === 'heart');
+  boardWrapperEl?.classList.toggle('heart-top-ui-live', topUiMode === 'heart');
+  if (heartScoreEl && scoreEl) heartScoreEl.innerText = scoreEl.innerText;
+  if (heartGifEl && !heartGifEl.src.endsWith(HEART_IDLE_URL)) heartGifEl.src = HEART_IDLE_URL;
+  if (heartBurstEl && !heartBurstEl.src.endsWith(HEART_CLEAR_URL)) heartBurstEl.src = HEART_CLEAR_URL;
+  heartGifEl?.play().catch(() => {});
+  syncTopUiModeButtons();
+}
+
+function setTopUiMode(mode: TopUiMode) {
+  topUiMode = mode;
+  localStorage.setItem('topUiMode', topUiMode);
+  updateHeaderUI();
+  syncTopUiMode();
+}
+
+function triggerHeartClearHud() {
+  if (topUiMode !== 'heart') return;
+  const heartHudEl = document.getElementById('heart-score-hud');
+  const heartBurstEl = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
+  if (!heartHudEl || !heartBurstEl) return;
+
+  if (heartClearTimer !== null) window.clearTimeout(heartClearTimer);
+  heartBurstEl.currentTime = 0;
+  heartHudEl.classList.remove('clearing');
+  void heartHudEl.offsetWidth;
+  heartHudEl.classList.add('clearing');
+  heartBurstEl.play().catch(() => {});
+  heartClearTimer = window.setTimeout(() => {
+    heartHudEl.classList.remove('clearing');
+    heartBurstEl.pause();
+    heartClearTimer = null;
+  }, 1600);
+}
+
+function ensureMarqueeEffectDom() {
+  const marqueeEl = document.getElementById('marquee-border');
+  if (!marqueeEl) return null;
+
+  return marqueeEl;
+}
+
+function triggerMarqueeClearEffect() {
+  if (!marqueeBorderEnabled) return;
+
+  const marqueeEl = ensureMarqueeEffectDom();
+  marqueeClearStartedAt = performance.now();
+  if (!marqueeEl) return;
+
+  if (marqueeClearTimer !== null) window.clearTimeout(marqueeClearTimer);
+  marqueeEl.classList.remove('clearing');
+  void marqueeEl.offsetWidth;
+  marqueeEl.classList.add('clearing');
+  marqueeClearTimer = window.setTimeout(() => {
+    marqueeEl.classList.remove('clearing');
+    marqueeClearTimer = null;
+  }, MARQUEE_CLEAR_DURATION_MS);
+}
+
+function syncMarqueeBorderUI() {
+  const checkbox = document.getElementById('input-marquee-border') as HTMLInputElement | null;
+  const boardWrapper = document.getElementById('board-wrapper');
+  ensureMarqueeEffectDom();
+  if (checkbox) checkbox.checked = marqueeBorderEnabled;
+  boardWrapper?.classList.toggle('marquee-border-live', marqueeBorderEnabled);
+}
+
+function setMarqueeBorderEnabled(enabled: boolean) {
+  marqueeBorderEnabled = enabled;
+  persistRecordingBackgroundState();
+  syncMarqueeBorderUI();
+}
+
+function getClearTextImage(url: string) {
+  let image = clearTextImageCache.get(url);
+  if (!image) {
+    image = new Image();
+    image.src = url;
+    clearTextImageCache.set(url, image);
+  }
+  return image;
+}
+
+function preloadClearTextImages() {
+  [...COMBO_WORD_URLS, ...COMBO_DIGIT_URLS, ...COMBO_COLOR_DIGIT_URLS, ...Object.values(PRAISE_WORD_URLS)].forEach(getClearTextImage);
+}
+
+function getComboWordUrl(combo: number) {
+  if (combo <= 1) return `${COMBO_TEXT_BASE_URL}/combo1.png`;
+  if (combo <= 3) return `${COMBO_TEXT_BASE_URL}/combo2.png`;
+  if (combo <= 5) return `${COMBO_TEXT_BASE_URL}/combo3.png`;
+  if (combo <= 7) return `${COMBO_TEXT_BASE_URL}/combo4.png`;
+  return `${COMBO_TEXT_BASE_URL}/combo5.png`;
+}
+
+function getComboDigitUrls(combo: number) {
+  const digitSet = combo >= 8 ? COMBO_COLOR_DIGIT_URLS : COMBO_DIGIT_URLS;
+  return String(Math.max(1, combo)).split('').map(digit => digitSet[Number(digit)] || digitSet[0]);
+}
+
+function getPraiseWordForCombo(combo: number): PraiseWord {
+  if (combo === 1) return 'good';
+  if (combo === 2) return 'great';
+  if (combo === 3) return 'amazing';
+  if (combo === 4) return 'excellent';
+  return 'unbelievable';
+}
+
+function getBoardRowEffectPoint(row: number, offsetPx: number) {
+  const boardWrapper = document.getElementById('board-wrapper');
+  const boardClip = document.getElementById('board-clip');
+  if (!boardWrapper || !boardClip) return null;
+
+  const wrapperRect = boardWrapper.getBoundingClientRect();
+  const clipRect = boardClip.getBoundingClientRect();
+  const visibleHeight = Math.max(1, getViewportGameHeight());
+  const scaleY = clipRect.height / visibleHeight;
+  const rowTop = clipRect.top - wrapperRect.top + ((row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY;
+  const clipTop = clipRect.top - wrapperRect.top;
+  const clipBottom = clipTop + clipRect.height;
+  const edgeSafeY = Math.max(72, offsetPx);
+  const minY = clipTop + edgeSafeY;
+  const maxY = clipBottom - edgeSafeY;
+  const y = Math.max(minY, Math.min(maxY, rowTop - offsetPx));
+
+  return {
+    x: clipRect.left - wrapperRect.left + clipRect.width / 2,
+    y,
+    yRatio: Math.max(0, Math.min(1, (y - clipTop) / clipRect.height))
+  };
+}
+
+function getBoardBlocksEffectPoint(anchorBlocks: Block[], offsetPx: number) {
+  if (anchorBlocks.length === 0) return null;
+
+  const boardWrapper = document.getElementById('board-wrapper');
+  const boardClip = document.getElementById('board-clip');
+  if (!boardWrapper || !boardClip) return null;
+
+  const wrapperRect = boardWrapper.getBoundingClientRect();
+  const clipRect = boardClip.getBoundingClientRect();
+  const visibleHeight = Math.max(1, getViewportGameHeight());
+  const scaleY = clipRect.height / visibleHeight;
+  const bottomRowTopGameY = Math.max(...anchorBlocks.map(block => block.sprite?.y ?? block.row * PARAMS.cellSize));
+  const rowTop = clipRect.top - wrapperRect.top + (bottomRowTopGameY + (worldContainer?.y || 0)) * scaleY;
+  const clipTop = clipRect.top - wrapperRect.top;
+  const clipBottom = clipTop + clipRect.height;
+  const edgeSafeY = Math.max(72, offsetPx);
+  const minY = clipTop + edgeSafeY;
+  const maxY = clipBottom - edgeSafeY;
+  const y = Math.max(minY, Math.min(maxY, rowTop - offsetPx));
+
+  return {
+    x: clipRect.left - wrapperRect.left + clipRect.width / 2,
+    y,
+    yRatio: Math.max(0, Math.min(1, (y - clipTop) / clipRect.height))
+  };
+}
+
+function getBoardFixedPraisePoint() {
+  const boardWrapper = document.getElementById('board-wrapper');
+  const boardClip = document.getElementById('board-clip');
+  if (!boardWrapper || !boardClip) return null;
+
+  const wrapperRect = boardWrapper.getBoundingClientRect();
+  const clipRect = boardClip.getBoundingClientRect();
+  return {
+    x: clipRect.left - wrapperRect.left + clipRect.width / 2,
+    y: clipRect.top - wrapperRect.top + 50
+  };
+}
+
+function appendClearTextImage(className: string, url: string, x: number, y: number, delayMs = 0, widthPx?: number, heightPx?: number) {
+  const layer = document.getElementById('clear-text-effects');
+  if (!layer) return;
+
+  const img = document.createElement('img');
+  img.className = `clear-text-effect ${className}`;
+  img.src = url;
+  img.alt = '';
+  img.draggable = false;
+  img.style.left = `${x}px`;
+  img.style.top = `${y}px`;
+  if (typeof widthPx === 'number') img.style.width = `${widthPx}px`;
+  if (typeof heightPx === 'number') {
+    img.style.height = `${heightPx}px`;
+    img.style.objectFit = 'contain';
+  }
+  if (delayMs > 0) img.style.animationDelay = `${delayMs}ms`;
+  layer.appendChild(img);
+  window.setTimeout(() => img.remove(), (className === 'praise-word' ? PRAISE_TEXT_EFFECT_DURATION_MS : COMBO_TEXT_EFFECT_DURATION_MS) + delayMs + 80);
+}
+
+function appendClearTextSparks(centerX: number, centerY: number, radius: number, durationMs: number) {
+  const layer = document.getElementById('clear-text-effects');
+  if (!layer) return;
+
+  const colors = ['#ffe94a', '#2efcff', '#ff4fd8', '#ffffff'];
+  for (let i = 0; i < 14; i++) {
+    const angle = (Math.PI * 2 * i) / 14;
+    const distance = radius * (0.42 + (i % 4) * 0.13);
+    const spark = document.createElement('span');
+    spark.className = 'clear-text-spark';
+    spark.style.left = `${centerX + Math.cos(angle) * radius * 0.28}px`;
+    spark.style.top = `${centerY + Math.sin(angle) * radius * 0.12}px`;
+    spark.style.setProperty('--spark-color', colors[i % colors.length]);
+    spark.style.setProperty('--spark-dx', `${Math.cos(angle) * distance}px`);
+    spark.style.setProperty('--spark-dy', `${Math.sin(angle) * distance - radius * 0.08}px`);
+    spark.style.animationDuration = `${durationMs * 0.62}ms`;
+    spark.style.animationDelay = `${(i % 5) * 22}ms`;
+    layer.appendChild(spark);
+    window.setTimeout(() => spark.remove(), durationMs + 120);
+  }
+}
+
+function pushClearTextEffect(effect: ClearTextEffect) {
+  activeClearTextEffects.push(effect);
+  const maxAge = Math.max(COMBO_TEXT_EFFECT_DURATION_MS, PRAISE_TEXT_EFFECT_DURATION_MS) + 250;
+  const now = performance.now();
+  while (activeClearTextEffects.length > 0 && now - activeClearTextEffects[0].startedAt > maxAge) {
+    activeClearTextEffects.shift();
+  }
+}
+
+function triggerComboTextEffect(rows: number[], combo: number, anchorBlocks: Block[] = []) {
+  if (!comboTextEffectEnabled) return;
+
+  const comboValue = Math.max(1, combo);
+  const comboWordUrl = getComboWordUrl(comboValue);
+  const digitUrls = getComboDigitUrls(comboValue);
+  const sortedRows = rows.length > 0 ? [...rows].sort((a, b) => a - b) : [0];
+  const targetRow = sortedRows[Math.floor((sortedRows.length - 1) / 2)];
+  const point = getBoardBlocksEffectPoint(anchorBlocks, 30) || getBoardRowEffectPoint(targetRow, 30);
+  if (!point) return;
+
+  const boardClip = document.getElementById('board-clip');
+  const boardWidth = boardClip?.getBoundingClientRect().width || 560;
+  pushClearTextEffect({ type: 'combo', startedAt: performance.now(), row: targetRow, boardX: point.x, boardY: point.y, boardYRatio: point.yRatio, comboCount: comboValue });
+  appendComboTextEffectAtPoint(point.x, point.y, boardWidth, comboWordUrl, digitUrls);
+}
+
+function appendComboTextEffectAtPoint(
+  centerX: number,
+  centerY: number,
+  boardWidth: number,
+  comboWordUrl: string,
+  digitUrls: string[]
+) {
+  const wordWidth = Math.min(205, boardWidth * 0.3);
+  const digitWidth = Math.min(47, boardWidth * 0.075);
+  const digitHeight = digitWidth * 1.24;
+  const digitGap = digitWidth * 1.05;
+  const digitGroupWidth = digitWidth + Math.max(0, digitUrls.length - 1) * digitGap;
+  const groupGap = Math.max(18, boardWidth * 0.035);
+  const groupWidth = wordWidth + groupGap + digitGroupWidth;
+  const groupLeft = centerX - groupWidth / 2;
+  const wordCenterX = groupLeft + wordWidth / 2;
+  const firstDigitX = groupLeft + wordWidth + groupGap + digitWidth / 2;
+
+  appendClearTextImage('combo-word', comboWordUrl, wordCenterX, centerY, 0, wordWidth);
+  digitUrls.forEach((url, index) => {
+    appendClearTextImage('combo-digit', url, firstDigitX + index * digitGap, centerY + 3, 160, digitWidth, digitHeight);
+  });
+  appendClearTextSparks(centerX, centerY, boardWidth * 0.2, COMBO_TEXT_EFFECT_DURATION_MS);
+}
+
+function triggerPraiseTextEffect(word: PraiseWord) {
+  if (!praiseTextEffectEnabled) return;
+
+  const point = getBoardFixedPraisePoint();
+  pushClearTextEffect({ type: 'praise', startedAt: performance.now(), word });
+  if (!point) return;
+
+  const boardClip = document.getElementById('board-clip');
+  const boardWidth = boardClip?.getBoundingClientRect().width || 560;
+  appendClearTextImage('praise-word', PRAISE_WORD_URLS[word], point.x, point.y, 0, boardWidth * 0.62);
+  appendClearTextSparks(point.x, point.y, boardWidth * 0.42, PRAISE_TEXT_EFFECT_DURATION_MS);
+}
+
+function syncClearTextEffectUI() {
+  const comboCheckbox = document.getElementById('input-combo-text-effect') as HTMLInputElement | null;
+  const praiseCheckbox = document.getElementById('input-praise-text-effect') as HTMLInputElement | null;
+  if (comboCheckbox) comboCheckbox.checked = comboTextEffectEnabled;
+  if (praiseCheckbox) praiseCheckbox.checked = praiseTextEffectEnabled;
+}
+
+function setComboTextEffectEnabled(enabled: boolean) {
+  comboTextEffectEnabled = enabled;
+  localStorage.setItem('comboTextEffectEnabled', String(comboTextEffectEnabled));
+  syncClearTextEffectUI();
+}
+
+function setPraiseTextEffectEnabled(enabled: boolean) {
+  praiseTextEffectEnabled = enabled;
+  localStorage.setItem('praiseTextEffectEnabled', String(praiseTextEffectEnabled));
+  syncClearTextEffectUI();
+}
+
+function createSolidBackgroundGradient(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number
+) {
+  const current = getSolidBackgroundColor();
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+
+  gradient.addColorStop(0, current.from);
+  gradient.addColorStop(1, current.to);
+
+  return gradient;
+}
+
+function advanceSolidBackgroundColorOnElimination() {
+  if (!isSolidRecordingBackgroundActive() || solidBackgroundVariant !== 'animated') return;
+
+  const colors = getSolidBackgroundColorsForActiveGroup();
+  if (colors.length === 0) return;
+  const currentIndex = Math.max(0, colors.findIndex(color => color.id === solidBackgroundColorId));
+  const next = colors[(currentIndex + 1) % colors.length];
+  solidBackgroundColorId = next.id;
+  persistRecordingBackgroundState();
+  syncRecordingBackgroundUI();
+}
 
 
 
@@ -17278,7 +18650,7 @@ async function init() {
 
 
 
-    height: PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2,
+    height: getPreviewRendererGameHeight() + PADDING * 2,
 
 
 
@@ -17439,10 +18811,17 @@ async function init() {
 
 
   blocksContainer = new PIXI.Container();
+  blocksContainer.sortableChildren = true;
 
 
 
   worldContainer.addChild(blocksContainer);
+
+  tntEffectsContainer = new PIXI.Container();
+  tntEffectsContainer.sortableChildren = true;
+  tntEffectsContainer.zIndex = 100000;
+  worldContainer.sortableChildren = true;
+  worldContainer.addChild(tntEffectsContainer);
 
 
 
@@ -17484,6 +18863,8 @@ async function init() {
 
   setupDOMUI();
 
+  syncEditorStageScale();
+
 
 
   registerGameLoop();
@@ -17506,6 +18887,13 @@ async function init() {
       }
     }
     await PIXI.Assets.load(playableColors.flatMap(color => [1, 2, 3, 4].map(length => `${color}-${length}`)));
+    TNT_EXPLOSION_ALIASES.forEach((alias, i) => {
+      PIXI.Assets.add({ alias, src: `assets/tnt/explosion-frames/frame-${i.toString().padStart(2, '0')}.png` });
+    });
+    TNT_PRE_EXPLOSION_ALIASES.forEach((alias, i) => {
+      PIXI.Assets.add({ alias, src: `assets/tnt/pre-explosion-frames/frame-${i.toString().padStart(2, '0')}.png` });
+    });
+    await PIXI.Assets.load([...TNT_EXPLOSION_ALIASES, ...TNT_PRE_EXPLOSION_ALIASES]);
     assetsLoaded = true;
   } else {
   // Initialize DBs early in the background
@@ -17749,6 +19137,8 @@ async function init() {
 
 
     await loadCollectionAvatarStyle();
+    await restoreCustomTntImage();
+    await restoreCustomTntArmedImage();
 
 
 
@@ -17765,6 +19155,10 @@ async function init() {
 
 
     await renderCollectibleList();
+
+    bindMultiCollectibleManager();
+
+    await rebuildMultiCollectibleItems();
 
 
 
@@ -17820,6 +19214,14 @@ async function init() {
   await PIXI.Assets.load(colors.flatMap(c => [1,2,3,4].map(l => `${c}-${l}`)));
 
 
+
+  TNT_EXPLOSION_ALIASES.forEach((alias, i) => {
+    PIXI.Assets.add({ alias, src: `assets/tnt/explosion-frames/frame-${i.toString().padStart(2, '0')}.png` });
+  });
+  TNT_PRE_EXPLOSION_ALIASES.forEach((alias, i) => {
+    PIXI.Assets.add({ alias, src: `assets/tnt/pre-explosion-frames/frame-${i.toString().padStart(2, '0')}.png` });
+  });
+  await PIXI.Assets.load([...TNT_EXPLOSION_ALIASES, ...TNT_PRE_EXPLOSION_ALIASES]);
 
   assetsLoaded = true;
   
@@ -18400,10 +19802,8 @@ function drawGrid() {
 
   const lineWidth = 1 / fitScale;
 
-  const useGeneratedBackgroundUI =
-    recordingBackgroundEnabled &&
-    recordingBackgroundActiveId !== MASTER_BACKGROUND_ID &&
-    recordingBackgroundActiveId !== NO_BACKGROUND_ID;
+  const useGeneratedBackgroundUI = isRecordingBackgroundActive();
+  const useSolidBackgroundUI = isSolidRecordingBackgroundActive();
 
   const gridStart = 0;
   const gridColEnd = PARAMS.gridCols;
@@ -18449,8 +19849,8 @@ function drawGrid() {
 
   gridGraphics.stroke({
     width: lineWidth,
-    color: useGeneratedBackgroundUI ? 0x9aa4d3 : 0xffffff,
-    alpha: useGeneratedBackgroundUI ? 0.2 : 0.05
+    color: useSolidBackgroundUI ? 0x151f43 : (useGeneratedBackgroundUI ? 0x9aa4d3 : 0xffffff),
+    alpha: useSolidBackgroundUI ? 0.58 : (useGeneratedBackgroundUI ? 0.2 : 0.05)
   });
 
 
@@ -19629,11 +21029,168 @@ function canPlaceBlock(col: number, row: number, length: number): boolean {
 
 
 
+function getTntTexture(): PIXI.Texture {
+  if (tntTextureCache) return tntTextureCache;
+
+  const cell = PARAMS.cellSize || 50;
+  if (customTntImage) {
+    const texture = PIXI.Texture.from(customTntImage);
+    tntTextureCache = texture;
+    return texture;
+  }
+
+  const g = new PIXI.Graphics();
+  g.roundRect(2, 2, cell - 4, cell - 4, 8);
+  g.fill({ color: 0x27212c });
+  g.stroke({ width: 2, color: 0xffcf4a, alpha: 0.95 });
+  g.circle(cell / 2, cell / 2, cell * 0.3);
+  g.fill({ color: 0xe83232 });
+  g.stroke({ width: 2, color: 0xffffff, alpha: 0.85 });
+  g.moveTo(cell * 0.58, cell * 0.28);
+  g.lineTo(cell * 0.76, cell * 0.08);
+  g.stroke({ width: Math.max(2, cell * 0.06), color: 0xffd45c, alpha: 1 });
+  const texture = app.renderer.generateTexture(g);
+  g.destroy();
+  tntTextureCache = texture;
+  return texture;
+}
+
+function convertBlockToTnt(block: Block) {
+  if (block.isCollectible || block.isProp || block.length !== 1 || isTntBlock(block)) return false;
+  block.color = TNT_COLOR;
+  block.propType = TNT_PROP_TYPE;
+  block.sprite.texture = getTntTexture();
+  block.sprite.width = PARAMS.cellSize;
+  block.sprite.height = PARAMS.cellSize;
+  return true;
+}
+
+function refreshTntBlockTextures() {
+  tntTextureCache = null;
+  const texture = getTntTexture();
+  blocks.forEach(block => {
+    if (!isTntBlock(block)) return;
+    block.sprite.texture = texture;
+    block.sprite.width = PARAMS.cellSize;
+    block.sprite.height = PARAMS.cellSize;
+  });
+  if (manualSelectedBlock?.color === TNT_COLOR) {
+    initOrUpdateManualPreviewSprite(1, TNT_COLOR, false);
+  }
+}
+
+async function applyTntImageFile(file: File): Promise<void> {
+  if (file.type && !file.type.startsWith('image/')) return;
+  const dataUrl = await readPropImageFile(file);
+  customTntImage = await loadPropImage(dataUrl);
+  localStorage.setItem(TNT_STORAGE_IMAGE, dataUrl);
+  refreshTntBlockTextures();
+  refreshPropStylePanel();
+}
+
+function importTntImage(): void {
+  const input = document.getElementById('input-tnt-image') as HTMLInputElement | null;
+  if (input) {
+    input.value = '';
+    input.click();
+  }
+}
+
+function getTntArmedTexture(): PIXI.Texture {
+  if (tntArmedTextureCache) return tntArmedTextureCache;
+  if (customTntArmedImage) {
+    tntArmedTextureCache = PIXI.Texture.from(customTntArmedImage);
+    return tntArmedTextureCache;
+  }
+  return getTntTexture();
+}
+
+async function applyTntArmedImageFile(file: File): Promise<void> {
+  if (file.type && !file.type.startsWith('image/')) return;
+  const dataUrl = await readPropImageFile(file);
+  const normalizedDataUrl = await normalizeTntArmedImageDataUrl(dataUrl);
+  customTntArmedImage = await loadPropImage(normalizedDataUrl);
+  tntArmedTextureCache = null;
+  localStorage.setItem(TNT_STORAGE_ARMED_IMAGE, normalizedDataUrl);
+  refreshPropStylePanel();
+}
+
+function importTntArmedImage(): void {
+  const input = document.getElementById('input-tnt-armed-image') as HTMLInputElement | null;
+  if (input) {
+    input.value = '';
+    input.click();
+  }
+}
+
+function clearCustomTntImage(): void {
+  customTntImage = null;
+  localStorage.removeItem(TNT_STORAGE_IMAGE);
+  refreshTntBlockTextures();
+  refreshPropStylePanel();
+}
+
+function clearCustomTntArmedImage(): void {
+  customTntArmedImage = null;
+  tntArmedTextureCache = null;
+  localStorage.removeItem(TNT_STORAGE_ARMED_IMAGE);
+  refreshPropStylePanel();
+}
+
+async function restoreCustomTntImage(): Promise<void> {
+  const stored = localStorage.getItem(TNT_STORAGE_IMAGE);
+  if (!stored) return;
+  try {
+    customTntImage = await loadPropImage(stored);
+    tntTextureCache = null;
+  } catch (error) {
+    console.warn('Failed to restore custom TNT image.', error);
+    customTntImage = null;
+    localStorage.removeItem(TNT_STORAGE_IMAGE);
+  }
+}
+
+async function restoreCustomTntArmedImage(): Promise<void> {
+  localStorage.removeItem('custom_tnt_explosion_frames');
+  const stored = localStorage.getItem(TNT_STORAGE_ARMED_IMAGE);
+  if (!stored) return;
+  try {
+    const normalizedStored = await normalizeTntArmedImageDataUrl(stored);
+    customTntArmedImage = await loadPropImage(normalizedStored);
+    tntArmedTextureCache = null;
+    if (normalizedStored !== stored) localStorage.setItem(TNT_STORAGE_ARMED_IMAGE, normalizedStored);
+  } catch (error) {
+    console.warn('Failed to restore custom TNT armed image.', error);
+    customTntArmedImage = null;
+    localStorage.removeItem(TNT_STORAGE_ARMED_IMAGE);
+  }
+}
+
+function seedTntBlocksOnCurrentBoard() {
+  const candidates = blocks.filter(block => !block.isCollectible && !block.isProp && block.length === 1 && !isTntBlock(block));
+  if (candidates.length === 0) return 0;
+  const targetCount = Math.max(1, Math.round(candidates.length * PARAMS.tntSpawnChance / 100));
+  const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+  let converted = 0;
+  for (const block of shuffled.slice(0, targetCount)) {
+    if (convertBlockToTnt(block)) converted++;
+  }
+  if (converted > 0) captureBoardState();
+  return converted;
+}
+
 function initOrUpdateManualPreviewSprite(length: number, color: string, visible: boolean = false, propDir: 'left' | 'right' = 'left') {
 
 
 
-  if (color === 'prop-peppermint' || color === 'prop-row-bomb') {
+  if (color === TNT_COLOR) {
+    if (manualPreviewSprite) {
+      blocksContainer.removeChild(manualPreviewSprite);
+      manualPreviewSprite.destroy();
+    }
+    manualPreviewSprite = new PIXI.Sprite(getTntTexture());
+    blocksContainer.addChild(manualPreviewSprite);
+  } else if (color === 'prop-peppermint' || color === 'prop-row-bomb') {
 
 
 
@@ -19737,7 +21294,7 @@ function initOrUpdateManualPreviewSprite(length: number, color: string, visible:
 
 
 
-    let texture = PIXI.Assets.get(`${color}-${length}`);
+    let texture = color === TNT_COLOR ? getTntTexture() : PIXI.Assets.get(`${color}-${length}`);
 
 
 
@@ -19861,7 +21418,7 @@ function updateManualPreview(col: number, row: number) {
 
 
 
-      let texture = PIXI.Assets.get(`${color}-${length}`);
+      let texture = color === TNT_COLOR ? getTntTexture() : PIXI.Assets.get(`${color}-${length}`);
 
 
 
@@ -20000,21 +21557,120 @@ let customPropMachineImg: HTMLImageElement | null = null;
 let customPropCandyImg: HTMLImageElement | null = null;
 let customPropMachineFrames: string[] = [];
 let customPropMachineAttackFrames: string[] = [];
+let customPropEatFrames: string[] = [];
+let obstacleEaterEnabled = false;
+let customPropMachineFrameImages: HTMLImageElement[] = [];
+let customPropMachineAttackFrameImages: HTMLImageElement[] = [];
+let customPropEatFrameImages: HTMLImageElement[] = [];
+let customPropEatFramesReady: Promise<void> = Promise.resolve();
+let customPropEatLoadGeneration = 0;
+let customPropEatFramesLoadPromise: Promise<HTMLImageElement[]> = Promise.resolve([]);
+let customPropFramesHydrationPromise: Promise<void> = Promise.resolve();
+let customPropEatFramesLoadKey = '';
 let machineIdleTextures: PIXI.Texture[] = [];
 let machineAttackTextures: PIXI.Texture[] = [];
+const propAnimationTextureCache: Record<string, PIXI.Texture[]> = {};
+const propAnimationStates = new WeakMap<PIXI.AnimatedSprite, 'idle' | 'attack'>();
 
 const PROP_STORAGE_MACHINE = 'custom_prop_machine_b64';
 const PROP_STORAGE_CANDY   = 'custom_prop_candy_b64';
 const PROP_STORAGE_MACHINE_FRAMES = 'custom_prop_machine_frames';
 const PROP_STORAGE_MACHINE_ATTACK_FRAMES = 'custom_prop_machine_attack_frames';
+const PROP_STORAGE_EAT_FRAMES = 'custom_prop_eat_frames';
+const PROP_STORAGE_OBSTACLE_EATER_ENABLED = 'custom_prop_obstacle_eater_enabled';
+const PROP_ASSET_DB = 'puzzle-editor-prop-assets';
+const PROP_ASSET_STORE = 'frames';
+
+function openPropAssetDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PROP_ASSET_DB, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(PROP_ASSET_STORE)) {
+        request.result.createObjectStore(PROP_ASSET_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Failed to open prop asset storage'));
+  });
+}
+
+function savePropFrameSet(key: string, frames: string[]): Promise<void> {
+  return openPropAssetDb().then(db => new Promise((resolve, reject) => {
+    const request = db.transaction(PROP_ASSET_STORE, 'readwrite').objectStore(PROP_ASSET_STORE).put(frames, key);
+    request.onsuccess = () => { db.close(); resolve(); };
+    request.onerror = () => { db.close(); reject(request.error || new Error('Failed to save prop frames')); };
+  }));
+}
+
+function clearLegacyPropFrameStorage(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* quota or restricted storage */ }
+}
+
+function loadPropFrameSet(key: string): Promise<string[] | null> {
+  return openPropAssetDb().then(db => new Promise((resolve, reject) => {
+    const request = db.transaction(PROP_ASSET_STORE, 'readonly').objectStore(PROP_ASSET_STORE).get(key);
+    request.onsuccess = () => { db.close(); resolve(Array.isArray(request.result) ? request.result : null); };
+    request.onerror = () => { db.close(); reject(request.error || new Error('Failed to load prop frames')); };
+  }));
+}
+
+async function hydrateStoredPropFrames(): Promise<void> {
+  try {
+    const [idleFrames, attackFrames, eatFrames] = await Promise.all([
+      loadPropFrameSet(PROP_STORAGE_MACHINE_FRAMES),
+      loadPropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES),
+      loadPropFrameSet(PROP_STORAGE_EAT_FRAMES)
+    ]);
+    let changed = false;
+    // IndexedDB is the source of truth for uploaded frame sequences. The
+    // localStorage values are legacy single-frame fallbacks and can otherwise
+    // overwrite a complete idle sequence during a page refresh.
+    if (idleFrames?.length && idleFrames.length !== customPropMachineFrames.length) {
+      customPropMachineFrames = idleFrames;
+      changed = true;
+    }
+    if (attackFrames?.length && attackFrames.length !== customPropMachineAttackFrames.length) {
+      customPropMachineAttackFrames = attackFrames;
+      changed = true;
+    }
+    if (eatFrames?.length && eatFrames.length !== customPropEatFrames.length) {
+      customPropEatFrames = eatFrames;
+      changed = true;
+    }
+    if (changed) {
+      rebuildMachineTextures();
+      invalidatePropCache();
+      refreshPropStylePanel();
+    }
+    if (customPropEatFrames.length > 0) {
+      await loadCustomPropEatFrameImages();
+    }
+  } catch (error) {
+    console.warn('Failed to load prop frames from IndexedDB.', error);
+  }
+}
 
 function invalidatePropCache(): void {
-  Object.keys(propTextureCache).forEach(k => { propTextureCache[k].destroy(true); delete propTextureCache[k]; });
-  blocks.forEach(b => { if (b.isProp) { const tex = getPropTexture(b.length, b.propDir || 'left'); b.sprite.texture = tex; b.sprite.width = b.length * PARAMS.cellSize; b.sprite.height = PARAMS.cellSize; } });
+  Object.keys(propTextureCache).forEach(k => { propTextureCache[k]?.destroy(true); delete propTextureCache[k]; });
+  Object.keys(propAnimationTextureCache).forEach(k => { propAnimationTextureCache[k]?.forEach(t => t?.destroy(true)); delete propAnimationTextureCache[k]; });
+  blocks.forEach(b => {
+    if (!b.isProp) return;
+    const anim = b.sprite instanceof PIXI.AnimatedSprite ? b.sprite : null;
+    if (anim && customPropMachineFrameImages.length > 0) {
+      anim.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
+      propAnimationStates.set(anim, 'idle');
+      anim.gotoAndPlay(0);
+    } else {
+      b.sprite.texture = getPropTexture(b.length, b.propDir || 'left');
+    }
+    b.sprite.width = b.length * PARAMS.cellSize;
+    b.sprite.height = PARAMS.cellSize;
+  });
 }
 
 function loadCustomPropImages(): void {
   try {
+    obstacleEaterEnabled = localStorage.getItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED) === 'true';
     const cb = localStorage.getItem(PROP_STORAGE_CANDY);
     if (cb) {
       const i = new Image();
@@ -20029,21 +21685,27 @@ function loadCustomPropImages(): void {
     const maf = localStorage.getItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
     if (maf) { try { customPropMachineAttackFrames = JSON.parse(maf); } catch(e){ customPropMachineAttackFrames = []; } }
 
+    const ef = localStorage.getItem(PROP_STORAGE_EAT_FRAMES);
+    if (ef) { try { customPropEatFrames = JSON.parse(ef); } catch(e){ customPropEatFrames = []; } }
+
     const mb = localStorage.getItem(PROP_STORAGE_MACHINE); // Legacy fallback
     if (mb && customPropMachineFrames.length === 0) {
       customPropMachineFrames = [mb];
     }
 
-    if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
+    if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0) {
       rebuildMachineTextures();
       invalidatePropCache();
     }
+    customPropFramesHydrationPromise = hydrateStoredPropFrames();
   } catch (error) {
     console.warn('Failed to load custom prop images; falling back to default prop style.', error);
     customPropMachineImg = null;
     customPropCandyImg = null;
     customPropMachineFrames = [];
     customPropMachineAttackFrames = [];
+    customPropEatFrames = [];
+    obstacleEaterEnabled = false;
   }
 }
 
@@ -20053,19 +21715,29 @@ function applyPendingCustomPropStyle(): void {
   pendingCustomPropStyle = null;
 
   if (Array.isArray(style.machineFrames)) {
-    customPropMachineFrames = style.machineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
-    if (customPropMachineFrames.length > 0) {
-      localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(customPropMachineFrames));
-      localStorage.setItem(PROP_STORAGE_MACHINE, customPropMachineFrames[0]);
-    }
+      customPropMachineFrames = style.machineFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+      if (customPropMachineFrames.length > 0) {
+        void savePropFrameSet(PROP_STORAGE_MACHINE_FRAMES, customPropMachineFrames);
+        try { localStorage.setItem(PROP_STORAGE_MACHINE, customPropMachineFrames[0]); } catch { /* IndexedDB is the source of truth */ }
+      }
   }
   if (Array.isArray(style.machineAttackFrames)) {
     customPropMachineAttackFrames = style.machineAttackFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
     if (customPropMachineAttackFrames.length > 0) {
-      localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(customPropMachineAttackFrames));
+      void savePropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES, customPropMachineAttackFrames);
     }
   }
-  if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0) {
+  if (Array.isArray(style.eatFrames)) {
+    customPropEatFrames = style.eatFrames.filter(frame => typeof frame === 'string' && frame.startsWith('data:'));
+    if (customPropEatFrames.length > 0) {
+      void savePropFrameSet(PROP_STORAGE_EAT_FRAMES, customPropEatFrames);
+    }
+  }
+  if (typeof style.obstacleEaterEnabled === 'boolean') {
+    obstacleEaterEnabled = style.obstacleEaterEnabled;
+    try { localStorage.setItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED, String(obstacleEaterEnabled)); } catch { /* storage is optional */ }
+  }
+  if (customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0) {
     rebuildMachineTextures();
   }
 
@@ -20109,52 +21781,70 @@ function loadCustomPropMachineImageFromFirstFrame(): void {
 
 function rebuildMachineTextures(): void {
   try {
-    machineIdleTextures.forEach(t => t.destroy(true));
-    machineAttackTextures.forEach(t => t.destroy(true));
+    machineIdleTextures.forEach(t => t?.destroy(true));
+    machineAttackTextures.forEach(t => t?.destroy(true));
     machineIdleTextures = customPropMachineFrames.map(b64 => PIXI.Texture.from(b64));
     machineAttackTextures = customPropMachineAttackFrames.map(b64 => PIXI.Texture.from(b64));
+    customPropMachineFrameImages = [];
+    customPropMachineAttackFrameImages = [];
+    void Promise.all(customPropMachineFrames.map(loadPropImage)).then(images => {
+      customPropMachineFrameImages = images;
+      invalidatePropCache();
+    }).catch(() => { customPropMachineFrameImages = []; });
+    void Promise.all(customPropMachineAttackFrames.map(loadPropImage)).then(images => {
+      customPropMachineAttackFrameImages = images;
+      invalidatePropCache();
+    }).catch(() => { customPropMachineAttackFrameImages = []; });
+    void loadCustomPropEatFrameImages();
     loadCustomPropMachineImageFromFirstFrame();
   } catch (error) {
     console.warn('Failed to rebuild custom prop textures; falling back to default prop style.', error);
     customPropMachineImg = null;
     customPropMachineFrames = [];
     customPropMachineAttackFrames = [];
+    customPropEatFrames = [];
+    customPropMachineFrameImages = [];
+    customPropMachineAttackFrameImages = [];
+    customPropEatFrameImages = [];
+    customPropEatFramesReady = Promise.resolve();
+    customPropEatFramesLoadPromise = Promise.resolve([]);
+    customPropEatFramesLoadKey = '';
+    customPropEatLoadGeneration++;
     machineIdleTextures = [];
     machineAttackTextures = [];
   }
 }
 
-function triggerMachineHeadAttack(): void {
-  if (machineAttackTextures.length > 0 && machineIdleTextures.length > 0) {
-    blocks.forEach(b => {
-      if (b.isProp && b.sprite && (b.sprite as any).children && (b.sprite as any).children.length > 1) {
-        const head = (b.sprite as any).children[1] as PIXI.AnimatedSprite;
-        if (head && (head instanceof PIXI.AnimatedSprite) && head.textures !== machineAttackTextures) {
-          head.textures = machineAttackTextures;
-          head.animationSpeed = 0.2;
-          head.gotoAndPlay(0);
-        }
-      }
-    });
+function getPropAnimationTextures(length: number, dir: 'left' | 'right', state: 'idle' | 'attack'): PIXI.Texture[] {
+  const images = state === 'attack' ? customPropMachineAttackFrameImages : customPropMachineFrameImages;
+  if (images.length === 0) return [getPropTexture(length, dir)];
+  const key = `peppermint_anim_${state}_${length}_${dir}_${PARAMS.cellSize}_${images.length}`;
+  if (!propAnimationTextureCache[key]) {
+    propAnimationTextureCache[key] = images.map((image, index) => getPropTexture(length, dir, image, `${state}-${index}`));
   }
+  return propAnimationTextureCache[key];
 }
 
 function revertMachineHeadIdle(): void {
-  if (machineAttackTextures.length > 0 && machineIdleTextures.length > 0) {
+  if (customPropMachineFrameImages.length > 0) {
     blocks.forEach(b => {
-      if (b.isProp && b.sprite && (b.sprite as any).children && (b.sprite as any).children.length > 1) {
-        const head = (b.sprite as any).children[1] as PIXI.AnimatedSprite;
-        if (head && (head instanceof PIXI.AnimatedSprite) && head.textures === machineAttackTextures) {
-          head.textures = machineIdleTextures;
-          head.animationSpeed = 0.2;
-          head.gotoAndPlay(0);
-        }
+      if (b.isProp && b.sprite instanceof PIXI.AnimatedSprite) {
+        // The normal movement/gravity path calls this function after every
+        // wave. Do not restart an already-idle sequence on every move.
+        if (propAnimationStates.get(b.sprite) !== 'attack') return;
+        b.sprite.textures = getPropAnimationTextures(b.length, b.propDir || 'left', 'idle');
+        b.sprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
+        b.sprite.loop = true;
+        propAnimationStates.set(b.sprite, 'idle');
+        b.sprite.gotoAndPlay(0);
       }
     });
   }
 }
 
-type PropImageRole = 'machine' | 'machine_attack' | 'candy';
+type PropImageRole = 'machine' | 'machine_attack' | 'eat' | 'candy';
+const CUSTOM_FRAME_ANIMATION_SPEED = 0.5; // 30 FPS at Pixi's 60 Hz ticker
+const CUSTOM_PROP_IDLE_ANIMATION_SPEED = 0.85; // Faster, smoother obstacle idle playback.
 
 function readPropImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -20168,14 +21858,165 @@ function readPropImageFile(file: File): Promise<string> {
 function loadPropImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = async () => {
+      try {
+        if (typeof image.decode === 'function') await image.decode();
+      } catch {
+        // The image is already load-complete; tolerate browsers with partial decode support.
+      }
+      resolve(image);
+    };
     image.onerror = () => reject(new Error('Failed to load the selected prop image'));
     image.src = dataUrl;
   });
 }
 
+type ImagePixelBounds = { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number };
+
+function getImagePixelBounds(ctx: CanvasRenderingContext2D, width: number, height: number, alphaThreshold: number): ImagePixelBounds | null {
+  const pixels = ctx.getImageData(0, 0, width, height).data;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const alpha = pixels[(y * width + x) * 4 + 3];
+      if (alpha <= alphaThreshold) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < minX || maxY < minY) return null;
+  return { minX, minY, maxX, maxY, width: maxX - minX + 1, height: maxY - minY + 1 };
+}
+
+function drawImageToCanvas(image: HTMLImageElement): HTMLCanvasElement | null {
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  if (width <= 0 || height <= 0) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0);
+  return canvas;
+}
+
+function cropCanvasToDataUrl(canvas: HTMLCanvasElement, minX: number, minY: number, cropWidth: number, cropHeight: number): string | null {
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = cropWidth;
+  cropCanvas.height = cropHeight;
+  const cropCtx = cropCanvas.getContext('2d');
+  if (!cropCtx) return null;
+  cropCtx.drawImage(canvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  return cropCanvas.toDataURL('image/png');
+}
+
+async function trimTransparentImageDataUrl(dataUrl: string): Promise<string> {
+  const image = await loadPropImage(dataUrl);
+  const canvas = drawImageToCanvas(image);
+  if (!canvas) return dataUrl;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return dataUrl;
+  const bounds = getImagePixelBounds(ctx, canvas.width, canvas.height, 8);
+  if (!bounds) return dataUrl;
+  const pad = Math.max(2, Math.round(Math.max(canvas.width, canvas.height) * 0.03));
+  const minX = Math.max(0, bounds.minX - pad);
+  const minY = Math.max(0, bounds.minY - pad);
+  const maxX = Math.min(canvas.width - 1, bounds.maxX + pad);
+  const maxY = Math.min(canvas.height - 1, bounds.maxY + pad);
+  const cropWidth = maxX - minX + 1;
+  const cropHeight = maxY - minY + 1;
+  if (cropWidth === canvas.width && cropHeight === canvas.height) return dataUrl;
+  return cropCanvasToDataUrl(canvas, minX, minY, cropWidth, cropHeight) || dataUrl;
+}
+
+async function normalizeTntArmedImageDataUrl(dataUrl: string): Promise<string> {
+  if (!customTntImage) return trimTransparentImageDataUrl(dataUrl);
+
+  const armedImage = await loadPropImage(dataUrl);
+  const idleCanvas = drawImageToCanvas(customTntImage);
+  const armedCanvas = drawImageToCanvas(armedImage);
+  if (!idleCanvas || !armedCanvas) return dataUrl;
+
+  const idleCtx = idleCanvas.getContext('2d');
+  const armedCtx = armedCanvas.getContext('2d');
+  if (!idleCtx || !armedCtx) return dataUrl;
+
+  const idleBody = getImagePixelBounds(idleCtx, idleCanvas.width, idleCanvas.height, 180);
+  const armedBody = getImagePixelBounds(armedCtx, armedCanvas.width, armedCanvas.height, 180);
+  if (!idleBody || !armedBody) return trimTransparentImageDataUrl(dataUrl);
+
+  const leftRatio = idleBody.minX / Math.max(1, idleBody.width);
+  const rightRatio = (idleCanvas.width - idleBody.maxX - 1) / Math.max(1, idleBody.width);
+  const topRatio = idleBody.minY / Math.max(1, idleBody.height);
+  const bottomRatio = (idleCanvas.height - idleBody.maxY - 1) / Math.max(1, idleBody.height);
+
+  let minX = Math.floor(armedBody.minX - armedBody.width * leftRatio);
+  let maxX = Math.ceil(armedBody.maxX + armedBody.width * rightRatio);
+  let minY = Math.floor(armedBody.minY - armedBody.height * topRatio);
+  let maxY = Math.ceil(armedBody.maxY + armedBody.height * bottomRatio);
+
+  minX = Math.max(0, minX);
+  minY = Math.max(0, minY);
+  maxX = Math.min(armedCanvas.width - 1, maxX);
+  maxY = Math.min(armedCanvas.height - 1, maxY);
+
+  const cropWidth = maxX - minX + 1;
+  const cropHeight = maxY - minY + 1;
+  if (cropWidth <= 0 || cropHeight <= 0) return trimTransparentImageDataUrl(dataUrl);
+  if (cropWidth === armedCanvas.width && cropHeight === armedCanvas.height) return dataUrl;
+  return cropCanvasToDataUrl(armedCanvas, minX, minY, cropWidth, cropHeight) || dataUrl;
+}
+
+function loadCustomPropEatFrameImages(): Promise<HTMLImageElement[]> {
+  const frames = customPropEatFrames.filter(frame => typeof frame === 'string' && frame.length > 0);
+  const loadKey = frames.join('\u0000');
+  if (loadKey === customPropEatFramesLoadKey) return customPropEatFramesLoadPromise;
+  customPropEatFramesLoadKey = loadKey;
+  const loadGeneration = ++customPropEatLoadGeneration;
+
+  if (frames.length === 0) {
+    customPropEatFramesLoadKey = '';
+    customPropEatFrameImages = [];
+    customPropEatFramesLoadPromise = Promise.resolve([]);
+    customPropEatFramesReady = Promise.resolve();
+    return customPropEatFramesLoadPromise;
+  }
+
+  const loadPromise = Promise.all(frames.map(frame =>
+    loadPropImage(frame).catch(error => {
+      console.warn('Failed to load one obstacle eater frame; skipping that frame.', error);
+      return null;
+    })
+  )).then(images => {
+    const loadedImages = images.filter((image): image is HTMLImageElement => image !== null);
+    if (loadGeneration === customPropEatLoadGeneration) {
+      customPropEatFrameImages = loadedImages;
+      invalidatePropCache();
+    }
+    return loadedImages;
+  });
+
+  customPropEatFramesLoadPromise = loadPromise;
+  customPropEatFramesReady = loadPromise.then(() => undefined);
+  return loadPromise;
+}
+
 async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): Promise<void> {
-  const files = [...selectedFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  // The picker already restricts the input to images. Keep files whose MIME
+  // type is empty as well; Windows can leave it empty for some image files.
+  const files = [...selectedFiles]
+    .filter(file => !file.type || file.type.startsWith('image/'))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   if (files.length === 0) return;
 
   if (role === 'candy') {
@@ -20186,11 +22027,18 @@ async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): 
     const b64Array = await Promise.all(files.map(readPropImageFile));
     if (role === 'machine') {
       customPropMachineFrames = b64Array;
-      localStorage.setItem(PROP_STORAGE_MACHINE_FRAMES, JSON.stringify(b64Array));
-      localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]);
-    } else {
+      await savePropFrameSet(PROP_STORAGE_MACHINE_FRAMES, b64Array);
+      clearLegacyPropFrameStorage(PROP_STORAGE_MACHINE_FRAMES);
+      // Keep the legacy preview when it fits, but never let its quota failure
+      // turn a successful IndexedDB frame upload into an upload error.
+      try { localStorage.setItem(PROP_STORAGE_MACHINE, b64Array[0]); } catch { /* IndexedDB is the source of truth */ }
+    } else if (role === 'machine_attack') {
       customPropMachineAttackFrames = b64Array;
-      localStorage.setItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES, JSON.stringify(b64Array));
+      await savePropFrameSet(PROP_STORAGE_MACHINE_ATTACK_FRAMES, b64Array);
+      clearLegacyPropFrameStorage(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+    } else {
+      customPropEatFrames = b64Array;
+      await savePropFrameSet(PROP_STORAGE_EAT_FRAMES, b64Array);
     }
     rebuildMachineTextures();
   }
@@ -20200,12 +22048,27 @@ async function applyPropImageFiles(role: PropImageRole, selectedFiles: File[]): 
 }
 
 function importPropImage(role: PropImageRole): void {
+  // Keep frame upload inputs mounted in the panel. Some Chromium file-picker
+  // integrations do not reliably dispatch change on a temporary input that is
+  // created and removed during the same click flow.
+  if (role === 'machine' || role === 'machine_attack' || role === 'eat') {
+    const inputId = role === 'machine' ? 'input-prop-machine' : role === 'machine_attack' ? 'input-prop-machine-attack' : 'input-prop-eat';
+    const persistentInput = document.getElementById(inputId) as HTMLInputElement | null;
+    if (persistentInput) {
+      persistentInput.click();
+      return;
+    }
+  }
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.multiple = role === 'machine' || role === 'machine_attack';
+  const isFrameRole = role === 'machine' || role === 'machine_attack' || role === 'eat';
+  input.multiple = isFrameRole;
+  if (isFrameRole) input.setAttribute('multiple', 'multiple');
   input.style.display = 'none';
   input.setAttribute('aria-hidden', 'true');
+  // Set the multi-select attributes before attaching and opening the picker.
+  // This avoids browser-specific picker behavior that falls back to one file.
   document.body.appendChild(input);
 
   const cleanup = () => {
@@ -20213,18 +22076,30 @@ function importPropImage(role: PropImageRole): void {
     input.remove();
   };
 
-  input.addEventListener('change', () => {
+  let handled = false;
+  const handleFiles = () => {
+    if (handled) return;
     const files = Array.from(input.files || []);
     if (files.length === 0) {
       cleanup();
       return;
     }
+    handled = true;
+    const countId = role === 'machine' ? 'prop-machine-count' : role === 'machine_attack' ? 'prop-machine-attack-count' : role === 'eat' ? 'prop-eat-count' : '';
+    const count = countId ? document.getElementById(countId) : null;
+    if (count && isFrameRole) count.textContent = `Reading ${files.length} frames`;
     void applyPropImageFiles(role, files)
-      .catch(error => console.error('Failed to import custom prop image.', error))
+      .catch(error => {
+        console.error('Failed to import custom prop image.', error);
+        if (count && isFrameRole) count.textContent = 'Upload failed';
+      })
       .finally(cleanup);
-  }, { once: true });
+  };
+  // Chromium normally emits change, while some embedded file chooser paths
+  // emit input first. Handle both without processing the selection twice.
+  input.addEventListener('input', handleFiles);
+  input.addEventListener('change', handleFiles);
   input.addEventListener('cancel', cleanup, { once: true });
-
   // A cleared value guarantees that selecting the same file again emits change.
   input.value = '';
   input.click();
@@ -20232,39 +22107,250 @@ function importPropImage(role: PropImageRole): void {
 
 function clearCustomPropImages(): void {
   customPropMachineImg = null; customPropCandyImg = null;
-  customPropMachineFrames = []; customPropMachineAttackFrames = [];
-  machineIdleTextures.forEach(t => t.destroy(true)); machineIdleTextures = [];
-  machineAttackTextures.forEach(t => t.destroy(true)); machineAttackTextures = [];
+  customPropMachineFrames = []; customPropMachineAttackFrames = []; customPropEatFrames = [];
+  customPropEatFrameImages = [];
+  customPropEatFramesReady = Promise.resolve();
+  customPropEatFramesLoadPromise = Promise.resolve([]);
+  customPropEatFramesLoadKey = '';
+  customPropEatLoadGeneration++;
+  machineIdleTextures.forEach(t => t?.destroy(true)); machineIdleTextures = [];
+  machineAttackTextures.forEach(t => t?.destroy(true)); machineAttackTextures = [];
   localStorage.removeItem(PROP_STORAGE_MACHINE); localStorage.removeItem(PROP_STORAGE_CANDY);
-  localStorage.removeItem(PROP_STORAGE_MACHINE_FRAMES); localStorage.removeItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+  localStorage.removeItem(PROP_STORAGE_MACHINE_FRAMES); localStorage.removeItem(PROP_STORAGE_MACHINE_ATTACK_FRAMES); localStorage.removeItem(PROP_STORAGE_EAT_FRAMES);
+  localStorage.removeItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED);
+  obstacleEaterEnabled = false;
+  void openPropAssetDb().then(db => new Promise<void>(resolve => {
+    const tx = db.transaction(PROP_ASSET_STORE, 'readwrite');
+    tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_FRAMES);
+    tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_MACHINE_ATTACK_FRAMES);
+    tx.objectStore(PROP_ASSET_STORE).delete(PROP_STORAGE_EAT_FRAMES);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); resolve(); };
+  })).catch(() => undefined);
   invalidatePropCache(); refreshPropStylePanel();
 }
 
 function refreshPropStylePanel(): void {
   const mt  = document.getElementById('prop-machine-thumb')       as HTMLImageElement | null;
   const cma = document.getElementById('prop-machine-attack-thumb') as HTMLImageElement | null;
+  const eat = document.getElementById('prop-eat-thumb')            as HTMLImageElement | null;
   const ct  = document.getElementById('prop-candy-thumb')         as HTMLImageElement | null;
   const mp  = document.getElementById('prop-machine-placeholder') as HTMLElement | null;
   const cmap= document.getElementById('prop-machine-attack-placeholder') as HTMLElement | null;
+  const eap = document.getElementById('prop-eat-placeholder')      as HTMLElement | null;
   const cp  = document.getElementById('prop-candy-placeholder')   as HTMLElement | null;
   const btn = document.getElementById('btn-clear-prop-style')     as HTMLButtonElement | null;
   const bdg = document.getElementById('prop-custom-badge')        as HTMLElement | null;
+  const tntThumb = document.getElementById('tnt-image-thumb') as HTMLImageElement | null;
+  const tntPlaceholder = document.getElementById('tnt-image-placeholder') as HTMLElement | null;
+  const tntClearBtn = document.getElementById('btn-clear-tnt-image') as HTMLButtonElement | null;
+  const tntArmedThumb = document.getElementById('tnt-armed-thumb') as HTMLImageElement | null;
+  const tntArmedPlaceholder = document.getElementById('tnt-armed-placeholder') as HTMLElement | null;
+  const tntArmedClearBtn = document.getElementById('btn-clear-tnt-armed') as HTMLButtonElement | null;
   
   if (mt) { mt.src = customPropMachineFrames[0] || ''; mt.style.display = customPropMachineFrames.length > 0 ? 'block' : 'none'; }
   if (cma) { cma.src = customPropMachineAttackFrames[0] || ''; cma.style.display = customPropMachineAttackFrames.length > 0 ? 'block' : 'none'; }
+  if (eat) { eat.src = customPropEatFrames[0] || ''; eat.style.display = customPropEatFrames.length > 0 ? 'block' : 'none'; }
   if (ct) { ct.src = customPropCandyImg?.src   || ''; ct.style.display = customPropCandyImg   ? 'block' : 'none'; }
+  const idleCount = document.getElementById('prop-machine-count');
+  const collectCount = document.getElementById('prop-machine-attack-count');
+  const eatCount = document.getElementById('prop-eat-count');
+  if (eatCount) eatCount.textContent = customPropEatFrames.length ? `${customPropEatFrames.length} frames` : 'Click to upload';
+  if (idleCount) idleCount.textContent = customPropMachineFrames.length ? `${customPropMachineFrames.length} 帧` : '点击上传';
+  if (collectCount) collectCount.textContent = customPropMachineAttackFrames.length ? `${customPropMachineAttackFrames.length} 帧` : '点击上传';
   
   if (mp) mp.style.display = customPropMachineFrames.length > 0 ? 'none' : 'block';
   if (cmap) cmap.style.display = customPropMachineAttackFrames.length > 0 ? 'none' : 'block';
+  if (eap) eap.style.display = customPropEatFrames.length > 0 ? 'none' : 'block';
   if (cp) cp.style.display = customPropCandyImg   ? 'none' : 'block';
+  if (tntThumb) { tntThumb.src = customTntImage?.src || ''; tntThumb.style.display = customTntImage ? 'block' : 'none'; }
+  if (tntPlaceholder) tntPlaceholder.style.display = customTntImage ? 'none' : 'block';
+  if (tntClearBtn) tntClearBtn.style.display = customTntImage ? 'inline-block' : 'none';
+  if (tntArmedThumb) { tntArmedThumb.src = customTntArmedImage?.src || ''; tntArmedThumb.style.display = customTntArmedImage ? 'block' : 'none'; }
+  if (tntArmedPlaceholder) tntArmedPlaceholder.style.display = customTntArmedImage ? 'none' : 'block';
+  if (tntArmedClearBtn) tntArmedClearBtn.style.display = customTntArmedImage ? 'inline-block' : 'none';
   
-  const hasCustom = !!(customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropCandyImg);
+  const hasCustom = !!(customPropMachineFrames.length > 0 || customPropMachineAttackFrames.length > 0 || customPropEatFrames.length > 0 || customPropCandyImg);
   if (btn) btn.style.display = hasCustom ? 'inline-block' : 'none';
   if (bdg) bdg.style.display = hasCustom ? 'inline-block' : 'none';
+  refreshObstacleEaterToggle();
+}
+
+function ensureStyleAssetsPanel(): HTMLElement | null {
+  const materialPanel = document.getElementById('material-panel');
+  const tabLevel = document.getElementById('tab-level');
+  const avatarManager = document.getElementById('collection-avatar-manager');
+  if (!materialPanel || !tabLevel || !avatarManager) return null;
+
+  let panel = document.getElementById('style-assets-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'style-assets-panel';
+    panel.className = 'style-assets-panel';
+    panel.innerHTML = '<h3 class="style-assets-panel-title">🎨 角色与道具样式</h3>';
+    tabLevel.insertBefore(panel, materialPanel.nextSibling);
+  } else if (panel.parentElement !== tabLevel) {
+    tabLevel.insertBefore(panel, materialPanel.nextSibling);
+  }
+
+  if (avatarManager.parentElement !== panel) panel.appendChild(avatarManager);
+  return panel;
 }
 
 function initPropStylePanel(): void {
-  const panel = document.getElementById('material-panel');
+  const panel = ensureStyleAssetsPanel();
+  if (!panel || document.getElementById('prop-style-section')) return;
+  const collectibleManagerSection = document.getElementById('collectible-manager-section');
+  const sec = document.createElement('div');
+  sec.id = 'prop-style-section';
+  sec.style.cssText = 'display:flex;flex-direction:column;border-top:1px solid #444;padding-top:8px;margin-top:4px;';
+  sec.innerHTML = `<h3 style='margin:2px 0 6px;display:flex;align-items:center;gap:6px;font-size:14px;'>🎨 障碍道具样式<span id='prop-custom-badge' style='display:none;font-size:9px;background:#7c3aed;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;'>自定义</span></h3>
+    <div style='display:flex;flex-direction:column;gap:6px;'>
+      <div style='font-size:10px;color:#aaa;'>障碍体</div>
+      <div id='prop-candy-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:6px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+        <img id='prop-candy-thumb' style='display:none;width:100%;height:30px;object-fit:contain;border-radius:4px;'/><div id='prop-candy-placeholder' style='font-size:10px;color:#aaa;'>点击上传单张图片</div>
+      </div>
+      <div style='font-size:10px;color:#aaa;margin-top:2px;'>障碍头 <span style='color:#666;'>待机 / 收集</span></div>
+      <div style='display:grid;grid-template-columns:1fr 1fr;gap:5px;'>
+        <div id='prop-machine-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>待机</div><img id='prop-machine-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-machine-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div id='prop-machine-count' style='font-size:9px;color:#777;'>点击上传</div>
+        </div>
+        <div id='prop-machine-attack-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>收集</div><img id='prop-machine-attack-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-machine-attack-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div id='prop-machine-attack-count' style='font-size:9px;color:#777;'>点击上传</div>
+        </div>
+      </div>
+      <div style='font-size:10px;color:#aaa;margin-top:2px;'>闃滅杩涢瑙掕壊</div>
+      <div id='prop-eat-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+        <img id='prop-eat-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='prop-eat-placeholder' style='font-size:10px;color:#aaa;'>鐐瑰嚮涓婁紶</div><div id='prop-eat-count' style='font-size:9px;color:#777;'>鐐瑰嚮涓婁紶</div>
+      </div>
+      <label style='display:flex;align-items:center;gap:5px;padding:5px 6px;background:#1e1e2e;border:1px solid #555;border-radius:5px;cursor:pointer;font-size:10px;color:#ddd;'><input id='toggle-obstacle-eater' type='checkbox' style='margin:0;accent-color:#7c3aed;'/><span>启用吃障碍角色（消除时间×2）</span></label>
+      <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
+      <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会保持整图缩放；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
+      <div style='font-size:10px;color:#aaa;margin-top:2px;'>TNT 炸弹贴图</div>
+      <div style='display:grid;grid-template-columns:1fr 1fr;gap:5px;'>
+        <div id='tnt-image-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>炸弹</div><img id='tnt-image-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='tnt-image-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div style='font-size:9px;color:#777;'>未引爆</div>
+        </div>
+        <div id='tnt-armed-slot' style='background:#1e1e2e;border:1px dashed #555;border-radius:6px;padding:5px;text-align:center;cursor:pointer;transition:border-color .2s;'>
+          <div style='font-size:10px;color:#ddd;margin-bottom:3px;'>引爆</div><img id='tnt-armed-thumb' style='display:none;width:100%;height:38px;object-fit:contain;border-radius:4px;'/><div id='tnt-armed-placeholder' style='font-size:10px;color:#aaa;'>点击上传</div><div style='font-size:9px;color:#777;'>开始晃动</div>
+        </div>
+      </div>
+      <input id='input-prop-machine' type='file' accept='image/*' multiple hidden/>
+      <input id='input-prop-machine-attack' type='file' accept='image/*' multiple hidden/>
+      <input id='input-prop-eat' type='file' accept='image/*' multiple hidden/>
+      <input id='input-tnt-image' type='file' accept='image/*' hidden/>
+      <input id='input-tnt-armed-image' type='file' accept='image/*' hidden/>
+      <button id='btn-clear-tnt-image' onclick='clearCustomTntImage()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认 TNT</button>
+      <button id='btn-clear-tnt-armed' onclick='clearCustomTntArmedImage()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认引爆</button>
+    </div>`;
+  panel.appendChild(sec);
+  if (collectibleManagerSection && collectibleManagerSection.parentElement !== panel) {
+    panel.appendChild(collectibleManagerSection);
+  }
+  const bindFrameInput = (role: 'machine' | 'machine_attack' | 'eat', inputId: string, countId: string) => {
+    const input = document.getElementById(inputId) as HTMLInputElement | null;
+    if (!input) return;
+    let handled = false;
+    const handleFrameFiles = async () => {
+      if (handled) return;
+      const files = Array.from(input.files || []);
+      if (files.length === 0) return;
+      handled = true;
+      const count = document.getElementById(countId);
+      if (count) count.textContent = `Reading ${files.length} frames`;
+      try {
+        await applyPropImageFiles(role, files);
+      } catch (error) {
+        console.error('Failed to import custom prop frames.', error);
+        if (count) count.textContent = 'Upload failed';
+      } finally {
+        input.value = '';
+        handled = false;
+      }
+    };
+    // Chromium normally emits change; embedded file pickers may emit input.
+    // Bind both events to match the collection-avatar uploader contract.
+    input.onchange = handleFrameFiles;
+    input.oninput = handleFrameFiles;
+  };
+  bindFrameInput('machine', 'input-prop-machine', 'prop-machine-count');
+  bindFrameInput('machine_attack', 'input-prop-machine-attack', 'prop-machine-attack-count');
+  bindFrameInput('eat', 'input-prop-eat', 'prop-eat-count');
+  const tntInput = document.getElementById('input-tnt-image') as HTMLInputElement | null;
+  if (tntInput) {
+    const handleTntFile = async () => {
+      const file = tntInput.files?.[0];
+      if (!file) return;
+      try {
+        await applyTntImageFile(file);
+      } catch (error) {
+        console.error('Failed to import custom TNT image.', error);
+      } finally {
+        tntInput.value = '';
+      }
+    };
+    tntInput.onchange = handleTntFile;
+    tntInput.oninput = handleTntFile;
+  }
+  const tntArmedInput = document.getElementById('input-tnt-armed-image') as HTMLInputElement | null;
+  if (tntArmedInput) {
+    const handleTntArmedFile = async () => {
+      const file = tntArmedInput.files?.[0];
+      if (!file) return;
+      try {
+        await applyTntArmedImageFile(file);
+      } catch (error) {
+        console.error('Failed to import custom TNT armed image.', error);
+      } finally {
+        tntArmedInput.value = '';
+      }
+    };
+    tntArmedInput.onchange = handleTntArmedFile;
+    tntArmedInput.oninput = handleTntArmedFile;
+  }
+  ([['prop-candy-slot', 'candy'], ['prop-machine-slot', 'machine'], ['prop-machine-attack-slot', 'machine_attack'], ['prop-eat-slot', 'eat']] as const).forEach(([id, role]) => {
+    const el = document.getElementById(id) as HTMLElement | null;
+    if (!el) return;
+    el.onclick = event => { event.preventDefault(); event.stopPropagation(); importPropImage(role); };
+    el.addEventListener('pointerdown', event => event.stopPropagation());
+    el.addEventListener('mouseenter', () => el.style.borderColor = '#7c3aed');
+    el.addEventListener('mouseleave', () => el.style.borderColor = '#555');
+  });
+  const tntSlot = document.getElementById('tnt-image-slot') as HTMLElement | null;
+  if (tntSlot) {
+    tntSlot.onclick = event => { event.preventDefault(); event.stopPropagation(); importTntImage(); };
+    tntSlot.addEventListener('pointerdown', event => event.stopPropagation());
+    tntSlot.addEventListener('mouseenter', () => tntSlot.style.borderColor = '#f59e0b');
+    tntSlot.addEventListener('mouseleave', () => tntSlot.style.borderColor = '#555');
+  }
+  const tntArmedSlot = document.getElementById('tnt-armed-slot') as HTMLElement | null;
+  if (tntArmedSlot) {
+    tntArmedSlot.onclick = event => { event.preventDefault(); event.stopPropagation(); importTntArmedImage(); };
+    tntArmedSlot.addEventListener('pointerdown', event => event.stopPropagation());
+    tntArmedSlot.addEventListener('mouseenter', () => tntArmedSlot.style.borderColor = '#f59e0b');
+    tntArmedSlot.addEventListener('mouseleave', () => tntArmedSlot.style.borderColor = '#555');
+  }
+  bindObstacleEaterToggle();
+  refreshPropStylePanel();
+}
+
+function refreshObstacleEaterToggle(): void {
+  const toggle = document.getElementById('toggle-obstacle-eater') as HTMLInputElement | null;
+  if (toggle) toggle.checked = obstacleEaterEnabled;
+}
+
+function bindObstacleEaterToggle(): void {
+  const toggle = document.getElementById('toggle-obstacle-eater') as HTMLInputElement | null;
+  if (!toggle) return;
+  toggle.onchange = () => {
+    obstacleEaterEnabled = toggle.checked;
+    try { localStorage.setItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED, String(obstacleEaterEnabled)); } catch { /* storage is optional */ }
+  };
+  refreshObstacleEaterToggle();
+}
+
+function initPropStylePanelLegacy(): void {
+  const panel = ensureStyleAssetsPanel();
   if (!panel || document.getElementById('prop-style-section')) return;
   const sec = document.createElement('div');
   sec.id = 'prop-style-section';
@@ -20344,6 +22430,134 @@ function playPropMachineHeadShatter(row: number, col: number) {
   anim.play();
 }
 
+/** Play one independent eater animation for one damaged obstacle. */
+function playObstacleEatAnimation(
+  row: number,
+  oldCol: number,
+  oldLen: number,
+  newCol: number,
+  newLen: number,
+  dir: 'left' | 'right',
+  duration = 760,
+): void {
+  if (!obstacleEaterEnabled) return;
+
+  const startAnimation = (loadedImages: HTMLImageElement[] = customPropEatFrameImages) => {
+    if (!obstacleEaterEnabled) return;
+    const sourceImages = loadedImages;
+    if (sourceImages.length === 0) return;
+    duration *= obstacleEaterEnabled ? 2 : 1;
+
+    const cellSz = PARAMS.cellSize || 50;
+    const textures = sourceImages.map(image => PIXI.Texture.from(image));
+    if (textures.length === 0) return;
+
+    const anim = new PIXI.AnimatedSprite(textures);
+    const firstTexture = textures[0];
+    const frameW = Math.max(1, firstTexture.width || cellSz);
+    const frameH = Math.max(1, firstTexture.height || cellSz);
+    // Reserve a fixed 2x2-cell area (four cells) for the eater regardless of
+    // the uploaded frame dimensions. The image remains aspect-ratio correct.
+    const eaterW = cellSz * 2;
+    const eaterH = cellSz * 2;
+    const normalScale = Math.min(eaterW / frameW, eaterH / frameH);
+    const startScale = normalScale * 0.2;
+    // The eater starts outside the obstacle's free end, then advances one
+    // cell with that end as the obstacle shortens toward its machine head.
+    const getFreeEndCenterX = (col: number, length: number) => dir === 'left'
+      ? (col - 1) * cellSz
+      : (col + length + 1) * cellSz;
+    const approachSign = dir === 'left' ? 1 : -1;
+    const startX = getFreeEndCenterX(oldCol, oldLen);
+    const targetX = getFreeEndCenterX(newCol, newLen);
+    const baseY = (row + 0.5) * cellSz;
+    // Keep the eater moving for the whole shrink window, so it visually tracks
+    // the obstacle instead of arriving early and freezing beside the head.
+    const growDuration = Math.min(260, Math.max(160, duration * 0.35));
+    const movementDuration = Math.max(300, duration - growDuration);
+    const lingerDuration = 260;
+    const startTime = performance.now();
+    // Keep the eater in the same board-local coordinate space as obstacle
+    // sprites. Adding it to the parent makes its cell coordinates relative to
+    // the whole board shell and can place it outside the visible playfield.
+    const animationLayer = blocksContainer;
+
+    anim.anchor.set(0.5);
+    // Keep the uploaded character at a fixed aspect ratio. The eater must face
+    // the machine head: a left-facing prop uses the artwork's default direction.
+    anim.scale.set(approachSign * startScale, startScale);
+    anim.x = startX;
+    anim.y = baseY;
+    anim.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    anim.loop = true;
+    anim.zIndex = 1000;
+    animationLayer.addChild(anim);
+    anim.play();
+
+    const propTestState = document.getElementById('prop-test-state');
+    if (propTestState) {
+      propTestState.dataset.lastObstacleEat = JSON.stringify({
+        row,
+        oldCol,
+        oldLen,
+        newCol,
+        newLen,
+        dir,
+        startX,
+        targetX,
+      });
+    }
+
+    const move = (now: number) => {
+      if (!anim.parent) return;
+      const elapsed = now - startTime;
+      const growT = Math.min(1, elapsed / growDuration);
+      const growEased = 1 - Math.pow(1 - growT, 3);
+      const scale = startScale + (normalScale - startScale) * growEased;
+      const moveT = Math.min(1, Math.max(0, (elapsed - growDuration) / movementDuration));
+      const moveEased = 1 - Math.pow(1 - moveT, 3);
+      anim.x = startX + (targetX - startX) * moveEased;
+      anim.y = baseY;
+      anim.scale.set(approachSign * scale, scale);
+      if (moveT < 1) requestAnimationFrame(move);
+    };
+    requestAnimationFrame(move);
+
+    const cleanupDelay = Math.max(movementDuration, duration) + lingerDuration;
+    const shrinkStart = cleanupDelay - lingerDuration;
+    const shrinkStartTime = startTime + shrinkStart;
+    const finish = (now: number) => {
+      if (!anim.parent) return;
+      const t = Math.min(1, Math.max(0, (now - shrinkStartTime) / lingerDuration));
+      const eased = t * t * (3 - 2 * t);
+      const endScale = normalScale * 0.2;
+      const currentScale = normalScale + (endScale - normalScale) * eased;
+      anim.scale.set(approachSign * currentScale, currentScale);
+      anim.alpha = 1 - eased;
+      if (t < 1) {
+        requestAnimationFrame(finish);
+      } else {
+        anim.parent.removeChild(anim);
+        anim.destroy({ children: true });
+      }
+    };
+    window.setTimeout(() => requestAnimationFrame(finish), shrinkStart);
+  };
+
+  const prepareFrames = customPropFramesHydrationPromise
+    .then(() => {
+      if (customPropEatFrameImages.length > 0) return customPropEatFrameImages;
+      if (customPropEatFrames.length > 0) return loadCustomPropEatFrameImages();
+      return [];
+    })
+    .catch(error => {
+      console.warn('Failed to prepare obstacle eater frames.', error);
+      return [];
+    });
+
+  void prepareFrames.then(startAnimation);
+}
+
 function animatePropShrink(
   sprite: PIXI.Sprite,
   dir: 'left' | 'right',
@@ -20352,6 +22566,7 @@ function animatePropShrink(
   oldLen: number,
   newCol: number,
   newLen: number,
+  useAttackFrames = false,
   onComplete?: () => void
 ) {
   if (!sprite || !sprite.parent) {
@@ -20371,24 +22586,54 @@ function animatePropShrink(
   const rightEdge = oldCol * cellSz + oldLen * cellSz;
   const leftEdge = oldCol * cellSz;
 
+  const durationMultiplier = obstacleEaterEnabled ? 2 : 1;
   const shakeDurL = 100;
-  const shrinkDurL = 400;
-  const fadeDurL = 150;
+  const shrinkDurL = 400 * durationMultiplier;
+  const fadeDurL = 150 * durationMultiplier;
   const totalDurL = newLen <= 0 ? shakeDurL + shrinkDurL + fadeDurL : shakeDurL + shrinkDurL;
   const startTimeL = performance.now();
 
   // Create temporary sprites
-  const machineSprite = new PIXI.Sprite(getPropTexture(1, dir));
-  machineSprite.width = machineW;
-  machineSprite.height = cellSz;
-  machineSprite.y = baseYy;
-  machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
+  const animationState = useAttackFrames ? 'attack' : 'idle';
+  const animationImages = useAttackFrames
+    ? customPropMachineAttackFrameImages
+    : customPropMachineFrameImages;
+  // Keep the machine head independent from the full obstacle texture. Using
+  // the composed one-cell prop texture here compresses the uploaded head when
+  // the whole obstacle body is shortened.
+  const machineFrameTextures = animationImages.map(image => PIXI.Texture.from(image));
+  const machineSprite = machineFrameTextures.length > 0
+    ? new PIXI.AnimatedSprite(machineFrameTextures)
+    : new PIXI.Sprite(getPropTexture(1, dir));
+  const frameW = Math.max(1, machineSprite.texture.width);
+  const frameH = Math.max(1, machineSprite.texture.height);
+  const frameScale = Math.min(machineW / frameW, cellSz / frameH);
+  const initialCandyX = dir === 'left' ? rightEdge - startWw : leftEdge;
+  const bodyWindowX = dir === 'left' ? leftEdge : leftEdge + machineW;
+  const bodyWindowW = Math.max(0, startWw - machineW);
+  const lockMachineHeadSize = () => {
+    machineSprite.scale.set(frameScale);
+    const headCellX = dir === 'left' ? rightEdge - machineW : leftEdge;
+    machineSprite.x = headCellX + (machineW - frameW * frameScale) / 2;
+    machineSprite.y = baseYy + (cellSz - frameH * frameScale) / 2;
+  };
+  lockMachineHeadSize();
 
+  if (machineSprite instanceof PIXI.AnimatedSprite) {
+    machineSprite.animationSpeed = animationState === 'idle'
+      ? CUSTOM_PROP_IDLE_ANIMATION_SPEED
+      : CUSTOM_FRAME_ANIMATION_SPEED;
+    machineSprite.loop = true;
+    machineSprite.play();
+  }
+
+  // The live sprite still holds the complete pre-damage texture here. Reuse
+  // it so the normal shrink and completion path remain unchanged.
   const candySprite = new PIXI.Sprite(sprite.texture);
   candySprite.width = startWw;
   candySprite.height = cellSz;
   candySprite.y = baseYy;
-  candySprite.x = dir === 'left' ? rightEdge - startWw : leftEdge;
+  candySprite.x = initialCandyX;
 
   let shattered = false;
 
@@ -20398,16 +22643,19 @@ function animatePropShrink(
   // Draw initial mask state immediately to prevent a 1-frame invisible flash
   mask.clear();
   mask.beginFill(0xffffff);
-  if (dir === 'left') {
-    mask.drawRect(rightEdge - startWw, baseYy, startWw, cellSz);
-  } else {
-    mask.drawRect(leftEdge, baseYy, startWw, cellSz);
-  }
+  // Keep the clipping window fixed at the machine-head side. The obstacle
+  // body moves into this window; changing the window itself makes the body
+  // appear to be squeezed during multi-row elimination.
+  mask.drawRect(bodyWindowX, baseYy, bodyWindowW, cellSz);
   mask.endFill();
 
   const container = new PIXI.Container();
   container.addChild(candySprite, machineSprite, mask);
-  sprite.parent.addChild(container);
+  // Keep the temporary animation above the board's block layer. Gravity and
+  // row cleanup may remove/reorder block sprites, but must not interrupt this
+  // independent shrink animation.
+  const animationLayer = sprite.parent.parent || sprite.parent;
+  animationLayer.addChild(container);
 
   sprite.visible = false;
 
@@ -20419,35 +22667,27 @@ function animatePropShrink(
       const ease = t; // Linear speed (uniform)
       
       const targetWw = Math.max(newLen * cellSz, machineW);
-      const curW = startWw + (targetWw - startWw) * ease;
+      const removedW = Math.max(0, startWw - targetWw);
       
       const shakeIntensity = 1 - ease;
       const shakeX = Math.sin(el * 0.05) * 2 * shakeIntensity;
       const shakeY = Math.cos(el * 0.05) * 1 * shakeIntensity;
 
-      machineSprite.y = baseYy; // Machine head stays perfectly still!
       candySprite.y = baseYy + shakeY;
-      machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge; // Machine head stays perfectly still!
+      candySprite.x = dir === 'left'
+        ? initialCandyX + removedW * ease + shakeX
+        : initialCandyX - removedW * ease + shakeX;
+      lockMachineHeadSize();
 
-      let candyX = 0;
       mask.clear();
       mask.beginFill(0xffffff);
-      if (dir === 'left') {
-        candyX = rightEdge - curW + shakeX;
-        candySprite.x = candyX;
-        mask.drawRect(candyX, baseYy - 20, Math.max(0, curW - machineW), cellSz + 40); 
-      } else {
-        candyX = leftEdge - (startWw - curW) + shakeX;
-        candySprite.x = candyX;
-        mask.drawRect(leftEdge + machineW + shakeX, baseYy - 20, Math.max(0, curW - machineW), cellSz + 40);
-      }
+      mask.drawRect(bodyWindowX + shakeX, baseYy + shakeY - 20, bodyWindowW, cellSz + 40);
       mask.endFill();
       
       requestAnimationFrame(stepLast);
     } else if (el < totalDurL && newLen <= 0) {
       candySprite.visible = false;
-      machineSprite.y = baseYy;
-      machineSprite.x = dir === 'left' ? rightEdge - machineW : leftEdge;
+      lockMachineHeadSize();
       machineSprite.alpha = 1 - (el - shakeDurL - shrinkDurL) / fadeDurL;
       
       if (!shattered) {
@@ -20460,7 +22700,22 @@ function animatePropShrink(
     } else {
       container.destroy({ children: true });
       if (newLen > 0) {
-        sprite.texture = getPropTexture(newLen, dir);
+        // Restore the live prop using the same idle texture set as spawnBlock.
+        // Replacing an AnimatedSprite with a single composed texture here lets
+        // its old animation state overwrite the dimensions on the next tick.
+        if (sprite instanceof PIXI.AnimatedSprite && customPropMachineFrameImages.length > 0) {
+          const idleTextures = getPropAnimationTextures(newLen, dir, 'idle');
+          if (idleTextures.length > 0) {
+            sprite.stop();
+            sprite.textures = idleTextures;
+            sprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
+            propAnimationStates.set(sprite, 'idle');
+            sprite.gotoAndPlay(0);
+          }
+        } else {
+          sprite.texture = getPropTexture(newLen, dir);
+        }
+        sprite.scale.set(1);
         sprite.width = newLen * cellSz;
         sprite.x = dir === 'left' ? rightEdge - sprite.width : leftEdge;
         sprite.y = baseYy;
@@ -20474,7 +22729,7 @@ function animatePropShrink(
 
 
 
-function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Texture {
+function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineImgOverride: HTMLImageElement | null = null, cacheTag = ''): PIXI.Texture {
 
 
 
@@ -20482,8 +22737,9 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
 
 
 
-  const customParts = `${customPropCandyImg ? 'candy' : ''}_${customPropMachineImg ? 'machine' : ''}`;
-  const key = `peppermint_${length}_${dir}_${cellSize}_${customParts || 'default'}`;
+  const machineImg = machineImgOverride || customPropMachineImg;
+  const customParts = `${customPropCandyImg ? 'candy' : ''}_${machineImg ? 'machine' : ''}`;
+  const key = `peppermint_${length}_${dir}_${cellSize}_${customParts || 'default'}_${cacheTag}`;
   if (propTextureCache[key]) return propTextureCache[key];
 
   const w = length * cellSize;
@@ -20507,6 +22763,8 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
 
 
   const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
 
 
@@ -20955,49 +23213,44 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
 
 
   if (customPropCandyImg) {
-    const candyW = Math.max(0, w - cellSize);
-    const candyStartX = dir === 'left' ? 0 : cellSize;
+    const candyW = Math.max(0, machineImg ? w - cellSize / 2 : w - cellSize);
+    const candyStartX = machineImg
+      ? (dir === 'left' ? 0 : cellSize / 2)
+      : (dir === 'left' ? 0 : cellSize);
     if (candyW > 0 && customPropCandyImg.naturalWidth > 0 && customPropCandyImg.naturalHeight > 0) {
-      const tileW = Math.max(1, Math.ceil(customPropCandyImg.naturalWidth * (h / customPropCandyImg.naturalHeight)));
-      const tileCanvas = document.createElement('canvas');
-      tileCanvas.width = tileW;
-      tileCanvas.height = h;
-      tileCanvas.getContext('2d')!.drawImage(customPropCandyImg, 0, 0, tileW, h);
       ctx.save();
       ctx.beginPath();
-      ctx.roundRect(stickStartX - 2, stickY - 2, stickW + 4, stickH + 4, cornerRadius + 2);
+      ctx.rect(candyStartX, 0, candyW, h);
       ctx.clip();
-      ctx.clearRect(stickStartX - 3, stickY - 3, stickW + 6, stickH + 6);
+      ctx.clearRect(candyStartX, 0, candyW, h);
+      const bodyScale = h / customPropCandyImg.naturalHeight;
+      const bodyW = customPropCandyImg.naturalWidth * bodyScale;
       if (dir === 'right') {
         ctx.translate(candyStartX + candyW, 0);
         ctx.scale(-1, 1);
-        for (let dx = 0; dx < candyW; dx += tileW) {
-          ctx.drawImage(tileCanvas, dx, 0, tileW, h);
-        }
+        ctx.drawImage(customPropCandyImg, 0, 0, bodyW, h);
       } else {
-        for (let dx = candyStartX; dx < candyStartX + candyW; dx += tileW) {
-          ctx.drawImage(tileCanvas, dx, 0, tileW, h);
-        }
+        ctx.drawImage(customPropCandyImg, candyStartX, 0, bodyW, h);
       }
       ctx.restore();
     }
   }
 
-  if (customPropMachineImg && customPropMachineImg.naturalWidth > 0 && customPropMachineImg.naturalHeight > 0) {
+  if (machineImg && machineImg.naturalWidth > 0 && machineImg.naturalHeight > 0) {
     ctx.save();
     ctx.beginPath();
-    ctx.arc(machineCenterX, machineCenterY, machineRadius + 2, 0, Math.PI * 2);
+    const machineCellX = dir === 'left' ? w - cellSize : 0;
+    ctx.rect(machineCellX, 0, cellSize, h);
     ctx.clip();
-    ctx.clearRect(machineCenterX - machineRadius - 3, machineCenterY - machineRadius - 3, (machineRadius + 3) * 2, (machineRadius + 3) * 2);
-    const scale = Math.min((machineRadius * 2) / customPropMachineImg.naturalWidth, (machineRadius * 2) / customPropMachineImg.naturalHeight);
-    const imgW = customPropMachineImg.naturalWidth * scale;
-    const imgH = customPropMachineImg.naturalHeight * scale;
+    const scale = Math.min(cellSize / machineImg.naturalWidth, h / machineImg.naturalHeight);
+    const imgW = machineImg.naturalWidth * scale;
+    const imgH = machineImg.naturalHeight * scale;
     if (dir === 'right') {
       ctx.translate(machineCenterX, machineCenterY);
       ctx.scale(-1, 1);
-      ctx.drawImage(customPropMachineImg, -imgW / 2, -imgH / 2, imgW, imgH);
+      ctx.drawImage(machineImg, -imgW / 2, -imgH / 2, imgW, imgH);
     } else {
-      ctx.drawImage(customPropMachineImg, machineCenterX - imgW / 2, machineCenterY - imgH / 2, imgW, imgH);
+      ctx.drawImage(machineImg, machineCenterX - imgW / 2, machineCenterY - imgH / 2, imgW, imgH);
     }
     ctx.restore();
   }
@@ -21022,7 +23275,7 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left'): PIXI.Te
 
 
 
-function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left') {
+function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint' | 'tnt', propDir: 'left' | 'right' = 'left', collectibleId?: string) {
 
 
 
@@ -21035,20 +23288,27 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
   if (isProp) {
+    const propTextures = getPropAnimationTextures(length, propDir, 'idle');
+    if (customPropMachineFrameImages.length > 0) {
+      const animSprite = new PIXI.AnimatedSprite(propTextures);
+      animSprite.animationSpeed = CUSTOM_PROP_IDLE_ANIMATION_SPEED;
+      animSprite.loop = true;
+      propAnimationStates.set(animSprite, 'idle');
+      animSprite.play();
+      sprite = animSprite;
+    } else {
+      sprite = new PIXI.Sprite(propTextures[0]);
+    }
 
 
 
-    // Prop blocks use a dynamically generated texture
+  } else if (isCollectible && multiCollectibleModeEnabled) {
 
-
-
-    const texture = getPropTexture(length, propDir);
-
-
-
-    sprite = new PIXI.Sprite(texture);
-
-
+    const item = collectibleId ? getMultiCollectibleItem(collectibleId) : getNextMultiCollectibleItem();
+    const source = item || (collectibleId ? getCollectibleSourceById(collectibleId) : null);
+    collectibleId = item?.id || source?.id || collectibleId;
+    const texture = item?.texture || (source ? PIXI.Texture.from(source.src) : null);
+    sprite = new PIXI.Sprite(texture || activeCollectibleTexture || PIXI.Texture.WHITE);
 
   } else if (isCollectible && activeCollectibleTextures && activeCollectibleTextures.length > 0) {
 
@@ -21058,7 +23318,8 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    animSprite.animationSpeed = 0.25;
+    animSprite.animationSpeed = CUSTOM_FRAME_ANIMATION_SPEED;
+    animSprite.loop = true;
 
 
 
@@ -21090,7 +23351,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-      texture = PIXI.Assets.get(`${color}-${length}`);
+      texture = color === TNT_COLOR ? getTntTexture() : PIXI.Assets.get(`${color}-${length}`);
 
 
 
@@ -21349,6 +23610,10 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
+      const boardBeforeMove = captureCurrentBoardBlockStates();
+
+
+
       block.col = newCol;
 
 
@@ -21431,7 +23696,15 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-          eliminationWaves: []
+          eliminationWaves: [],
+
+          eliminationWaveScrollYs: [],
+
+          playbackDataVersion: SCRIPT_PLAYBACK_DATA_VERSION,
+
+
+
+          boardBefore: boardBeforeMove
 
 
 
@@ -21576,7 +23849,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, isProp, propType, propDir };
+  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, collectibleId, isProp, propType, propDir };
 
 
 
@@ -21610,6 +23883,10 @@ function clearAllBlocks() {
 
   blocks = [];
 
+  pendingSequentialClearBlockIds = [];
+
+  pendingOffscreenFullRowBlockIds = [];
+
 
 
   nextBlockId = 1; // Reset block ID counter to keep IDs fully deterministic across restores
@@ -21629,6 +23906,21 @@ if (new URLSearchParams(window.location.search).has('prop-test')) {
   stateNode.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;';
 
   document.body.appendChild(stateNode);
+
+  const enableEaterButton = document.createElement('button');
+  enableEaterButton.id = 'prop-test-enable-eater';
+  enableEaterButton.style.cssText = 'position:fixed;left:40px;top:0;width:16px;height:6px;padding:0;opacity:0.001;';
+  enableEaterButton.addEventListener('click', async () => {
+    const testFrame = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Ys5Z7sAAAAASUVORK5CYII=';
+    const image = new Image();
+    image.src = testFrame;
+    await image.decode();
+    obstacleEaterEnabled = true;
+    customPropEatFrames = [testFrame];
+    customPropEatFrameImages = [image];
+    stateNode.setAttribute('data-eater-enabled', 'true');
+  });
+  document.body.appendChild(enableEaterButton);
 
   window.setInterval(() => {
 
@@ -22379,7 +24671,7 @@ function applyGravity(checkElim: boolean = true) {
 
 
 
-  if (isNoGravityMode) resolveNoGravityStates();
+  if (isNoGravityMode) resolveNoGravityStates(getActivePhysicsMaxRow());
 
 
 
@@ -22663,15 +24955,15 @@ function applyGravity(checkElim: boolean = true) {
 
 
 
-    const minVisibleY = -worldContainer.y;
+    const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
-    const minRow = Math.max(0, Math.floor(minVisibleY / PARAMS.cellSize));
+    const minRow = visibleRange.minRow;
 
 
 
-    const maxRow = getVisibleBottomRowForWorldY(worldContainer.y);
+    const maxRow = visibleRange.maxRow;
 
 
 
@@ -24270,7 +26562,7 @@ function changeColorsInPairs() {
 
 
 
-    if (b.isCollectible || b.isProp) return;
+    if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -24374,7 +26666,7 @@ function changeSingleColor() {
 
 
 
-    if (b.isCollectible || b.isProp) return;
+    if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -24438,6 +26730,200 @@ function changeSingleColor() {
 
 
 
+function getRowsForLockedSequentialBlocks(ids: number[] | null): number[] {
+  if (!ids || ids.length === 0) return [];
+  const idSet = new Set(ids);
+  return Array.from(new Set(blocks.filter(block => idSet.has(block.id)).map(block => block.row)));
+}
+
+function playTntExplosionEffect(block: Block) {
+  const textures = TNT_EXPLOSION_ALIASES
+    .map(alias => PIXI.Assets.get(alias))
+    .filter((texture): texture is PIXI.Texture => Boolean(texture));
+  if (textures.length === 0) return;
+
+  if (textures.length === 1) {
+    const sprite = new PIXI.Sprite(textures[0]);
+    sprite.anchor.set(0.5);
+    sprite.x = block.col * PARAMS.cellSize + PARAMS.cellSize / 2;
+    sprite.y = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+    sprite.width = PARAMS.cellSize * 6;
+    sprite.scale.y = sprite.scale.x;
+    sprite.blendMode = 'add';
+    sprite.zIndex = 20006;
+    tntEffectsContainer.addChild(sprite);
+    gsap.to(sprite.scale, { x: sprite.scale.x * 1.08, y: sprite.scale.y * 1.08, duration: 0.22, ease: 'power2.out' });
+    gsap.to(sprite, {
+      alpha: 0,
+      duration: 0.22,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (sprite.parent) sprite.parent.removeChild(sprite);
+        sprite.destroy();
+      },
+    });
+    return;
+  }
+
+  const anim = new PIXI.AnimatedSprite(textures);
+  anim.anchor.set(0.5);
+  anim.loop = false;
+  anim.animationSpeed = 0.72;
+  anim.x = block.col * PARAMS.cellSize + PARAMS.cellSize / 2;
+  anim.y = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+  anim.width = PARAMS.cellSize * 6;
+  anim.scale.y = anim.scale.x;
+  anim.blendMode = 'add';
+  anim.zIndex = 20006;
+  anim.onComplete = () => {
+    if (anim.parent) anim.parent.removeChild(anim);
+    anim.destroy();
+  };
+  tntEffectsContainer.addChild(anim);
+  anim.play();
+}
+
+function playTntPreExplosionEffect(block: Block, durationSeconds = TNT_PRE_EXPLOSION_SECONDS) {
+  const textures = TNT_PRE_EXPLOSION_ALIASES
+    .map(alias => PIXI.Assets.get(alias))
+    .filter((texture): texture is PIXI.Texture => Boolean(texture));
+  if (textures.length === 0) return;
+
+  const anim = new PIXI.AnimatedSprite(textures);
+  anim.anchor.set(0.5);
+  anim.loop = true;
+  anim.animationSpeed = 1;
+  anim.x = block.col * PARAMS.cellSize + PARAMS.cellSize / 2;
+  anim.y = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+  anim.width = PARAMS.cellSize * 1.45;
+  anim.scale.y = anim.scale.x;
+  anim.blendMode = 'add';
+  anim.zIndex = 20000;
+  tntEffectsContainer.addChild(anim);
+  anim.play();
+  gsap.to(anim, {
+    alpha: 0,
+    duration: 0.08,
+    delay: Math.max(0, durationSeconds - 0.08),
+    onComplete: () => {
+      if (anim.parent) anim.parent.removeChild(anim);
+      anim.destroy();
+    },
+  });
+}
+
+function playTntBurstWave(block: Block) {
+  const cell = PARAMS.cellSize || 50;
+  const wave = new PIXI.Graphics();
+  wave.zIndex = 20002;
+  wave.alpha = 0.95;
+  wave.x = block.col * cell + cell / 2;
+  wave.y = block.row * cell + cell / 2;
+  wave.circle(0, 0, cell * 0.32);
+  wave.stroke({ width: Math.max(3, cell * 0.08), color: 0xfff1a3, alpha: 1 });
+  wave.circle(0, 0, cell * 0.18);
+  wave.fill({ color: 0xff5a1f, alpha: 0.28 });
+  tntEffectsContainer.addChild(wave);
+  gsap.to(wave.scale, { x: 1.8, y: 1.8, duration: 0.16, ease: 'power3.out' });
+  gsap.to(wave, {
+    alpha: 0,
+    duration: 0.18,
+    ease: 'power2.out',
+    onComplete: () => {
+      if (wave.parent) wave.parent.removeChild(wave);
+      wave.destroy();
+    },
+  });
+}
+
+function scheduleTntDetonation(tl: gsap.core.Timeline, block: Block, at: number) {
+  const sprite = block.sprite;
+  tl.call(() => {
+    sprite.zIndex = 20003;
+    if (sprite.parent !== tntEffectsContainer) tntEffectsContainer.addChild(sprite);
+    if (sprite.parent) sprite.parent.sortChildren();
+  }, [], at);
+  sprite.anchor?.set?.(0.5);
+  sprite.x = block.col * PARAMS.cellSize + PARAMS.cellSize / 2;
+  sprite.y = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+  sprite.width = PARAMS.cellSize;
+  sprite.height = PARAMS.cellSize;
+  let baseScaleX = sprite.scale.x;
+  let baseScaleY = sprite.scale.y;
+
+  tl.call(() => {
+    playTntSound();
+    sprite.texture = getTntArmedTexture();
+    sprite.width = PARAMS.cellSize;
+    sprite.height = PARAMS.cellSize;
+    baseScaleX = sprite.scale.x;
+    baseScaleY = sprite.scale.y;
+    playTntPreExplosionEffect(block, TNT_PRE_EXPLOSION_SECONDS);
+  }, [], at);
+  tl.to(sprite.scale, { x: () => baseScaleX * 1.35, y: () => baseScaleY * 1.35, duration: TNT_PRE_EXPLOSION_SECONDS, ease: 'sine.inOut' }, at);
+  tl.to(sprite, {
+    x: `+=${PARAMS.cellSize * 0.08}`,
+    y: `-=${PARAMS.cellSize * 0.04}`,
+    duration: 0.04,
+    repeat: 19,
+    yoyo: true,
+    ease: 'none',
+  }, at);
+  tl.call(() => {
+    sprite.zIndex = 20004;
+    if (sprite.parent) sprite.parent.sortChildren();
+    playTntBurstWave(block);
+    playTntExplosionEffect(block);
+  }, [], at + TNT_PRE_EXPLOSION_SECONDS);
+  tl.to(sprite.scale, { x: () => baseScaleX * 2.5, y: () => baseScaleY * 2.5, duration: 0.06, ease: 'power4.out' }, at + TNT_PRE_EXPLOSION_SECONDS);
+  tl.to(sprite, { alpha: 0, duration: 0.06, ease: 'power4.in' }, at + TNT_PRE_EXPLOSION_SECONDS);
+}
+
+function getTntDetonationStartTimes(tntIds: number[], initialTntIds: Set<number>): Map<number, number> {
+  const startTimes = new Map<number, number>();
+  let chainIndex = 1;
+  tntIds.forEach(id => {
+    if (initialTntIds.has(id)) {
+      startTimes.set(id, 0);
+      return;
+    }
+    startTimes.set(id, chainIndex * TNT_PRE_EXPLOSION_SECONDS);
+    chainIndex++;
+  });
+  return startTimes;
+}
+
+function getTntBlastRemovalTimes(
+  allBlocks: Block[],
+  tntIds: number[],
+  tntStartTimes: Map<number, number>,
+): Map<number, number> {
+  const removalTimes = new Map<number, number>();
+  tntIds.forEach(tntId => {
+    const tnt = allBlocks.find(block => block.id === tntId);
+    const tntStart = tntStartTimes.get(tntId);
+    if (!tnt || tntStart === undefined) return;
+    const blastAt = tntStart + TNT_PRE_EXPLOSION_SECONDS;
+    const blastCells = getTntBlastCellKeys(tnt.row, tnt.col, PARAMS.totalRows, PARAMS.gridCols);
+    allBlocks.forEach(block => {
+      for (let offset = 0; offset < Math.max(1, block.length); offset++) {
+        if (!blastCells.has(`${block.row}:${block.col + offset}`)) continue;
+        if (isTntBlock(block)) {
+          const blockStart = tntStartTimes.get(block.id);
+          if (blockStart !== undefined) {
+            removalTimes.set(block.id, blockStart + TNT_PRE_EXPLOSION_SECONDS);
+          }
+          break;
+        }
+        const previous = removalTimes.get(block.id);
+        removalTimes.set(block.id, previous === undefined ? blastAt : Math.min(previous, blastAt));
+        break;
+      }
+    });
+  });
+  return removalTimes;
+}
+
 function checkEliminations() {
 
 
@@ -24446,7 +26932,20 @@ function checkEliminations() {
 
 
 
-  const fullRows: number[] = [];
+  let fullRows: number[] = [];
+  let lockedSequentialBlockIds: number[] | null = null;
+
+  const startLockedSequentialClear = (rows: number[]) => {
+    pendingSequentialClearBlockIds = [...rows]
+      .sort((a, b) => b - a)
+      .map(row => blocks
+        .filter(block => !block.isProp && block.row === row)
+        .map(block => block.id)
+      )
+      .filter(ids => ids.length > 0);
+    lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
+    fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+  };
 
 
 
@@ -24454,7 +26953,14 @@ function checkEliminations() {
 
 
 
-  if (activeSimulatingStepIndex !== null && !isRepairingScript) {
+  if (pendingSequentialClearBlockIds.length > 0) {
+    lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
+    fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+  } else if (forcedPlaybackFullRows && forcedPlaybackFullRows.length > 0) {
+
+    fullRows.push(...forcedPlaybackFullRows);
+
+  } else if (activeSimulatingStepIndex !== null && !isRepairingScript) {
 
 
 
@@ -24470,19 +26976,19 @@ function checkEliminations() {
 
 
 
-    // Only check rows visible in the viewport
+    // A row must be fully inside the viewport before it can be eliminated.
 
 
 
-    const minVisibleY = -worldContainer.y;
+    const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
 
 
 
-    const minRow = Math.max(0, Math.floor(minVisibleY / PARAMS.cellSize));
+    const minRow = visibleRange.minRow;
 
 
 
-    const maxRow = getVisibleBottomRowForWorldY(worldContainer.y);
+    const maxRow = visibleRange.maxRow;
 
 
 
@@ -24508,7 +27014,9 @@ function checkEliminations() {
 
     }
 
-
+    const triggeredFullRows = getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
+    fullRows.length = 0;
+    fullRows.push(...triggeredFullRows);
 
   }
 
@@ -24517,6 +27025,15 @@ function checkEliminations() {
 
 
 
+
+  if (
+    lockedSequentialBlockIds === null &&
+    PARAMS.rowClearOrder === 'bottom-up' &&
+    fullRows.length > 1 &&
+    activeSimulatingStepIndex === null
+  ) {
+    startLockedSequentialClear(fullRows);
+  }
 
   if (fullRows.length > 0) {
     // TRACK ELIMINATIONS FOR PLAYABLE
@@ -24547,18 +27064,32 @@ function checkEliminations() {
         const dir = b.propDir || 'left';
         const oldCol = b.col;
         const oldLen = b.length;
-        b.col = damage.col;
-        b.length = damage.length;
+        const targetRow = b.row;
+        const newCol = damage.col;
+        const newLen = damage.length;
+        b.col = newCol;
+        b.length = newLen;
 
         // Calculate hit distance: 0 for direct hit, 1 for adjacent hit
         const hitDistance = fullRows.includes(b.row) ? 0 : 1;
-        // Direct hits wait 100ms. Adjacent hits wait an extra 100ms.
-        const animationDelay = 100 + hitDistance * 100;
+        // Every damaged obstacle uses the collection sequence. A direct hit
+        // starts on the same frame as the row shrink; adjacent-row damage is
+        // only offset slightly to preserve the existing wave order.
+        const animationDelay = hitDistance * 100;
 
         setTimeout(() => {
           if ((sounds as any).propElim) playSound((sounds as any).propElim);
+          playObstacleEatAnimation(
+            b.row,
+            oldCol,
+            oldLen,
+            newCol,
+            newLen,
+            dir,
+            newLen <= 0 ? 650 : 500,
+          );
           
-          animatePropShrink(b.sprite, dir, b.row, oldCol, oldLen, b.col, b.length, () => {
+          animatePropShrink(b.sprite, dir, targetRow, oldCol, oldLen, newCol, b.length, true, () => {
             if (b.length <= 0 && b.sprite && b.sprite.parent) {
               blocksContainer.removeChild(b.sprite);
             }
@@ -24614,7 +27145,11 @@ function checkEliminations() {
 
 
 
-    comboCount += 1;
+    comboCount += Math.max(1, fullRows.length);
+
+    advanceSolidBackgroundColorOnElimination();
+    triggerHeartClearHud();
+    triggerMarqueeClearEffect();
 
     if (isRisingAdvanceActive()) {
       risingEliminationWavesThisMove += 1;
@@ -24677,29 +27212,14 @@ function checkEliminations() {
 
     if (!isMuteVocals) {
 
-
-
-      if (comboCount === 1) playSound(sounds.vocals.good);
-
-
-
-      else if (comboCount === 2) playSound(sounds.vocals.great);
-
-
-
-      else if (comboCount === 3) playSound(sounds.vocals.amazing);
-
-
-
-      else if (comboCount === 4) playSound(sounds.vocals.excellent);
-
-
-
-      else if (comboCount >= 5) playSound(sounds.vocals.unbelievable);
+      const praiseWord = getPraiseWordForCombo(comboCount);
+      playSound(sounds.vocals[praiseWord]);
+      triggerPraiseTextEffect(praiseWord);
 
 
 
     }
+    renderMultiCollectibleHud();
 
 
 
@@ -24743,7 +27263,7 @@ function checkEliminations() {
 
 
 
-          scoreEl.innerText = Math.round(counter.val).toLocaleString();
+          setScoreTextEverywhere(Math.round(counter.val).toLocaleString());
 
 
 
@@ -24763,11 +27283,35 @@ function checkEliminations() {
 
 
 
-    const blocksToRemove = blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    const lockedSequentialIdSet = lockedSequentialBlockIds ? new Set(lockedSequentialBlockIds) : null;
+    const blocksToRemove = lockedSequentialIdSet
+      ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
+      : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    const tntBlast = resolveTntBlast(
+      blocks.filter(b => !b.isProp),
+      blocksToRemove.map(block => block.id),
+      PARAMS.totalRows,
+      PARAMS.gridCols,
+    );
+    const tntBlastIdSet = new Set(tntBlast.removedIds);
+    const detonatingTntIds = new Set(tntBlast.tntIds);
+    const initialDetonatingTntIds = new Set(blocksToRemove.filter(block => isTntBlock(block)).map(block => block.id));
+    const tntDetonationStartTimes = getTntDetonationStartTimes(tntBlast.tntIds, initialDetonatingTntIds);
+    const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes);
+    const expandedBlocksToRemove = blocks.filter(b => !b.isProp && tntBlastIdSet.has(b.id));
+    const tntBlastExtraBlocks = expandedBlocksToRemove.filter(block => !fullRows.includes(block.row));
+
+    if (isNoGravityMode) {
+      releaseNewlyUnsupportedNoGravityBlocks(
+        blocks,
+        new Set(blocksToRemove.map(block => block.id)),
+        getActivePhysicsMaxRow()
+      );
+    }
 
 
 
-    if (blocksToRemove.some(b => b.isCollectible)) {
+    if (expandedBlocksToRemove.some(b => b.isCollectible)) {
 
 
 
@@ -24802,8 +27346,8 @@ function checkEliminations() {
       onComplete: () => {
 
 
-        blocksToRemove.forEach(b => {
-          if (isCollectMode && b.isCollectible) {
+        expandedBlocksToRemove.forEach(b => {
+          if (isCollectMode && b.isCollectible && !multiCollectibleModeEnabled) {
             const coin = new PIXI.Sprite(activeCollectibleTexture || PIXI.Texture.WHITE);
             coin.width = b.sprite.width;
             coin.height = b.sprite.height;
@@ -24847,11 +27391,12 @@ function checkEliminations() {
               }
             });
           }
-          blocksContainer.removeChild(b.sprite);
+          if (b.sprite.parent) b.sprite.parent.removeChild(b.sprite);
         });
 
 
-        blocks = blocks.filter(b => b.isProp || !fullRows.includes(b.row));
+        const removedBlockIds = new Set(expandedBlocksToRemove.map(block => block.id));
+        blocks = blocks.filter(b => b.isProp || !removedBlockIds.has(b.id));
 
 
 
@@ -24887,8 +27432,7 @@ function checkEliminations() {
 
 
           setTimeout(() => {
-            isAnimating = false;
-            applyGravity(true);
+            continueGravityAfterElimination();
           }, Math.max(customElimDelay * 1000, typeof anyPropDamaged !== "undefined" && anyPropDamaged ? 400 : 0));
 
 
@@ -24942,8 +27486,7 @@ function checkEliminations() {
 
 
           setTimeout(() => {
-            isAnimating = false;
-            applyGravity(true);
+            continueGravityAfterElimination();
           }, Math.max(customElimDelay * 1000, typeof anyPropDamaged !== "undefined" && anyPropDamaged ? 400 : 0));
 
 
@@ -24966,9 +27509,16 @@ function checkEliminations() {
 
     lastShatterCellColors = [];
 
+    // In sequential mode, the bottom-most cleared row owns the first timeline slot.
+    const rowsForPlayback = PARAMS.rowClearOrder === 'bottom-up'
+      ? [...fullRows].sort((a, b) => b - a)
+      : fullRows;
+    const rowPlaybackGap = PARAMS.rowClearOrder === 'bottom-up' && rowsForPlayback.length > 1
+      ? 0.8
+      : 0;
 
-
-    fullRows.forEach(r => {
+    rowsForPlayback.forEach((r, rowPlaybackIndex) => {
+      const rowPlaybackOffset = rowPlaybackIndex * rowPlaybackGap;
 
 
 
@@ -25021,13 +27571,16 @@ function checkEliminations() {
 
 
         const propSkipCols = initialPropColsByRow.get(r) || new Set<number>();
+        if (rowPlaybackIndex === 0) {
+          triggerComboTextEffect(fullRows, comboCount, rowBlocks.length > 0 ? rowBlocks : blocksToRemove);
+        }
         if (PARAMS.effectType !== 'gem-shatter') {
           playRowShatterEffect(r, explosionColor, rowBlocks, propSkipCols);
         }
 
 
 
-      }, [], 0);
+      }, [], rowPlaybackOffset);
 
 
 
@@ -25119,6 +27672,14 @@ function checkEliminations() {
 
 
 
+        if (detonatingTntIds.has(b.id)) {
+          scheduleTntDetonation(tl, b, tntDetonationStartTimes.get(b.id) ?? 0);
+          return;
+        }
+        const visualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id)
+          ? Math.max(rowPlaybackOffset + delay, tntBlastRemovalTimes.get(b.id) ?? TNT_PRE_EXPLOSION_SECONDS)
+          : rowPlaybackOffset + delay;
+
         if (b.isCollectible) {
 
 
@@ -25131,7 +27692,7 @@ function checkEliminations() {
 
 
 
-          }, [], delay);
+          }, [], visualDelay);
 
 
 
@@ -25139,8 +27700,8 @@ function checkEliminations() {
 
 
 
-        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, delay);
-        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, delay);
+        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, visualDelay);
+        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, visualDelay);
 
         if (PARAMS.effectType === 'gem-shatter') {
           tl.call(() => {
@@ -25182,7 +27743,7 @@ function checkEliminations() {
                 anim.play();
               }
             }
-          }, [], delay);
+          }, [], visualDelay);
         }
 
 
@@ -25211,11 +27772,19 @@ function checkEliminations() {
 
     });
 
-
-
-
-
-
+    tntBlastExtraBlocks.forEach(block => {
+      const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
+      if (block.isCollectible) {
+        tl.call(() => {
+          playCollectibleFlyAnimation(block);
+        }, [], blastAt);
+      }
+      if (detonatingTntIds.has(block.id)) {
+        scheduleTntDetonation(tl, block, tntDetonationStartTimes.get(block.id) ?? 0);
+        return;
+      }
+      tl.to(block.sprite, { alpha: 0, duration: 0.12, ease: 'power2.in' }, blastAt);
+    });
 
   } else {
 
@@ -25555,10 +28124,11 @@ function generateRandomLayout() {
 
 
         const isCollectibleBlock = isCollectMode && len === 1 && Math.random() < 0.3;
+        const isTntGeneratedBlock = !isCollectibleBlock && isTntMode && len === 1 && Math.random() < PARAMS.tntSpawnChance / 100;
 
 
 
-        const b = spawnBlock(c, r, len, color, undefined, undefined, isCollectibleBlock);
+        const b = spawnBlock(c, r, len, isTntGeneratedBlock ? TNT_COLOR : color, undefined, undefined, isCollectibleBlock, false, isTntGeneratedBlock ? TNT_PROP_TYPE : undefined);
 
 
 
@@ -26898,7 +29468,7 @@ function generateFromHoles() {
 
   if (isSingleColorMode) singleColorIndex = 0;
 
-  const generatedLayoutMask = buildGeneratedLayoutMaskFromTemplate(layoutDrawMask);
+  const generatedLayoutMask = normalizeBooleanMask(layoutDrawMask);
 
 
 
@@ -27630,13 +30200,15 @@ function setupInteraction() {
 
             const isColl = color === 'collectible';
 
+            const isTntManualBlock = color === TNT_COLOR;
             const isPropBlock = color === 'prop-row-bomb' || color === 'prop-peppermint';
 
-            let propTypeVal: 'row-bomb' | 'peppermint' | undefined = undefined;
+            let propTypeVal: 'row-bomb' | 'peppermint' | 'tnt' | undefined = undefined;
 
             if (color === 'prop-peppermint') propTypeVal = 'peppermint';
 
             else if (color === 'prop-row-bomb') propTypeVal = 'row-bomb';
+            else if (isTntManualBlock) propTypeVal = TNT_PROP_TYPE;
 
 
 
@@ -27659,12 +30231,14 @@ function setupInteraction() {
             } else if (isPropBlock) {
 
               spawnColor = 'red'; // Props use a default color for gravity/data purposes
+            } else if (isTntManualBlock) {
+              spawnColor = TNT_COLOR;
 
             }
 
 
 
-            spawnBlock(col, row, length, spawnColor, undefined, undefined, isColl, isPropBlock, propTypeVal, manualSelectedBlock.propDir || 'left');
+            spawnBlock(col, row, isTntManualBlock ? 1 : length, spawnColor, undefined, undefined, isColl, isPropBlock, propTypeVal, manualSelectedBlock.propDir || 'left');
 
 
 
@@ -28311,6 +30885,8 @@ function getManagedRecordingBackgrounds(): ManagedRecordingBackground[] {
 
 
 
+    { id: SOLID_BACKGROUND_ID, name: '纯色', src: '', kind: 'solid', builtin: true },
+
     ...customItems
 
 
@@ -28335,7 +30911,7 @@ function saveCustomRecordingBackgrounds(items: ManagedRecordingBackground[]) {
 
 
 
-    .filter(item => !item.builtin && item.id !== MASTER_BACKGROUND_ID && item.id !== NO_BACKGROUND_ID)
+    .filter(item => !item.builtin && item.id !== MASTER_BACKGROUND_ID && item.id !== NO_BACKGROUND_ID && item.id !== SOLID_BACKGROUND_ID)
 
 
 
@@ -28361,29 +30937,23 @@ function selectRecordingBackground(item: ManagedRecordingBackground) {
 
   recordingBackgroundActiveId = item.id;
 
-
-
-  recordingBackgroundDataUrl = item.src;
-
-
-
-  recordingBackgroundEnabled = item.id !== NO_BACKGROUND_ID && !!item.src;
+  recordingBackgroundMode = item.id === SOLID_BACKGROUND_ID || item.kind === 'solid' ? 'solid' : 'image';
 
 
 
-  localStorage.setItem('recordingBackgroundActiveId', recordingBackgroundActiveId);
+  recordingBackgroundDataUrl = recordingBackgroundMode === 'image' ? item.src : '';
 
 
 
-  localStorage.setItem('recordingBackgroundDataUrl', recordingBackgroundDataUrl);
+  recordingBackgroundEnabled = item.id === SOLID_BACKGROUND_ID || (item.id !== NO_BACKGROUND_ID && !!item.src);
 
 
 
-  localStorage.setItem('recordingBackgroundEnabled', String(recordingBackgroundEnabled));
+  persistRecordingBackgroundState();
 
 
 
-  loadRecordingBackgroundImage(recordingBackgroundDataUrl);
+  loadRecordingBackgroundImage(recordingBackgroundMode === 'image' ? recordingBackgroundDataUrl : '');
 
 
 
@@ -28551,11 +31121,16 @@ function renderRecordingBackgroundList() {
 
 
 
-    thumb.className = `record-bg-card-thumb${item.id === NO_BACKGROUND_ID ? ' no-bg' : ''}`;
+    thumb.className = `record-bg-card-thumb${item.id === NO_BACKGROUND_ID ? ' no-bg' : ''}${item.id === SOLID_BACKGROUND_ID ? ' solid-bg' : ''}`;
 
 
 
-    if (item.src) thumb.style.backgroundImage = `url("${item.src}")`;
+    if (item.id === SOLID_BACKGROUND_ID) {
+      const color = getSolidBackgroundColor();
+      thumb.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+    } else if (item.src) {
+      thumb.style.backgroundImage = `url("${item.src}")`;
+    }
 
 
 
@@ -28735,6 +31310,122 @@ function renderRecordingBackgroundList() {
 
 
 
+function setSolidBackgroundVariant(variant: SolidBackgroundVariant) {
+  solidBackgroundVariant = variant;
+  recordingBackgroundMode = 'solid';
+  recordingBackgroundActiveId = SOLID_BACKGROUND_ID;
+  recordingBackgroundDataUrl = '';
+  recordingBackgroundEnabled = true;
+  persistRecordingBackgroundState();
+  loadRecordingBackgroundImage('');
+  syncRecordingBackgroundUI();
+}
+
+function setSolidBackgroundColor(id: string) {
+  const color = SOLID_BACKGROUND_COLORS.find(item => item.id === id);
+  if (!color) return;
+  solidBackgroundGroup = color.group;
+  solidBackgroundColorId = id;
+  recordingBackgroundMode = 'solid';
+  recordingBackgroundActiveId = SOLID_BACKGROUND_ID;
+  recordingBackgroundDataUrl = '';
+  recordingBackgroundEnabled = true;
+  persistRecordingBackgroundState();
+  loadRecordingBackgroundImage('');
+  syncRecordingBackgroundUI();
+}
+
+function setSolidBackgroundGroup(group: SolidBackgroundGroup) {
+  solidBackgroundGroup = group;
+  ensureSolidBackgroundColorInActiveGroup();
+  recordingBackgroundMode = 'solid';
+  recordingBackgroundActiveId = SOLID_BACKGROUND_ID;
+  recordingBackgroundDataUrl = '';
+  recordingBackgroundEnabled = true;
+  persistRecordingBackgroundState();
+  loadRecordingBackgroundImage('');
+  syncRecordingBackgroundUI();
+}
+
+function addCustomSolidBackgroundColor(hex: string) {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return;
+  const customGroup: SolidBackgroundGroup = 'custom';
+  const existing = SOLID_BACKGROUND_COLORS.find(color => color.custom && color.group === customGroup && color.from === mixHexColor(normalized, '#ffffff', 0.18));
+  if (existing) {
+    setSolidBackgroundColor(existing.id);
+    return;
+  }
+  const customIndex = SOLID_BACKGROUND_COLORS.filter(color => color.custom).length + 1;
+  const color = createCustomSolidBackgroundColor(normalized, customIndex, customGroup);
+  SOLID_BACKGROUND_COLORS.push(color);
+  saveCustomSolidBackgroundColors();
+  setSolidBackgroundColor(color.id);
+}
+
+function deleteCustomSolidBackgroundColor(id: string) {
+  const index = SOLID_BACKGROUND_COLORS.findIndex(color => color.id === id && color.custom);
+  if (index < 0) return;
+  SOLID_BACKGROUND_COLORS.splice(index, 1);
+  if (solidBackgroundColorId === id) {
+    solidBackgroundGroup = SOLID_BACKGROUND_COLORS.some(color => color.group === 'custom') ? 'custom' : DEFAULT_SOLID_BACKGROUND_GROUP;
+    ensureSolidBackgroundColorInActiveGroup();
+  }
+  saveCustomSolidBackgroundColors();
+  persistRecordingBackgroundState();
+  syncRecordingBackgroundUI();
+}
+
+function renderSolidBackgroundControls() {
+  const panel = document.getElementById('record-solid-bg-controls');
+  const modeButtons = document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-variant]');
+  const groupButtons = document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-group]');
+  const palette = document.getElementById('record-solid-bg-palette');
+  const colorInput = document.getElementById('input-solid-bg-color') as HTMLInputElement | null;
+  if (!panel || !palette) return;
+
+  const showSolidControls = recordingBackgroundActiveId === SOLID_BACKGROUND_ID || recordingBackgroundMode === 'solid';
+  panel.classList.toggle('active', showSolidControls);
+
+  modeButtons.forEach(button => {
+    const variant = button.dataset.solidBgVariant as SolidBackgroundVariant | undefined;
+    button.classList.toggle('active', variant === solidBackgroundVariant);
+  });
+
+  groupButtons.forEach(button => {
+    const group = button.dataset.solidBgGroup as SolidBackgroundGroup | undefined;
+    button.classList.toggle('active', group === solidBackgroundGroup);
+  });
+
+  palette.innerHTML = '';
+  getSolidBackgroundColorsForActiveGroup().forEach(color => {
+    const swatch = document.createElement('button');
+    swatch.type = 'button';
+    swatch.className = `solid-bg-swatch${color.id === solidBackgroundColorId ? ' active' : ''}`;
+    swatch.title = color.name;
+    swatch.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+    swatch.addEventListener('click', () => setSolidBackgroundColor(color.id));
+    if (color.custom) {
+      const del = document.createElement('span');
+      del.className = 'solid-bg-swatch-delete';
+      del.textContent = '×';
+      del.title = `删除 ${color.name}`;
+      del.addEventListener('click', event => {
+        event.stopPropagation();
+        deleteCustomSolidBackgroundColor(color.id);
+      });
+      swatch.appendChild(del);
+    }
+    palette.appendChild(swatch);
+  });
+
+  if (colorInput) {
+    const activeColor = getSolidBackgroundColor();
+    const customBase = activeColor.custom ? normalizeHexColor(`#${activeColor.id.replace(/^custom-/, '').slice(0, 6)}`) : null;
+    colorInput.value = customBase || activeColor.from;
+  }
+}
+
 function syncRecordingBackgroundUI() {
 
 
@@ -28775,13 +31466,29 @@ function syncRecordingBackgroundUI() {
 
 
 
-    if (recordingBackgroundDataUrl) {
+    if (isSolidRecordingBackgroundActive()) {
+
+      const color = getSolidBackgroundColor();
+
+      preview.textContent = '';
+
+      preview.style.backgroundImage = '';
+
+      preview.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+
+      preview.style.backgroundSize = '100% 100%';
+
+
+
+    } else if (recordingBackgroundDataUrl) {
 
 
 
       preview.textContent = '';
 
 
+
+      preview.style.background = '';
 
       preview.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
 
@@ -28801,6 +31508,8 @@ function syncRecordingBackgroundUI() {
 
       preview.style.backgroundImage = '';
 
+      preview.style.background = '';
+
 
 
       preview.style.backgroundSize = '100% 100%';
@@ -28819,11 +31528,17 @@ function syncRecordingBackgroundUI() {
 
 
 
-    status.classList.toggle('active', recordingBackgroundEnabled && !!recordingBackgroundDataUrl);
+    status.classList.toggle('active', isRecordingBackgroundActive());
 
 
 
-    if (recordingBackgroundEnabled && recordingBackgroundDataUrl) {
+    if (isSolidRecordingBackgroundActive()) {
+
+      status.textContent = solidBackgroundVariant === 'animated' ? '已启用变色纯色背景' : '已启用纯色背景';
+
+
+
+    } else if (isImageRecordingBackgroundActive()) {
 
 
 
@@ -28859,7 +31574,9 @@ function syncRecordingBackgroundUI() {
 
 
 
-    const showLiveBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+    const showLiveBackground = isRecordingBackgroundActive();
+
+    const showSolidBackground = isSolidRecordingBackgroundActive();
 
     const useGeneratedBackgroundUI = showLiveBackground;
 
@@ -28869,11 +31586,27 @@ function syncRecordingBackgroundUI() {
 
       boardWrapper.classList.toggle('generated-board-ui', useGeneratedBackgroundUI);
 
+      boardWrapper.classList.toggle('solid-bg-live', showSolidBackground);
 
 
-    if (showLiveBackground) {
+
+    if (showSolidBackground) {
+
+      const color = getSolidBackgroundColor();
+
+      boardWrapper.style.backgroundImage = '';
+
+      boardWrapper.style.background = `linear-gradient(180deg, ${color.from}, ${color.to})`;
+
+      boardWrapper.style.backgroundSize = '100% 100%';
 
 
+
+    } else if (showLiveBackground) {
+
+
+
+      boardWrapper.style.background = '';
 
       boardWrapper.style.backgroundImage = `url("${recordingBackgroundDataUrl}")`;
 
@@ -28888,6 +31621,8 @@ function syncRecordingBackgroundUI() {
 
 
       boardWrapper.style.backgroundImage = '';
+
+      boardWrapper.style.background = '';
 
 
 
@@ -28907,6 +31642,10 @@ function syncRecordingBackgroundUI() {
 
   positionPreviewCanvasInMaster();
 
+  renderSolidBackgroundControls();
+
+  syncMarqueeBorderUI();
+
 
 
   renderRecordingBackgroundList();
@@ -28925,11 +31664,18 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
 
 
 
-  ctx.fillStyle = '#2e3764';
+  ctx.fillStyle = isSolidRecordingBackgroundActive()
+    ? createSolidBackgroundGradient(ctx, width, height)
+    : '#2e3764';
 
 
 
   ctx.fillRect(0, 0, width, height);
+
+  if (isSolidRecordingBackgroundActive() && topUiMode !== 'heart') {
+    drawSolidRecordingFrame(ctx, width, height);
+    return;
+  }
 
 
 
@@ -28955,6 +31701,67 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
 
 }
 
+function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const headerBox = {
+    x: MASTER_UI.header.x * width,
+    y: MASTER_UI.header.y * height,
+    w: MASTER_UI.header.w * width,
+    h: MASTER_UI.header.h * height
+  };
+  const boardBox = getMasterBoardCanvasRect(width, height);
+  const radius = Math.max(4, width * 0.011);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(30, 40, 86, 0.7)';
+  ctx.strokeStyle = 'rgba(32, 43, 97, 0.7)';
+  ctx.lineWidth = Math.max(4, width * 0.008);
+  drawRoundedRectPath(ctx, headerBox.x, headerBox.y, headerBox.w, headerBox.h, radius);
+  ctx.fill();
+  ctx.stroke();
+
+  drawSolidRecordingBoardFrame(ctx, boardBox, width);
+  ctx.restore();
+}
+
+function drawSolidRecordingBoardFrame(
+  ctx: CanvasRenderingContext2D,
+  boardBox: { x: number; y: number; w: number; h: number },
+  width: number
+) {
+  const radius = Math.max(4, width * 0.011);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(35, 45, 92, 0.7)';
+  ctx.strokeStyle = 'rgba(28, 38, 85, 0.7)';
+  ctx.lineWidth = Math.max(5, width * 0.009);
+  drawRoundedRectPath(ctx, boardBox.x, boardBox.y, boardBox.w, boardBox.h, radius);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRoundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
 
 
 
@@ -28969,7 +31776,7 @@ function drawRecordingVerticalGrid(ctx: CanvasRenderingContext2D, boardBox: { x:
 
 
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.strokeStyle = isSolidRecordingBackgroundActive() ? 'rgba(18,27,65,0.62)' : 'rgba(255,255,255,0.12)';
 
 
 
@@ -29003,6 +31810,18 @@ function drawRecordingVerticalGrid(ctx: CanvasRenderingContext2D, boardBox: { x:
 
   }
 
+  if (isSolidRecordingBackgroundActive()) {
+    const contentSize = getBoardCanvasContentSize();
+    const rowCount = Math.max(1, Math.round((contentSize.h - PADDING * 2) / PARAMS.cellSize));
+    for (let r = 1; r < rowCount; r++) {
+      const y = Math.round(boardBox.y + (boardBox.h * r) / rowCount) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(boardBox.x, y);
+      ctx.lineTo(boardBox.x + boardBox.w, y);
+      ctx.stroke();
+    }
+  }
+
 
 
   ctx.restore();
@@ -29019,12 +31838,6 @@ function drawRecordingVerticalGrid(ctx: CanvasRenderingContext2D, boardBox: { x:
 
 function getMasterBoardRect(width: number, height: number) {
 
-  const boardWidth = MASTER_UI.board.w * width;
-  const gameWidth = PARAMS.gridCols * PARAMS.cellSize + PADDING * 2;
-  const gameHeight = PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2;
-  const boardHeight = boardWidth * (gameHeight * BOARD_FRAME_VERTICAL_SCALE / Math.max(1, gameWidth));
-
-
 
   return {
 
@@ -29038,11 +31851,11 @@ function getMasterBoardRect(width: number, height: number) {
 
 
 
-    w: boardWidth,
+    w: MASTER_UI.board.w * width,
 
 
 
-    h: boardHeight
+    h: MASTER_UI.board.h * height
 
 
 
@@ -29074,6 +31887,34 @@ function getMasterBoardContentRect(width: number, height: number) {
 
 
 
+function getBoardCanvasContentSize() {
+  return {
+    w: PARAMS.gridCols * PARAMS.cellSize + PADDING * 2,
+    h: getPreviewRendererGameHeight() + PADDING * 2
+  };
+}
+
+function getMasterBoardCanvasRect(width: number, height: number) {
+  const boardBox = getMasterBoardContentRect(width, height);
+  const contentSize = getBoardCanvasContentSize();
+  return fitRectToFixedWidthPreserveAspect(boardBox, contentSize.w, contentSize.h);
+}
+
+function positionBoardClipInMaster() {
+  const boardClip = document.getElementById('board-clip');
+  const boardWrapper = document.getElementById('board-wrapper');
+  if (!boardClip || !boardWrapper) return null;
+
+  const boardBox = getMasterBoardContentRect(boardWrapper.clientWidth, boardWrapper.clientHeight);
+
+  boardClip.style.left = `${boardBox.x}px`;
+  boardClip.style.top = `${boardBox.y}px`;
+  boardClip.style.width = `${boardBox.w}px`;
+  boardClip.style.height = `${boardBox.h}px`;
+
+  return boardBox;
+}
+
 function mapBoardWrapperRectToRecordingRect(
 
   sourceRect: DOMRect,
@@ -29102,6 +31943,37 @@ function mapBoardWrapperRectToRecordingRect(
 
 }
 
+function getDomMappedRecordingRect(
+  element: HTMLElement | null,
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const elementRect = element?.getBoundingClientRect();
+  if (!boardRect || !elementRect) return null;
+  return mapBoardWrapperRectToRecordingRect(elementRect, boardRect, { x: 0, y: 0, w: width, h: height });
+}
+
+function getRecordingBoardClipRect(
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const domBox = getDomMappedRecordingRect(document.getElementById('board-clip'), boardWrapper, width, height);
+  return domBox || getMasterBoardContentRect(width, height);
+}
+
+function getRecordingPixiCanvasRect(
+  canvas: HTMLCanvasElement,
+  boardWrapper: HTMLElement | null,
+  width: number,
+  height: number
+) {
+  const domBox = getDomMappedRecordingRect(canvas, boardWrapper, width, height);
+  return domBox || getMasterBoardCanvasRect(width, height);
+}
+
 
 
 function drawRecordingImageContained(
@@ -29123,6 +31995,321 @@ function drawRecordingImageContained(
     drawWidth,
     drawHeight
   );
+}
+
+function drawRecordingVideoContained(
+  context: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  box: { x: number; y: number; w: number; h: number }
+): void {
+  const sourceWidth = video.videoWidth || video.clientWidth;
+  const sourceHeight = video.videoHeight || video.clientHeight;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || box.w <= 0 || box.h <= 0) return;
+
+  const scale = Math.min(box.w / sourceWidth, box.h / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  context.drawImage(
+    video,
+    box.x + (box.w - drawWidth) / 2,
+    box.y + (box.h - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  );
+}
+
+function drawRecordingImageCentered(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  centerX: number,
+  centerY: number,
+  targetW: number,
+  alpha: number,
+  scale: number
+) {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || targetW <= 0 || alpha <= 0) return;
+
+  const drawW = targetW * scale;
+  const drawH = drawW * sourceHeight / sourceWidth;
+  context.save();
+  context.globalAlpha = alpha;
+  context.shadowColor = 'rgba(0, 0, 0, 0.38)';
+  context.shadowBlur = targetW * 0.045;
+  context.drawImage(image, centerX - drawW / 2, centerY - drawH / 2, drawW, drawH);
+  context.restore();
+}
+
+function drawRecordingImageContainedCentered(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  centerX: number,
+  centerY: number,
+  targetW: number,
+  targetH: number,
+  alpha: number,
+  scale: number
+) {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || targetW <= 0 || targetH <= 0 || alpha <= 0) return;
+
+  const boxW = targetW * scale;
+  const boxH = targetH * scale;
+  const fit = Math.min(boxW / sourceWidth, boxH / sourceHeight);
+  const drawW = sourceWidth * fit;
+  const drawH = sourceHeight * fit;
+  context.save();
+  context.globalAlpha = alpha;
+  context.shadowColor = 'rgba(0, 0, 0, 0.38)';
+  context.shadowBlur = targetW * 0.045;
+  context.drawImage(image, centerX - drawW / 2, centerY - drawH / 2, drawW, drawH);
+  context.restore();
+}
+
+function getClearTextPopMotion(elapsed: number, duration: number) {
+  const progress = Math.max(0, Math.min(1, elapsed / duration));
+  if (progress < 0.12) return { alpha: progress / 0.12, scale: 0.25 + (1.28 - 0.25) * (progress / 0.12), yShift: 0 };
+  if (progress < 0.26) return { alpha: 1, scale: 1.28 + (0.96 - 1.28) * ((progress - 0.12) / 0.14), yShift: 0 };
+  if (progress < 0.72) return { alpha: 1, scale: 0.96 + (1 - 0.96) * ((progress - 0.26) / 0.46), yShift: -6 * progress };
+  return { alpha: 1 - ((progress - 0.72) / 0.28), scale: 1 - 0.08 * ((progress - 0.72) / 0.28), yShift: -18 * progress };
+}
+
+function getPraiseTextPopMotion(elapsed: number) {
+  const progress = Math.max(0, Math.min(1, elapsed / PRAISE_TEXT_EFFECT_DURATION_MS));
+  if (progress < 0.1) return { alpha: progress / 0.1, scale: 0.2 + (1.22 - 0.2) * (progress / 0.1), yShift: 0 };
+  if (progress < 0.24) return { alpha: 1, scale: 1.22 + (0.98 - 1.22) * ((progress - 0.1) / 0.14), yShift: 0 };
+  if (progress < 0.72) return { alpha: 0.9, scale: 0.98 + (1 - 0.98) * ((progress - 0.24) / 0.48), yShift: -10 * progress };
+  return { alpha: 0.9 * (1 - ((progress - 0.72) / 0.28)), scale: 1 + 0.08 * ((progress - 0.72) / 0.28), yShift: -24 * progress };
+}
+
+function drawRecordingClearTextSparks(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  elapsed: number,
+  duration: number
+) {
+  const progress = Math.max(0, Math.min(1, elapsed / Math.max(1, duration * 0.62)));
+  if (progress <= 0 || progress >= 1) return;
+
+  const colors = ['#ffe94a', '#2efcff', '#ff4fd8', '#ffffff'];
+  context.save();
+  context.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 14; i++) {
+    const delay = (i % 5) * 22;
+    const localElapsed = elapsed - delay;
+    const localProgress = Math.max(0, Math.min(1, localElapsed / Math.max(1, duration * 0.62)));
+    if (localProgress <= 0 || localProgress >= 1) continue;
+
+    const angle = (Math.PI * 2 * i) / 14;
+    const distance = radius * (0.42 + (i % 4) * 0.13);
+    const startX = centerX + Math.cos(angle) * radius * 0.28;
+    const startY = centerY + Math.sin(angle) * radius * 0.12;
+    const x = startX + Math.cos(angle) * distance * localProgress;
+    const y = startY + (Math.sin(angle) * distance - radius * 0.08) * localProgress;
+    const alpha = Math.sin(localProgress * Math.PI);
+    const size = Math.max(6, radius * 0.042) * (1 - localProgress * 0.25);
+    const gradient = context.createRadialGradient(x, y, 0, x, y, size * 2.4);
+    gradient.addColorStop(0, '#ffffff');
+    gradient.addColorStop(0.38, colors[i % colors.length]);
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+
+    context.globalAlpha = alpha;
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(x, y, size * 2.4, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.restore();
+}
+
+function drawRecordingClearTextEffects(
+  context: CanvasRenderingContext2D,
+  boardBox: { x: number; y: number; w: number; h: number },
+  timeMs: number,
+  recordingWrapperBox?: { x: number; y: number; w: number; h: number }
+) {
+  const visibleHeight = Math.max(1, getViewportGameHeight());
+  const scaleY = boardBox.h / visibleHeight;
+  const centerX = boardBox.x + boardBox.w / 2;
+
+  for (let i = activeClearTextEffects.length - 1; i >= 0; i--) {
+    const effect = activeClearTextEffects[i];
+    const elapsed = timeMs - effect.startedAt;
+    const duration = effect.type === 'praise' ? PRAISE_TEXT_EFFECT_DURATION_MS : COMBO_TEXT_EFFECT_DURATION_MS;
+    if (elapsed < 0) continue;
+    if (elapsed > duration + 180) {
+      activeClearTextEffects.splice(i, 1);
+      continue;
+    }
+
+    if (effect.type === 'combo' && comboTextEffectEnabled && typeof effect.row === 'number' && typeof effect.comboCount === 'number') {
+      const boardWrapper = document.getElementById('board-wrapper');
+      const wrapperRect = boardWrapper?.getBoundingClientRect();
+      const mappedTriggerPoint = wrapperRect && recordingWrapperBox && typeof effect.boardX === 'number' && typeof effect.boardY === 'number'
+        ? mapBoardWrapperRectToRecordingRect(
+            new DOMRect(wrapperRect.left + effect.boardX, wrapperRect.top + effect.boardY, 1, 1),
+            wrapperRect,
+            recordingWrapperBox
+          )
+        : null;
+      const fixedBoardYRatio = typeof effect.boardYRatio === 'number'
+        ? Math.max(0, Math.min(1, effect.boardYRatio))
+        : null;
+      const rowY = mappedTriggerPoint
+        ? mappedTriggerPoint.y
+        : fixedBoardYRatio !== null
+        ? boardBox.y + boardBox.h * fixedBoardYRatio
+        : boardBox.y + ((effect.row * PARAMS.cellSize) + (worldContainer?.y || 0)) * scaleY - 30;
+      const wordImage = getClearTextImage(getComboWordUrl(effect.comboCount));
+      const wordMotion = getClearTextPopMotion(elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
+      const wordWidth = Math.min(205, boardBox.w * 0.3);
+      const digitWidth = Math.min(47, boardBox.w * 0.075);
+      const digitHeight = digitWidth * 1.24;
+      const digitGap = digitWidth * 1.05;
+      const digitUrls = getComboDigitUrls(effect.comboCount);
+      const digitGroupWidth = digitWidth + Math.max(0, digitUrls.length - 1) * digitGap;
+      const groupGap = Math.max(18, boardBox.w * 0.035);
+      const groupWidth = wordWidth + groupGap + digitGroupWidth;
+      const groupLeft = centerX - groupWidth / 2;
+      const wordCenterX = groupLeft + wordWidth / 2;
+      const firstDigitX = groupLeft + wordWidth + groupGap + digitWidth / 2;
+      drawRecordingImageCentered(context, wordImage, wordCenterX, rowY + wordMotion.yShift, wordWidth, wordMotion.alpha, wordMotion.scale);
+
+      const digitElapsed = elapsed - 160;
+      if (digitElapsed >= 0) {
+        const digitMotion = getClearTextPopMotion(digitElapsed, 560);
+        digitUrls.forEach((url, index) => {
+          const image = getClearTextImage(url);
+          drawRecordingImageContainedCentered(context, image, firstDigitX + index * digitGap, rowY + 3 + digitMotion.yShift, digitWidth, digitHeight, digitMotion.alpha, digitMotion.scale);
+        });
+      }
+      drawRecordingClearTextSparks(context, centerX, rowY, boardBox.w * 0.2, elapsed, COMBO_TEXT_EFFECT_DURATION_MS);
+    }
+
+    if (effect.type === 'praise' && praiseTextEffectEnabled && effect.word) {
+      const image = getClearTextImage(PRAISE_WORD_URLS[effect.word]);
+      const motion = getPraiseTextPopMotion(elapsed);
+      const praiseY = boardBox.y + 50;
+      drawRecordingImageCentered(context, image, centerX, praiseY + motion.yShift, boardBox.w * 0.62, motion.alpha, motion.scale);
+      drawRecordingClearTextSparks(context, centerX, praiseY, boardBox.w * 0.42, elapsed, PRAISE_TEXT_EFFECT_DURATION_MS);
+    }
+  }
+}
+
+function drawRecordingHeartHud(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  headerBox: { x: number; y: number; w: number; h: number },
+  boardWrapper: HTMLElement | null
+) {
+  const scoreText = document.getElementById('heart-score-val')?.innerText
+    || document.getElementById('score-val')?.innerText
+    || '0';
+  const heartHud = document.getElementById('heart-score-hud');
+  const heartImage = document.getElementById('heart-score-gif') as HTMLVideoElement | null;
+  const heartBurstImage = document.getElementById('heart-score-burst') as HTMLVideoElement | null;
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const hudRect = heartHud?.getBoundingClientRect();
+  const heartRect = heartImage?.getBoundingClientRect();
+  const burstRect = heartBurstImage?.getBoundingClientRect();
+  const scoreEl = document.getElementById('heart-score-val') as HTMLElement | null;
+  const wrapperScaleX = boardRect ? width / Math.max(1, boardRect.width) : 1;
+  const hudBox = boardRect && hudRect
+    ? mapBoardWrapperRectToRecordingRect(hudRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: headerBox.x + headerBox.w * 0.33, y: headerBox.y, w: headerBox.w * 0.34, h: headerBox.h };
+  const heartBox = boardRect && heartRect
+    ? mapBoardWrapperRectToRecordingRect(heartRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: hudBox.x, y: hudBox.y + height * (10 / MASTER_UI.height), w: hudBox.w, h: hudBox.h };
+  const burstBox = boardRect && burstRect
+    ? mapBoardWrapperRectToRecordingRect(burstRect, boardRect, { x: 0, y: 0, w: width, h: height })
+    : { x: heartBox.x - heartBox.w * 0.25, y: heartBox.y - heartBox.h * 0.25, w: heartBox.w * 1.5, h: heartBox.h * 1.5 };
+  const centerX = hudBox.x + hudBox.w / 2;
+  const centerY = hudBox.y + hudBox.h / 2;
+
+  context.save();
+  if (heartHud?.classList.contains('clearing') && heartBurstImage && heartBurstImage.readyState >= 2 && heartBurstImage.videoWidth > 0) {
+    drawRecordingVideoContained(context, heartBurstImage, burstBox);
+  }
+  if (heartImage && heartImage.readyState >= 2 && heartImage.videoWidth > 0) {
+    drawRecordingVideoContained(context, heartImage, heartBox);
+  }
+  const cssFontSize = scoreEl ? parseFloat(getComputedStyle(scoreEl).fontSize) : 58;
+  const fontSize = Math.round(cssFontSize * wrapperScaleX);
+  context.font = `900 ${fontSize}px 'Arial Black', 'Impact', sans-serif`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.lineWidth = Math.max(3, fontSize * 0.07);
+  context.lineJoin = 'round';
+  context.strokeStyle = '#9a155f';
+  context.fillStyle = '#ffffff';
+  context.shadowBlur = 0;
+  context.strokeText(scoreText, centerX, centerY);
+  context.fillText(scoreText, centerX, centerY);
+  context.restore();
+}
+
+function drawRecordingMarqueeBorder(
+  context: CanvasRenderingContext2D,
+  boardBox: { x: number; y: number; w: number; h: number },
+  timeMs: number
+) {
+  if (!marqueeBorderEnabled) return;
+  if (!marqueeClearStartedAt) return;
+
+  const elapsed = timeMs - marqueeClearStartedAt;
+  if (elapsed < 0 || elapsed > MARQUEE_CLEAR_DURATION_MS) return;
+
+  const progress = Math.max(0, Math.min(1, elapsed / MARQUEE_CLEAR_DURATION_MS));
+  const alpha = Math.sin(progress * Math.PI);
+  const borderWidth = Math.max(12, Math.min(20, boardBox.w * 0.021));
+  const radius = Math.max(10, boardBox.w * 0.018);
+  const outward = borderWidth * 0.9;
+  const strokeX = boardBox.x - outward + borderWidth / 2;
+  const strokeY = boardBox.y - outward + borderWidth / 2;
+  const strokeW = boardBox.w + outward * 2 - borderWidth;
+  const strokeH = boardBox.h + outward * 2 - borderWidth;
+  const phase = (timeMs / 580) % 1;
+  const glowPulse = 0.9 + 0.08 * Math.sin(timeMs / 580 * Math.PI * 2);
+  const centerX = boardBox.x + boardBox.w / 2;
+  const centerY = boardBox.y + boardBox.h / 2;
+  const maybeConicGradient = (context as CanvasRenderingContext2D & {
+    createConicGradient?: (startAngle: number, x: number, y: number) => CanvasGradient;
+  }).createConicGradient;
+  const gradient = maybeConicGradient
+    ? maybeConicGradient.call(context, -Math.PI / 2 + Math.PI * 0.28 - phase * Math.PI * 2, centerX, centerY)
+    : context.createLinearGradient(boardBox.x, boardBox.y + boardBox.h, boardBox.x + boardBox.w, boardBox.y);
+  gradient.addColorStop(0, '#ff3030');
+  gradient.addColorStop(0.145, '#ff21df');
+  gradient.addColorStop(0.29, '#763cff');
+  gradient.addColorStop(0.44, '#19eaff');
+  gradient.addColorStop(0.595, '#2dff6a');
+  gradient.addColorStop(0.75, '#fff238');
+  gradient.addColorStop(0.895, '#ff8a18');
+  gradient.addColorStop(1, '#ff3030');
+
+  context.save();
+  context.globalAlpha = alpha;
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.strokeStyle = gradient;
+  context.shadowColor = '#23f7ff';
+  context.shadowBlur = boardBox.w * 0.018 * glowPulse;
+  context.lineWidth = borderWidth;
+  drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
+  context.stroke();
+
+  context.globalAlpha = alpha * 0.45;
+  context.lineWidth = Math.max(1, borderWidth * 0.24);
+  context.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+  context.shadowBlur = 0;
+  drawRoundedRectPath(context, strokeX, strokeY, strokeW, strokeH, radius);
+  context.stroke();
+  context.restore();
 }
 
 function getRecordingCollectIconRect(width: number, height: number) {
@@ -29153,6 +32340,113 @@ function getRecordingCollectIconRect(width: number, height: number) {
 
   };
 
+}
+
+function drawRecordingMultiCollectibleHud(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  boardWrapper: HTMLElement | null,
+  useRecordingBackground: boolean,
+  dpr: number
+) {
+  if (!isCollectMode || !multiCollectibleModeEnabled || multiCollectibleItems.length === 0) return false;
+
+  const targetEls = Array.from(document.querySelectorAll<HTMLElement>('.multi-collectible-target'));
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const visibleTargets = targetEls
+    .map(target => ({
+      target,
+      image: target.querySelector('img') as HTMLImageElement | null,
+      count: target.querySelector('.multi-collectible-target-count') as HTMLElement | null
+    }))
+    .filter(item => item.image?.complete && (item.image.naturalWidth || item.image.width) > 0);
+
+  if (visibleTargets.length > 0 && boardRect) {
+    visibleTargets.forEach(({ target, image, count }) => {
+      const targetRect = target.getBoundingClientRect();
+      const imageRect = image!.getBoundingClientRect();
+      const countRect = count?.getBoundingClientRect();
+      const mappedTarget = useRecordingBackground
+        ? mapBoardWrapperRectToRecordingRect(targetRect, boardRect, { x: 0, y: 0, w: width, h: height })
+        : {
+            x: (targetRect.left - boardRect.left) * dpr,
+            y: (targetRect.top - boardRect.top) * dpr,
+            w: targetRect.width * dpr,
+            h: targetRect.height * dpr
+          };
+      const mappedImage = useRecordingBackground
+        ? mapBoardWrapperRectToRecordingRect(imageRect, boardRect, { x: 0, y: 0, w: width, h: height })
+        : {
+            x: (imageRect.left - boardRect.left) * dpr,
+            y: (imageRect.top - boardRect.top) * dpr,
+            w: imageRect.width * dpr,
+            h: imageRect.height * dpr
+          };
+
+      drawRecordingImageContained(context, image!, mappedImage);
+
+      const countText = count?.innerText || '0';
+      const cssFontSize = count ? parseFloat(getComputedStyle(count).fontSize) : 28;
+      const scaleX = useRecordingBackground ? width / Math.max(1, boardRect.width) : dpr;
+      const fontSize = Math.max(22, Math.round(cssFontSize * scaleX));
+      const countCenterX = countRect
+        ? (useRecordingBackground
+            ? mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height }).x + mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height }).w / 2
+            : (countRect.left - boardRect.left) * dpr + countRect.width * dpr / 2)
+        : mappedTarget.x + mappedTarget.w / 2;
+      const countCenterY = countRect
+        ? (useRecordingBackground
+            ? mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height }).y + mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height }).h / 2
+            : (countRect.top - boardRect.top) * dpr + countRect.height * dpr / 2)
+        : mappedTarget.y + mappedTarget.h - fontSize * 0.45;
+
+      context.save();
+      context.font = `900 ${fontSize}px 'Arial Black', 'Impact', sans-serif`;
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.lineWidth = Math.max(3, fontSize * 0.12);
+      context.strokeStyle = 'rgba(30, 25, 68, 0.8)';
+      context.fillStyle = '#ffffff';
+      context.shadowColor = 'rgba(43, 236, 255, 0.7)';
+      context.shadowBlur = fontSize * 0.28;
+      context.strokeText(countText, countCenterX, countCenterY);
+      context.fillText(countText, countCenterX, countCenterY);
+      context.restore();
+    });
+    return true;
+  }
+
+  const headerBox = {
+    x: MASTER_UI.header.x * width,
+    y: MASTER_UI.header.y * height,
+    w: MASTER_UI.header.w * width,
+    h: MASTER_UI.header.h * height
+  };
+  const count = Math.max(1, multiCollectibleItems.length);
+  const iconSize = Math.min(RECORDING_COLLECT_ICON_SIZE, headerBox.h * 0.42);
+  const groupGap = Math.max(18, iconSize * 0.5);
+  const groupWidth = count * iconSize + (count - 1) * groupGap;
+  const startX = headerBox.x + headerBox.w - groupWidth - headerBox.w * 0.05;
+  const iconY = headerBox.y + headerBox.h * 0.22;
+  const fontSize = Math.max(24, Math.round(iconSize * 0.48));
+
+  multiCollectibleItems.forEach((item, index) => {
+    const image = getClearTextImage(item.src);
+    const x = startX + index * (iconSize + groupGap);
+    drawRecordingImageContained(context, image, { x, y: iconY, w: iconSize, h: iconSize });
+    context.save();
+    context.font = `900 ${fontSize}px 'Arial Black', 'Impact', sans-serif`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineWidth = Math.max(3, fontSize * 0.12);
+    context.strokeStyle = 'rgba(30, 25, 68, 0.8)';
+    context.fillStyle = '#ffffff';
+    context.strokeText(String(item.count), x + iconSize / 2, iconY + iconSize + fontSize * 0.45);
+    context.fillText(String(item.count), x + iconSize / 2, iconY + iconSize + fontSize * 0.45);
+    context.restore();
+  });
+  return true;
 }
 
 
@@ -29309,17 +32603,43 @@ function fitRectToWidthPreserveAspect(
 
 }
 
+function fitRectToFixedWidthPreserveAspect(
 
 
 
+  target: { x: number; y: number; w: number; h: number },
 
 
 
-function getPreviewContentSize() {
+  contentW: number,
 
 
 
-  const rendererScreen = app?.renderer?.screen;
+  contentH: number
+
+
+
+) {
+
+
+
+  if (contentW <= 0 || contentH <= 0 || target.w <= 0 || target.h <= 0) {
+
+
+
+    return target;
+
+
+
+  }
+
+
+
+  const scale = target.w / contentW;
+
+  const w = contentW * scale;
+
+  const h = Math.max(target.h, contentH * scale);
 
 
 
@@ -29327,15 +32647,35 @@ function getPreviewContentSize() {
 
 
 
-    w: rendererScreen?.width || PARAMS.gridCols * PARAMS.cellSize + PADDING * 2,
+    x: target.x,
 
 
 
-    h: rendererScreen?.height || PARAMS.viewportRows * PARAMS.cellSize + PADDING * 2
+    y: target.y,
+
+
+
+    w,
+
+
+
+    h
 
 
 
   };
+
+
+
+}
+
+
+
+function getPreviewContentSize() {
+
+
+
+  return getBoardCanvasContentSize();
 
 
 
@@ -29351,11 +32691,12 @@ function positionPreviewCanvasInMaster() {
 
 
 
+  const boardClipRect = positionBoardClipInMaster();
+
   const boardClip = document.getElementById('board-clip');
 
 
-
-  if (!boardClip || !app?.canvas) return;
+  if (!boardClipRect || !boardClip || !app?.canvas) return;
 
 
 
@@ -29365,57 +32706,27 @@ function positionPreviewCanvasInMaster() {
 
   const canvas = app.canvas as HTMLCanvasElement;
 
-
-
-  const contentSize = getPreviewContentSize();
-
-
-
   const targetWidth = boardClip.clientWidth;
 
+  const cssScale = targetWidth / Math.max(1, canvas.width);
 
-
-  const targetHeight = boardClip.clientHeight;
-
-
-
-  const rect = fitRectToWidthPreserveAspect(
+  const targetHeight = canvas.height * cssScale;
 
 
 
-    { x: 0, y: 0, w: targetWidth, h: targetHeight },
+  canvas.style.left = '0px';
 
 
 
-    contentSize.w,
+  canvas.style.top = '0px';
 
 
 
-    contentSize.h,
+  canvas.style.width = `${targetWidth}px`;
 
 
 
-    'top'
-
-
-
-  );
-
-
-
-  canvas.style.left = `${rect.x}px`;
-
-
-
-  canvas.style.top = `${rect.y}px`;
-
-
-
-  canvas.style.width = `${rect.w}px`;
-
-
-
-  canvas.style.height = `${rect.h}px`;
+  canvas.style.height = `${targetHeight}px`;
 
 
 
@@ -29436,6 +32747,26 @@ function setupDOMUI() {
 
 
   setupShatterModeButtons();
+  preloadClearTextImages();
+  syncClearTextEffectUI();
+
+  const comboTextEffectCheckbox = document.getElementById('input-combo-text-effect') as HTMLInputElement | null;
+  comboTextEffectCheckbox?.addEventListener('change', () => {
+    setComboTextEffectEnabled(comboTextEffectCheckbox.checked);
+  });
+
+  const praiseTextEffectCheckbox = document.getElementById('input-praise-text-effect') as HTMLInputElement | null;
+  praiseTextEffectCheckbox?.addEventListener('change', () => {
+    setPraiseTextEffectEnabled(praiseTextEffectCheckbox.checked);
+  });
+
+  const sequentialRowClearCheckbox = document.getElementById('input-sequential-row-clear') as HTMLInputElement | null;
+  if (sequentialRowClearCheckbox) {
+    sequentialRowClearCheckbox.checked = PARAMS.rowClearOrder === 'bottom-up';
+    sequentialRowClearCheckbox.addEventListener('change', () => {
+      PARAMS.rowClearOrder = sequentialRowClearCheckbox.checked ? 'bottom-up' : 'simultaneous';
+    });
+  }
 
 
 
@@ -29589,6 +32920,47 @@ function setupDOMUI() {
 
   const recordBgClear = document.getElementById('btn-record-bg-clear') as HTMLButtonElement | null;
 
+  document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-variant]').forEach(button => {
+    button.addEventListener('click', () => {
+      const variant = button.dataset.solidBgVariant;
+      if (variant === 'solid' || variant === 'animated') {
+        setSolidBackgroundVariant(variant);
+      }
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-solid-bg-group]').forEach(button => {
+    button.addEventListener('click', () => {
+      const group = button.dataset.solidBgGroup;
+      if (group === 'dark' || group === 'light' || group === 'custom') {
+        setSolidBackgroundGroup(group);
+      }
+    });
+  });
+
+  const solidBgColorInput = document.getElementById('input-solid-bg-color') as HTMLInputElement | null;
+  const solidBgColorButton = document.getElementById('btn-add-solid-bg-color') as HTMLButtonElement | null;
+  solidBgColorButton?.addEventListener('click', () => {
+    addCustomSolidBackgroundColor(solidBgColorInput?.value || '#8fcaf5');
+  });
+  solidBgColorInput?.addEventListener('change', () => {
+    addCustomSolidBackgroundColor(solidBgColorInput.value);
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-top-ui-mode]').forEach(button => {
+    button.addEventListener('click', () => {
+      const mode = button.dataset.topUiMode;
+      if (mode === 'classic' || mode === 'heart') {
+        setTopUiMode(mode);
+      }
+    });
+  });
+
+  const marqueeBorderCheckbox = document.getElementById('input-marquee-border') as HTMLInputElement | null;
+  marqueeBorderCheckbox?.addEventListener('change', () => {
+    setMarqueeBorderEnabled(marqueeBorderCheckbox.checked);
+  });
+
 
 
 
@@ -29623,11 +32995,11 @@ function setupDOMUI() {
 
 
 
-    const activeItem = items.find(item => item.id === recordingBackgroundActiveId && item.src);
+    const activeItem = items.find(item => item.id === recordingBackgroundActiveId && (item.src || item.id === SOLID_BACKGROUND_ID));
 
 
 
-    selectRecordingBackground(activeItem || items.find(item => item.id !== NO_BACKGROUND_ID && item.src) || items[0]);
+    selectRecordingBackground(activeItem || items.find(item => item.id === SOLID_BACKGROUND_ID) || items.find(item => item.id !== NO_BACKGROUND_ID && item.src) || items[0]);
 
 
 
@@ -29729,6 +33101,9 @@ function setupDOMUI() {
 
   });
 
+  syncTopUiMode();
+  syncMarqueeBorderUI();
+
 
 
 
@@ -29783,11 +33158,7 @@ function setupDOMUI() {
 
 
 
-      const scoreVal = document.getElementById('score-val');
-
-
-
-      if (scoreVal) scoreVal.innerText = parseInt(inputScore.value).toLocaleString();
+      setScoreTextEverywhere(parseInt(inputScore.value).toLocaleString());
 
 
 
@@ -29924,6 +33295,7 @@ function setupDOMUI() {
 
 
     syncBoardFrameToGrid();
+    previewRenderRows = Math.max(1, Math.min(PARAMS.totalRows, PARAMS.viewportRows));
 
 
 
@@ -30031,15 +33403,7 @@ function setupDOMUI() {
 
 
 
-      const cellH = maxH / PARAMS.viewportRows;
-
-
-
-      
-
-
-
-      const autoCellSize = Math.max(10, Math.floor(Math.min(cellW, cellH)));
+      const autoCellSize = Math.max(10, Math.floor(cellW));
 
 
 
@@ -30116,6 +33480,8 @@ function setupDOMUI() {
 
 
     let fitScale = 1;
+    let boardFrameW = 0;
+    let boardFrameH = 0;
 
 
 
@@ -30136,6 +33502,8 @@ function setupDOMUI() {
 
 
       const maxW = boardRect.w;
+      boardFrameW = boardRect.w;
+      boardFrameH = boardRect.h;
 
 
 
@@ -30169,8 +33537,19 @@ function setupDOMUI() {
 
     const displayCellSize = Math.max(1, Math.round(PARAMS.cellSize * fitScale));
     const displayW = PARAMS.gridCols * displayCellSize + Math.round(PADDING * 2 * fitScale);
+    const boardClipBorderPx = 5;
+    const boardFrameInnerW = Math.max(1, boardFrameW - boardClipBorderPx * 2);
+    const boardFrameInnerH = Math.max(1, boardFrameH - boardClipBorderPx * 2);
+    if (boardFrameInnerH > 0) {
+      const rowsToCoverFrame = Math.ceil(boardFrameInnerH / displayCellSize) + 1;
+      previewRenderRows = Math.max(PARAMS.viewportRows, Math.min(PARAMS.totalRows, rowsToCoverFrame));
+    }
     const previewGameHeight = getPreviewRendererGameHeight();
-    const displayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
+    const contentDisplayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
+    const frameDisplayH = boardFrameInnerW > 0 && boardFrameInnerH > 0
+      ? Math.ceil(boardFrameInnerH * (displayW / boardFrameInnerW))
+      : 0;
+    const displayH = Math.max(contentDisplayH, frameDisplayH);
     app.renderer.resize(displayW, displayH);
 
 
@@ -31371,11 +34750,38 @@ function setupDOMUI() {
 
     manualBlockPalette.appendChild(propSection);
 
-
-
-
-
-
+    const tntSection = document.createElement('div');
+    tntSection.className = 'palette-tnt-section';
+    tntSection.style.marginBottom = '12px';
+    tntSection.style.borderBottom = '1px solid #444';
+    tntSection.style.paddingBottom = '8px';
+    const tntTitle = document.createElement('div');
+    tntTitle.innerText = 'TNT 炸弹道具';
+    tntTitle.style.color = '#ffd45c';
+    tntTitle.style.fontSize = '12px';
+    tntTitle.style.fontWeight = 'bold';
+    tntTitle.style.textAlign = 'center';
+    tntTitle.style.marginBottom = '6px';
+    tntSection.appendChild(tntTitle);
+    const tntRow = document.createElement('div');
+    tntRow.className = 'palette-row';
+    tntRow.style.justifyContent = 'center';
+    const tntBtn = document.createElement('div');
+    tntBtn.className = 'palette-block-btn';
+    tntBtn.innerText = 'TNT';
+    tntBtn.style.background = 'linear-gradient(135deg, #ffcf4a, #e83232)';
+    tntBtn.style.width = '44px';
+    tntBtn.style.fontSize = '11px';
+    tntBtn.title = '放置 1x1 TNT 炸弹';
+    tntBtn.onclick = () => {
+      document.querySelectorAll('.palette-block-btn').forEach(el => el.classList.remove('active'));
+      tntBtn.classList.add('active');
+      manualSelectedBlock = { length: 1, color: TNT_COLOR };
+      initOrUpdateManualPreviewSprite(1, TNT_COLOR, false);
+    };
+    tntRow.appendChild(tntBtn);
+    tntSection.appendChild(tntRow);
+    manualBlockPalette.appendChild(tntSection);
 
     const colors = ['red', 'blue', 'green', 'yellow', 'pink'];
 
@@ -31611,7 +35017,8 @@ function setupDOMUI() {
 
       propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -31791,7 +35198,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+        spawnRecordedBlockState(sb);
 
 
 
@@ -33164,6 +36571,8 @@ function setupDOMUI() {
 
         applyCurrentTwoColors();
 
+        syncInitialBoardColorsFromCurrentBoard();
+
 
 
       }
@@ -33215,6 +36624,8 @@ function setupDOMUI() {
 
 
         applyCurrentTwoColors();
+
+        syncInitialBoardColorsFromCurrentBoard();
 
 
 
@@ -33279,6 +36690,10 @@ function setupDOMUI() {
 
 
   const btnCollectMode = document.getElementById('btn-collect-mode')!;
+
+  const btnMultiCollectMode = document.getElementById('btn-multi-collect-mode')!;
+
+  const btnTntMode = document.getElementById('btn-tnt-mode')!;
 
 
 
@@ -33518,7 +36933,7 @@ function setupDOMUI() {
 
 
 
-                      !isMaterialChangingMode;
+                      !isMaterialChangingMode && !isTntMode;
 
 
 
@@ -33574,7 +36989,11 @@ function setupDOMUI() {
 
 
 
-    setBtnActive(btnCollectMode, isCollectMode);
+    setBtnActive(btnCollectMode, isCollectMode && !multiCollectibleModeEnabled);
+
+    setBtnActive(btnMultiCollectMode, isCollectMode && multiCollectibleModeEnabled);
+
+    setBtnActive(btnTntMode, isTntMode);
 
 
 
@@ -33936,6 +37355,8 @@ function setupDOMUI() {
 
     isMaterialChangingMode = false;
 
+    isTntMode = false;
+
 
 
 
@@ -34050,7 +37471,7 @@ function setupDOMUI() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -34214,11 +37635,31 @@ function setupDOMUI() {
 
 
 
+  btnTntMode.onclick = async () => {
+    stopGameplayModeTimer();
+    deactivateCollectMode();
+    isTntMode = !isTntMode;
+    if (isTntMode) {
+      isColorChangingMode = false;
+      isSingleColorMode = false;
+      isCustomTwoColorMode = false;
+      isRainbowMode = false;
+      isRainbowFixedMode = false;
+      isMaterialChangingMode = false;
+      btnColorMode.innerHTML = '<span class="icon">🎨</span>变色模式';
+      btnSingleColorMode.innerHTML = '<span class="icon">🎨</span>单色变色';
+      seedTntBlocksOnCurrentBoard();
+    }
+    syncModeButtonsUI();
+    if (currentMode === 'manual') buildManualBlockPalette();
+  };
+
   btnColorMode.onclick = async () => {
 
 
 
     deactivateCollectMode();
+    isTntMode = false;
 
 
 
@@ -34386,7 +37827,7 @@ function setupDOMUI() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -34408,6 +37849,8 @@ function setupDOMUI() {
 
     });
 
+    syncInitialBoardColorsFromCurrentBoard();
+
 
 
     syncModeButtonsUI();
@@ -34427,6 +37870,7 @@ function setupDOMUI() {
 
 
     deactivateCollectMode();
+    isTntMode = false;
 
 
 
@@ -34564,6 +38008,8 @@ function setupDOMUI() {
 
     applyCurrentTwoColors();
 
+    syncInitialBoardColorsFromCurrentBoard();
+
 
 
     syncModeButtonsUI();
@@ -34583,6 +38029,7 @@ function setupDOMUI() {
 
 
     deactivateCollectMode();
+    isTntMode = false;
 
 
 
@@ -34734,7 +38181,7 @@ function setupDOMUI() {
 
 
 
-    blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+    blocks.forEach(b => { if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -34755,6 +38202,8 @@ function setupDOMUI() {
 
 
     });
+
+    syncInitialBoardColorsFromCurrentBoard();
 
 
 
@@ -34915,6 +38364,8 @@ function setupDOMUI() {
 
 
     resetAndApplyActiveModeStyle();
+
+    syncInitialBoardColorsFromCurrentBoard();
 
 
 
@@ -35119,6 +38570,7 @@ function setupDOMUI() {
 
 
       deactivateCollectMode();
+      isTntMode = false;
 
 
 
@@ -35266,7 +38718,7 @@ function setupDOMUI() {
 
 
 
-      if (b.isCollectible || b.isProp) return;
+      if (b.isCollectible || b.isProp || isTntBlock(b)) return;
 
 
 
@@ -35291,6 +38743,8 @@ function setupDOMUI() {
 
 
     });
+
+    syncInitialBoardColorsFromCurrentBoard();
 
 
 
@@ -35326,7 +38780,7 @@ function setupDOMUI() {
 
 
 
-    if (isCollectMode) return;
+    if (isCollectMode && !multiCollectibleModeEnabled) return;
 
 
 
@@ -35335,6 +38789,11 @@ function setupDOMUI() {
 
 
     isCollectMode = true;
+    isTntMode = false;
+
+    multiCollectibleModeEnabled = false;
+
+    persistMultiCollectibleSettings();
 
 
 
@@ -35452,6 +38911,8 @@ function setupDOMUI() {
 
     collectedCount = 0;
 
+    resetMultiCollectibleCounts();
+
 
 
     await updateActiveCollectible();
@@ -35466,7 +38927,16 @@ function setupDOMUI() {
 
 
 
-    const blocksToConvert = blocks.filter(b => b.length === 1 && Math.random() < 0.3);
+    const existingCollectibleBlocks = blocks.filter(b => b.isCollectible);
+    existingCollectibleBlocks.forEach(b => {
+      const { col, row, length, color, id, noGravity } = b;
+      blocksContainer.removeChild(b.sprite);
+      b.sprite.destroy();
+      blocks = blocks.filter(item => item.id !== id);
+      spawnBlock(col, row, length, color, id, noGravity, true);
+    });
+
+    const blocksToConvert = blocks.filter(b => !b.isCollectible && b.length === 1 && Math.random() < 0.3);
 
 
 
@@ -35552,6 +39022,75 @@ function setupDOMUI() {
 
 
 
+
+
+  btnMultiCollectMode.onclick = async () => {
+
+    if (isCollectMode && multiCollectibleModeEnabled) return;
+
+    isCollectMode = true;
+    isTntMode = false;
+
+    multiCollectibleModeEnabled = true;
+
+    persistMultiCollectibleSettings();
+
+    isColorChangingMode = false;
+    isSingleColorMode = false;
+    isCustomTwoColorMode = false;
+    isRainbowMode = false;
+    isRainbowFixedMode = false;
+    isMaterialChangingMode = false;
+
+    btnColorMode.innerHTML = '<span class="icon">馃帹</span>鍙樿壊妯″紡';
+    btnSingleColorMode.innerHTML = '<span class="icon">馃帹</span>鍗曡壊鍙樿壊';
+
+    btnCustomTwoColorMode.classList.remove('blue');
+    btnCustomTwoColorMode.classList.add('gray');
+    btnSingleColorMode.classList.remove('blue');
+    btnSingleColorMode.classList.add('gray');
+    btnNormalMode.classList.remove('blue');
+    btnNormalMode.classList.add('gray');
+    btnColorMode.classList.remove('blue');
+    btnColorMode.classList.add('gray');
+    btnRainbowMode.classList.remove('blue');
+    btnRainbowMode.classList.add('gray');
+    btnRainbowFixedMode.classList.remove('blue');
+    btnRainbowFixedMode.classList.add('gray');
+    btnMaterialMode.classList.remove('blue');
+    btnMaterialMode.classList.add('gray');
+
+    collectedCount = 0;
+
+    await rebuildMultiCollectibleItems();
+
+    resetMultiCollectibleCounts();
+
+    const collectibleBlocks = blocks.filter(b => b.isCollectible);
+    collectibleBlocks.forEach(b => {
+      const { col, row, length, color, id, noGravity } = b;
+      blocksContainer.removeChild(b.sprite);
+      b.sprite.destroy();
+      blocks = blocks.filter(item => item.id !== id);
+      spawnBlock(col, row, length, color, id, noGravity, true);
+    });
+
+    const blocksToConvert = blocks.filter(b => !b.isCollectible && b.length === 1 && Math.random() < 0.3);
+    blocksToConvert.forEach(b => {
+      const { col, row, length, color, id, noGravity } = b;
+      blocksContainer.removeChild(b.sprite);
+      b.sprite.destroy();
+      blocks = blocks.filter(item => item.id !== id);
+      spawnBlock(col, row, length, color, id, noGravity, true);
+    });
+
+    captureBoardState();
+
+    updateHeaderUI();
+
+    syncModeButtonsUI();
+
+  };
 
 
   // Effect Type Cards Click
@@ -36576,7 +40115,8 @@ function setupDOMUI() {
 
       propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -36824,7 +40364,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+        spawnRecordedBlockState(sb);
 
 
 
@@ -37354,7 +40894,8 @@ function setupDOMUI() {
 
       propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -37446,7 +40987,23 @@ function setupDOMUI() {
 
 
 
-        collectedCount
+        collectedCount,
+
+        multiCollectibleModeEnabled,
+
+        multiCollectibleSlotCount,
+
+        multiCollectibleSlotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount),
+
+        multiCollectibleAssets: getExportableMultiCollectibleAssets(),
+
+        solidBackgroundVariant,
+
+        solidBackgroundGroup,
+
+        solidBackgroundColorId,
+
+        solidBackgroundColors: SOLID_BACKGROUND_COLORS.filter(color => color.custom)
 
 
 
@@ -37628,6 +41185,36 @@ function setupDOMUI() {
 
       isCollectMode = !!modes.isCollectMode;
 
+      applyCustomSolidBackgroundColors(modes.solidBackgroundColors);
+
+      if (modes.solidBackgroundVariant === 'animated' || modes.solidBackgroundVariant === 'solid') {
+        solidBackgroundVariant = modes.solidBackgroundVariant;
+      }
+
+      solidBackgroundGroup = normalizeSolidBackgroundGroup(modes.solidBackgroundGroup);
+
+      if (
+        typeof modes.solidBackgroundColorId === 'string' &&
+        SOLID_BACKGROUND_COLORS.some(color => color.id === modes.solidBackgroundColorId)
+      ) {
+        solidBackgroundColorId = modes.solidBackgroundColorId;
+      }
+
+      multiCollectibleModeEnabled = modes.multiCollectibleModeEnabled === true;
+      applyMultiCollectibleAssetPayload(modes.multiCollectibleAssets);
+
+      if (Number.isFinite(Number(modes.multiCollectibleSlotCount))) {
+        multiCollectibleSlotCount = Math.max(2, Math.min(5, Number(modes.multiCollectibleSlotCount) || 2));
+      }
+
+      if (Array.isArray(modes.multiCollectibleSlotIds)) {
+        multiCollectibleSlotIds = modes.multiCollectibleSlotIds.map(String).slice(0, 5);
+      }
+
+      persistMultiCollectibleSettings();
+
+      await rebuildMultiCollectibleItems();
+
 
 
       collectedCount = modes.collectedCount || 0;
@@ -37766,7 +41353,7 @@ function setupDOMUI() {
 
 
 
-        spawnBlock(sb.col, sb.row, sb.length, sb.color, sb.id, sb.noGravity, sb.isCollectible, sb.isProp, sb.propType, sb.propDir || 'left');
+        spawnRecordedBlockState(sb);
 
 
 
@@ -37891,6 +41478,18 @@ function setupDOMUI() {
 
 
       });
+
+      if (scriptNeedsPlaybackRepair()) {
+
+        repairScriptSteps({
+
+          preserveStepIdentity: true,
+
+          preserveExistingEliminations: true
+
+        });
+
+      }
 
 
 
@@ -38248,6 +41847,7 @@ function setupDOMUI() {
 
   window.addEventListener('resize', () => {
 
+    syncEditorStageScale();
 
 
     applyGridConfig();
@@ -38606,7 +42206,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-  const useRecordingBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+  const useRecordingBackground = isRecordingBackgroundActive();
 
 
 
@@ -38618,7 +42218,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-  if (recordingBackgroundEnabled && recordingBackgroundDataUrl && !recordingBackgroundImage) {
+  if (isImageRecordingBackgroundActive() && !recordingBackgroundImage) {
 
 
 
@@ -39302,6 +42902,11 @@ function startRecording(): Promise<boolean> {
 
 
 
+      if (topUiMode === 'heart') {
+        recordingCtx!.restore();
+        drawRecordingHeartHud(recordingCtx!, width, height, headerBox, boardWrapper || null);
+        recordingCtx!.save();
+      } else {
       const leftText = `LEVEL: ${document.getElementById('level-val')?.innerText || '284'}`;
 
 
@@ -39328,10 +42933,11 @@ function startRecording(): Promise<boolean> {
 
       if (isCollectMode) {
         const scoreText = document.getElementById('score-val')?.innerText || '0';
-        const labelFontSize = headerFontSize * 0.58;
-        const valueFontSize = headerFontSize * 1.04;
-        const labelY = textY - headerFontSize * 0.28;
-        const valueY = textY + headerFontSize * 0.48;
+        const isMultiCollectRecording = multiCollectibleModeEnabled && multiCollectibleItems.length > 0;
+        const labelFontSize = headerFontSize * (isMultiCollectRecording ? 0.52 : 0.58);
+        const valueFontSize = headerFontSize * (isMultiCollectRecording ? 1.34 : 1.04);
+        const labelY = textY - headerFontSize * (isMultiCollectRecording ? 0.42 : 0.28);
+        const valueY = textY + headerFontSize * (isMultiCollectRecording ? 0.58 : 0.48);
 
         recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
         recordingCtx!.fillText('SCORE', leftX, labelY);
@@ -39388,6 +42994,7 @@ function startRecording(): Promise<boolean> {
 
 
       }
+      }
 
 
 
@@ -39403,8 +43010,18 @@ function startRecording(): Promise<boolean> {
 
 
 
-      if (isCollectMode) {
+      if (isCollectMode && topUiMode !== 'heart') {
 
+        const didDrawMultiCollectibleHud = drawRecordingMultiCollectibleHud(
+          recordingCtx!,
+          width,
+          height,
+          boardWrapper || null,
+          useRecordingBackground,
+          dpr
+        );
+
+        if (!didDrawMultiCollectibleHud) {
 
 
         const avatarHudEl = document.getElementById('collection-avatar-hud');
@@ -39447,6 +43064,13 @@ function startRecording(): Promise<boolean> {
 
 
         const headerIconEl = document.getElementById('collectible-header-icon') as HTMLImageElement | null;
+        const fallbackCollectibleImage = getClearTextImage(getActiveCollectibleBase64());
+        const headerIconReady = !!(
+          headerIconEl &&
+          headerIconEl.complete &&
+          (headerIconEl.naturalWidth || headerIconEl.width) > 0
+        );
+        const recordingCollectibleImage = headerIconReady ? headerIconEl! : fallbackCollectibleImage;
 
 
 
@@ -39454,11 +43078,13 @@ function startRecording(): Promise<boolean> {
 
 
 
-        if (headerIconEl && boardWrapper) {
+        if (recordingCollectibleImage && boardWrapper) {
 
 
 
-          const iconRect = headerIconEl.getBoundingClientRect();
+          const iconRect = headerIconReady
+            ? headerIconEl!.getBoundingClientRect()
+            : new DOMRect(0, 0, RECORDING_COLLECT_ICON_SIZE, RECORDING_COLLECT_ICON_SIZE);
 
           const boardRect = boardWrapper.getBoundingClientRect();
 
@@ -39470,13 +43096,17 @@ function startRecording(): Promise<boolean> {
 
             ? recordingIconBox!.x
 
-            : (iconRect.left - boardRect.left) * dpr;
+            : headerIconReady
+              ? (iconRect.left - boardRect.left) * dpr
+              : width - (RECORDING_COLLECT_ICON_SIZE + 156) * dpr;
 
           const ry = useRecordingBackground
 
             ? recordingIconBox!.y
 
-            : (iconRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr;
+            : headerIconReady
+              ? (iconRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr
+              : 16 * dpr;
 
           const rw = useRecordingBackground ? headerIconSize : iconRect.width * dpr;
 
@@ -39492,7 +43122,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-          recordingCtx!.drawImage(headerIconEl, rx, ry, rw, rh);
+          drawRecordingImageContained(recordingCtx!, recordingCollectibleImage, { x: rx, y: ry, w: rw, h: rh });
 
 
 
@@ -39619,6 +43249,7 @@ function startRecording(): Promise<boolean> {
         }
 
 
+        }
 
       }
 
@@ -39636,7 +43267,13 @@ function startRecording(): Promise<boolean> {
 
 
 
-      const boardClipBox = getMasterBoardContentRect(width, height);
+      const boardClipBox = getRecordingBoardClipRect(boardWrapper || null, width, height);
+
+      const boardCanvasBox = getRecordingPixiCanvasRect(pixiCanvas, boardWrapper || null, width, height);
+
+      if (isSolidRecordingBackgroundActive() && topUiMode === 'heart') {
+        drawSolidRecordingBoardFrame(recordingCtx!, boardClipBox, width);
+      }
 
 
 
@@ -39647,7 +43284,6 @@ function startRecording(): Promise<boolean> {
       recordingCtx!.beginPath();
 
 
-
       recordingCtx!.rect(boardClipBox.x, boardClipBox.y, boardClipBox.w, boardClipBox.h);
 
 
@@ -39656,7 +43292,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-      drawRecordingVerticalGrid(recordingCtx!, boardClipBox);
+      drawRecordingVerticalGrid(recordingCtx!, boardCanvasBox);
 
 
 
@@ -39684,19 +43320,19 @@ function startRecording(): Promise<boolean> {
 
 
 
-        boardClipBox.x,
+        boardCanvasBox.x,
 
 
 
-        boardClipBox.y,
+        boardCanvasBox.y,
 
 
 
-        boardClipBox.w,
+        boardCanvasBox.w,
 
 
 
-        boardClipBox.h
+        boardCanvasBox.h
 
 
 
@@ -39705,6 +43341,9 @@ function startRecording(): Promise<boolean> {
 
 
       recordingCtx!.restore();
+
+      drawRecordingMarqueeBorder(recordingCtx!, boardClipBox, performance.now());
+      drawRecordingClearTextEffects(recordingCtx!, boardClipBox, performance.now(), { x: 0, y: 0, w: width, h: height });
 
 
 
@@ -39733,6 +43372,11 @@ function startRecording(): Promise<boolean> {
 
 
       recordingCtx!.restore();
+      drawRecordingClearTextEffects(
+        recordingCtx!,
+        { x: 0, y: currentOffset, w: pixiCanvas.width, h: pixiCanvas.height },
+        performance.now()
+      );
 
 
 
@@ -39758,7 +43402,7 @@ function startRecording(): Promise<boolean> {
 
       const boardRect = boardWrapper.getBoundingClientRect();
 
-      const recordingBoardBox = useRecordingBackground ? getMasterBoardContentRect(width, height) : null;
+      const recordingBoardBox = useRecordingBackground ? { x: 0, y: 0, w: width, h: height } : null;
 
 
 
@@ -40382,6 +44026,10 @@ function stopRecording() {
 
 (window as any).getBlocks = () => blocks;
 
+(window as any).getTntBlocks = () => blocks
+  .filter(block => isTntBlock(block))
+  .map(block => ({ id: block.id, row: block.row, col: block.col, length: block.length, color: block.color, propType: block.propType }));
+
 
 
 (window as any).getCurrentMode = () => currentMode;
@@ -40400,7 +44048,7 @@ function stopRecording() {
 
 
 
-  const useRecordingBackground = recordingBackgroundEnabled && !!recordingBackgroundDataUrl;
+  const useRecordingBackground = isRecordingBackgroundActive();
 
 
 
@@ -40488,8 +44136,10 @@ customPropStyleSystemReady = true;
 loadCustomPropImages();
 applyPendingCustomPropStyle();
 setTimeout(() => { initPropStylePanel(); }, 600);
-(window as any).importPropImage      = (role: 'machine'|'candy') => importPropImage(role);
+  (window as any).importPropImage      = (role: 'machine'|'candy') => importPropImage(role);
   (window as any).clearCustomPropImages = clearCustomPropImages;
+  (window as any).clearCustomTntImage = clearCustomTntImage;
+  (window as any).clearCustomTntArmedImage = clearCustomTntArmedImage;
   (window as any).parseMaterialTextureName = (fileName: string) => parseMaterialTextureName(fileName);
 
 
@@ -40640,9 +44290,21 @@ setTimeout(() => { initPropStylePanel(); }, 600);
 
     blockCount: blocks.length,
 
+    blocks: blocks.map(block => ({
+      id: block.id,
+      col: block.col,
+      row: block.row,
+      length: block.length,
+      color: block.color,
+      propType: block.propType,
+      noGravity: !!block.noGravity
+    })),
+
 
 
     fullRows,
+
+    pendingOffscreenFullRows: refreshPendingOffscreenFullRows(occ),
 
 
 
@@ -40778,7 +44440,7 @@ interface SimBlock {
 
 
 
-  propType?: 'row-bomb' | 'peppermint';
+  propType?: 'row-bomb' | 'peppermint' | 'tnt';
 
   propDir?: 'left' | 'right';
 
@@ -43172,7 +46834,8 @@ function bindAutoplayGeneratorEvents() {
 
         propType: b.propType,
 
-        propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
 
 
 
@@ -43643,7 +47306,8 @@ function getPlayableTutorialTarget() {
     color: b.color,
     isProp: b.isProp,
     propType: b.propType,
-    propDir: b.propDir
+        propDir: b.propDir,
+        collectibleId: b.collectibleId
   }));
 
   // Exported playables open at row 0. The editor camera can be scrolled to a
@@ -43711,26 +47375,18 @@ function getPlayableTutorialTarget() {
 
 function getImmediatePlayableFullRows(): number[] {
   const occ = getGridOccupancy();
-  const minVisibleY = -worldContainer.y;
-  const minRow = Math.max(0, Math.floor(minVisibleY / PARAMS.cellSize));
-  const maxRow = getVisibleBottomRowForWorldY(worldContainer.y);
-  const fullRows: number[] = [];
 
-  for (let r = minRow; r <= maxRow; r++) {
-    let isFull = true;
-    for (let c = 0; c < PARAMS.gridCols; c++) {
-      if (occ[r][c] === 0) {
-        isFull = false;
-        break;
-      }
-    }
-    if (isFull) fullRows.push(r);
+  if (activeSimulatingStepIndex !== null && !isRepairingScript) {
+    const step = scriptSteps[activeSimulatingStepIndex];
+    if (step) return getPlaybackFullRowsFromOccupancy(occ, step);
   }
 
-  return fullRows;
+  const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
+  const minRow = visibleRange.minRow;
+  const maxRow = visibleRange.maxRow;
+
+  return getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
 }
-
-
 
 function getSimFullRows(simBlocks: SimBlock[], minRow = 0, maxRow = PARAMS.totalRows - 1): number[] {
   const occ = getSimOccupancy(simBlocks);

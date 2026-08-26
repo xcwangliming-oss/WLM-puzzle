@@ -50,17 +50,17 @@ assert.match(
 );
 assert.match(
   source,
-  /const avatarTargetEl = getCollectionAvatarTargetElement\(\);[\s\S]*?const targetEl = avatarTargetEl \|\| document\.getElementById\('collectible-header-icon'\)/,
-  'collectibles must target the center avatar first and retain the old right-icon fallback',
+  /const avatarTargetEl = getCollectionAvatarTargetElement\(\);[\s\S]*?const multiTargetEl = multiItem[\s\S]*?const multiTargetImageEl = multiTargetEl\?\.querySelector<HTMLElement>\('img'\)[\s\S]*?const targetEl = multiTargetImageEl \|\| avatarTargetEl \|\| document\.getElementById\('collectible-header-icon'\)/,
+  'collectibles must target the matching multi-collectible icon first, then the center avatar, then the old right-icon fallback',
 );
 assert.match(
   source,
-  /if \(avatarTargetEl\) \{[\s\S]*?Math\.min\(58, targetRect\.width\)[\s\S]*?\(targetRect\.width - targetSize\) \/ 2[\s\S]*?\(targetRect\.height - targetSize\) \/ 2/,
+  /if \(avatarTargetEl\) \{[\s\S]*?Math\.min\(58, targetWidth\)[\s\S]*?\(targetWidth - targetSize\) \/ 2[\s\S]*?\(targetHeight - targetSize\) \/ 2/,
   'the enlarged avatar must receive a centered collectible without enlarging the flying icon',
 );
 assert.match(
   source,
-  /if \(avatarTargetEl\) triggerCollectionAvatarCollectState\(\);/,
+  /else if \(avatarTargetEl\) \{[\s\S]*?triggerCollectionAvatarCollectState\(\);[\s\S]*?\}/,
   'arrival at the avatar must play the collect state',
 );
 assert.match(

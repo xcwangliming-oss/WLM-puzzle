@@ -11,7 +11,7 @@ const fn = fnMatch[0];
 
 assert.match(
   fn,
-  /if \(targetEl\) \{[\s\S]*?targetEl\.getBoundingClientRect\(\)[\s\S]*?\} else if \(recordingBackgroundEnabled && recordingBackgroundDataUrl\)/,
+  /if \(targetEl\) \{[\s\S]*?targetEl\.getBoundingClientRect\(\)[\s\S]*?\} else if \(isRecordingBackgroundActive\(\)\)/,
   'live collect animation should fly to the actual header icon before falling back to recording-coordinate mapping'
 );
 
@@ -25,6 +25,24 @@ assert.doesNotMatch(
   fn,
   /canvasRect\.height \/ getViewportGameHeight\(\)/,
   'collectible fly coordinates must not use logical viewport height after preview renderer height is extended'
+);
+
+assert.match(
+  fn,
+  /const boardScaleX = boardWrapper\.offsetWidth > 0 \? boardRect\.width \/ boardWrapper\.offsetWidth : 1;/,
+  'collectible flight should account for the scaled board wrapper'
+);
+
+assert.match(
+  fn,
+  /const startLeft = toBoardLocalX\(globalX\);[\s\S]*?const startTop = toBoardLocalY\(globalY\);/,
+  'collectible flight start should be converted from viewport pixels to board-local pixels'
+);
+
+assert.match(
+  fn,
+  /const targetWidth = targetRect\.width \/ Math\.max\(boardScaleX, 0\.0001\);[\s\S]*?targetSize = Math\.max\(1, Math\.min\(targetWidth, targetHeight\)\);/,
+  'multi-collectible target size should be converted to board-local pixels before tweening'
 );
 
 console.log('collectible fly target regression passed');

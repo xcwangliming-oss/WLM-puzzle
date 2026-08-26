@@ -14,6 +14,11 @@
       });
     </script>
     <style>
+      @property --marquee-angle {
+        syntax: "<angle>";
+        inherits: false;
+        initial-value: 0deg;
+      }
       body.is-playable #top-navbar,
       body.is-playable #material-panel,
       body.is-playable #editor-panel,
@@ -92,6 +97,11 @@
         padding: 0 4px !important;
         text-align: center !important;
       }
+      body.is-playable #game-header.heart-header-mode {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+      }
       body.is-playable .header-item {
         min-width: 0 !important;
         overflow: hidden !important;
@@ -130,34 +140,269 @@
       }
       body:not(.is-playable) #tab-level {
         display: grid !important;
-        grid-template-columns: 280px 755px 280px 232px 158px !important;
-        gap: 20px !important;
+        grid-template-columns: 250px 250px 755px 280px 232px 158px !important;
+        gap: 12px !important;
         justify-content: center !important;
         align-items: start !important;
         padding-top: 0 !important;
         box-sizing: border-box !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
       }
       body:not(.is-playable) #material-panel {
         grid-column: 1 !important;
-        width: 280px !important;
-        height: 960px !important;
+        width: 250px !important;
+        height: auto !important;
+        min-height: 100% !important;
+        max-height: none !important;
+        overflow: visible !important;
+        align-self: start !important;
+      }
+      body:not(.is-playable) #style-assets-panel {
+        grid-column: 2 !important;
+        width: 250px !important;
+        height: auto !important;
+        min-height: 100% !important;
+        max-height: none !important;
+        overflow: visible !important;
+        align-self: start !important;
       }
       body:not(.is-playable) #game-ui {
-        grid-column: 2 !important;
+        grid-column: 3 !important;
         width: 755px !important;
         max-width: 755px !important;
       }
       body:not(.is-playable) #editor-panel {
-        grid-column: 3 !important;
+        grid-column: 4 !important;
         width: 280px !important;
       }
       body:not(.is-playable) #script-panel {
-        grid-column: 4 !important;
+        grid-column: 5 !important;
         width: 232px !important;
       }
       body:not(.is-playable) #script-steps-panel {
-        grid-column: 5 !important;
+        grid-column: 6 !important;
         width: 158px !important;
+      }
+      #heart-score-hud {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        width: 210px;
+        height: 150px;
+        pointer-events: none;
+        z-index: 3;
+      }
+      #heart-score-gif {
+        position: absolute;
+        left: 50%;
+        top: calc(50% + 10px);
+        width: 120%;
+        height: 120%;
+        object-fit: contain;
+        transform: translate(-50%, -50%);
+        filter: drop-shadow(0 0 18px rgba(229, 74, 255, 0.72));
+      }
+      #heart-score-burst {
+        position: absolute;
+        left: 50%;
+        top: calc(50% + 10px);
+        width: 180%;
+        height: 180%;
+        object-fit: contain;
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.62);
+        transform-origin: center;
+        pointer-events: none;
+        filter: drop-shadow(0 0 24px rgba(255, 70, 245, 0.9));
+      }
+      #heart-score-hud.clearing #heart-score-burst {
+        opacity: 1;
+        animation: heart-burst-expand 1600ms ease-out both;
+      }
+      #heart-score-val {
+        position: relative;
+        z-index: 2;
+        color: #fff;
+        font: 900 58px/1 'Arial Black', 'Impact', sans-serif;
+        -webkit-text-stroke: 4px #9a155f;
+        paint-order: stroke fill;
+        text-shadow: none;
+      }
+      #game-header.heart-header-mode {
+        justify-content: center !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+      }
+      #game-header.heart-header-mode .header-item {
+        display: none !important;
+      }
+      #game-header.heart-header-mode #heart-score-hud {
+        display: flex;
+      }
+      @keyframes heart-burst-expand {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.62); }
+        12% { opacity: 1; }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(1.18); }
+      }
+      #board-clip {
+        position: absolute;
+      }
+      #marquee-border {
+        position: absolute;
+        left: 5.4167%;
+        top: 12.5%;
+        width: 89.1667%;
+        height: 85%;
+        display: none;
+        pointer-events: none;
+        border-radius: 11px;
+        z-index: 9;
+        overflow: visible;
+      }
+      #marquee-border::before,
+      .marquee-border-bevel {
+        content: "";
+        position: absolute;
+        inset: -10px;
+        padding: 10px;
+        border-radius: inherit;
+        -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        opacity: 0;
+      }
+      #marquee-border::before {
+        background: conic-gradient(from var(--marquee-angle, 0deg), #ff3030 0deg, #ff21df 52deg, #763cff 104deg, #19eaff 158deg, #2dff6a 214deg, #fff238 270deg, #ff8a18 322deg, #ff3030 360deg);
+        filter: drop-shadow(0 0 10px rgba(35, 247, 255, 1)) drop-shadow(0 0 20px rgba(255, 36, 208, 0.88)) drop-shadow(0 0 30px rgba(255, 234, 56, 0.62)) brightness(1.2) saturate(1.35);
+        z-index: 2;
+      }
+      .marquee-border-bevel {
+        background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.5) 16%, rgba(255,255,255,0.08) 38%, rgba(0,0,0,0.34) 72%, rgba(0,0,0,0.68) 100%);
+        mix-blend-mode: overlay;
+        z-index: 3;
+      }
+      .marquee-border-bevel.shadow {
+        background: linear-gradient(135deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.18) 42%, rgba(0,0,0,0.62) 100%);
+        mix-blend-mode: multiply;
+        transform: translate(2px, 2px);
+        z-index: 1;
+      }
+      #marquee-border::after {
+        content: "";
+        position: absolute;
+        inset: -18px;
+        padding: 0;
+        border-radius: inherit;
+        border: 10px solid rgba(34, 236, 255, 0.3);
+        box-shadow: 0 0 10px 4px rgba(34, 236, 255, 0.56), 0 0 19px 8px rgba(255, 36, 208, 0.4), 0 0 28px 12px rgba(255, 234, 56, 0.2);
+        filter: blur(7px) saturate(1.35);
+        opacity: 0;
+        z-index: 0;
+      }
+      .marquee-flow {
+        display: none;
+      }
+      #board-wrapper.marquee-border-live #marquee-border {
+        display: block;
+      }
+      #clear-text-effects {
+        position: absolute;
+        inset: 0;
+        z-index: 13;
+        pointer-events: none;
+        overflow: visible;
+      }
+      .clear-text-effect {
+        position: absolute;
+        left: 0;
+        top: 0;
+        transform: translate(-50%, -50%);
+        transform-origin: center;
+        pointer-events: none;
+        user-select: none;
+        will-change: transform, opacity;
+        filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.38));
+      }
+      .clear-text-effect.combo-word {
+        width: min(44%, 250px);
+        animation: clear-text-pop 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .clear-text-effect.combo-digit {
+        width: min(11%, 58px);
+        animation: clear-text-pop 840ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .clear-text-effect.praise-word {
+        width: min(58%, 330px);
+        animation: praise-text-pop 920ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .clear-text-spark {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        transform: translate(-50%, -50%) scale(0.2);
+        pointer-events: none;
+        opacity: 0;
+        background: radial-gradient(circle, #fff 0%, var(--spark-color, #ffe94a) 38%, rgba(255,255,255,0) 72%);
+        box-shadow: 0 0 18px var(--spark-color, #ffe94a), 0 0 38px var(--spark-color, #ffe94a);
+        animation: clear-text-spark 720ms ease-out both;
+      }
+      @keyframes clear-text-pop {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.25); }
+        12% { opacity: 1; transform: translate(-50%, -50%) scale(1.28); }
+        26% { opacity: 1; transform: translate(-50%, -50%) scale(0.96); }
+        72% { opacity: 1; transform: translate(-50%, -56%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -64%) scale(0.92); }
+      }
+      @keyframes praise-text-pop {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+        10% { opacity: 1; transform: translate(-50%, -50%) scale(1.22); }
+        24% { opacity: 1; transform: translate(-50%, -50%) scale(0.98); }
+        72% { opacity: 0.9; transform: translate(-50%, -54%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -64%) scale(1.08); }
+      }
+      @keyframes clear-text-spark {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+        12% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+        100% { opacity: 0; transform: translate(calc(-50% + var(--spark-dx, 0px)), calc(-50% + var(--spark-dy, -28px))) scale(0.45); }
+      }
+      #marquee-border.clearing::before {
+        animation: marquee-border-spin 0.58s linear infinite, marquee-border-underlay 1350ms ease-out both;
+      }
+      #marquee-border.clearing .marquee-border-bevel {
+        animation: marquee-border-flash 1350ms ease-out both;
+      }
+      #marquee-border.clearing::after {
+        animation: marquee-border-glow 1350ms ease-out both;
+      }
+      @keyframes marquee-border-spin {
+        to { --marquee-angle: -360deg; }
+      }
+      @keyframes marquee-border-flash {
+        0% { opacity: 0; transform: scale(0.997); }
+        10% { opacity: 0.82; transform: scale(1); }
+        84% { opacity: 0.82; }
+        100% { opacity: 0; transform: scale(1.002); }
+      }
+      @keyframes marquee-border-underlay {
+        0% { opacity: 0; transform: scale(0.997); }
+        10% { opacity: 1; transform: scale(1); }
+        84% { opacity: 1; }
+        100% { opacity: 0; transform: scale(1.002); }
+      }
+      @keyframes marquee-border-glow {
+        0% { opacity: 0; transform: scale(0.99); }
+        10% { opacity: 0.82; transform: scale(1); }
+        84% { opacity: 0.78; }
+        100% { opacity: 0; transform: scale(1.006); }
       }
       #tab-level #playable-export-column {
         grid-column: 4 !important;
@@ -350,12 +595,24 @@
           <!-- Dynamic list will be rendered here -->
         </div>
       </div>
-      <div style="display: flex; flex-direction: column; border-top: 1px solid #444; padding-top: 10px;">
+      <div id="collectible-manager-section" style="display: flex; flex-direction: column; border-top: 1px solid #444; padding-top: 10px;">
         <h3 style="margin-top: 5px; margin-bottom: 8px;">🎁 收集物管理</h3>
         <div id="collectible-list" class="material-slots-container">
           <!-- Dynamic list will be rendered here -->
         </div>
-        <div id="collection-avatar-manager" class="collection-avatar-manager">
+        <div id="multi-collectible-manager" class="multi-collectible-manager">
+          <div class="multi-collectible-title">多收集物</div>
+          <label class="multi-collectible-toggle"><input type="checkbox" id="input-multi-collectible-mode"><span>启用多收集物模式</span></label>
+          <label class="multi-collectible-count">数量 <select id="select-multi-collectible-count">
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+          </select></label>
+          <div id="multi-collectible-slots" class="multi-collectible-slots"></div>
+        </div>
+      </div>
+      <div id="collection-avatar-manager" class="collection-avatar-manager">
           <div class="collection-avatar-manager-title">🧑 收集头像</div>
           <div class="collection-avatar-slots">
             <button type="button" id="btn-collection-avatar-idle" class="collection-avatar-slot" title="上传待机图片或序列帧">
@@ -376,7 +633,6 @@
             <button type="button" id="btn-collection-avatar-clear">清除</button>
           </div>
         </div>
-      </div>
 
       <div class="record-bg-panel material-bg-panel">
         <div class="record-bg-controls" id="record-bg-controls">
@@ -385,6 +641,22 @@
           <div id="record-bg-preview" class="record-bg-preview">未选择背景</div>
           <input type="file" id="input-record-bg-file" accept="image/*" class="record-bg-file-input">
           <div id="record-bg-list" class="record-bg-list"></div>
+          <div id="record-solid-bg-controls" class="record-solid-bg-controls">
+            <div class="solid-bg-mode-row">
+              <button type="button" class="solid-bg-mode-btn" data-solid-bg-variant="solid">纯色</button>
+              <button type="button" class="solid-bg-mode-btn" data-solid-bg-variant="animated">变色</button>
+            </div>
+            <div class="solid-bg-mode-row">
+              <button type="button" class="solid-bg-group-btn" data-solid-bg-group="dark">深色</button>
+              <button type="button" class="solid-bg-group-btn" data-solid-bg-group="light">浅色</button>
+              <button type="button" class="solid-bg-group-btn" data-solid-bg-group="custom">自定义</button>
+            </div>
+            <div class="solid-bg-custom-row">
+              <input type="color" id="input-solid-bg-color" value="#8fcaf5" title="选择背景色">
+              <button type="button" id="btn-add-solid-bg-color">添加颜色</button>
+            </div>
+            <div id="record-solid-bg-palette" class="solid-bg-palette"></div>
+          </div>
           <button type="button" id="btn-record-bg-clear" class="menu-btn gray wide">清除录制背景</button>
           <div id="record-bg-status" class="record-bg-status">未启用背景图</div>
         </div>
@@ -410,9 +682,24 @@
               <div id="collection-avatar-hud" aria-hidden="true">
                 <img id="collection-avatar-image" alt="">
               </div>
+              <div id="heart-score-hud" aria-hidden="true">
+                <video id="heart-score-burst" src="/assets/ui/heart-clear.webm" muted playsinline preload="auto"></video>
+                <video id="heart-score-gif" src="/assets/ui/heart-idle.webm" muted playsinline autoplay loop preload="auto"></video>
+                <span id="heart-score-val">854,682</span>
+              </div>
               <div class="header-item">SCORE: <span id="score-val">854,682</span></div>
             </div>
             <div id="board-clip"></div>
+            <div id="multi-collectible-hud" aria-hidden="true"></div>
+            <div id="marquee-border" aria-hidden="true">
+              <span class="marquee-flow top"></span>
+              <span class="marquee-flow right"></span>
+              <span class="marquee-flow bottom"></span>
+              <span class="marquee-flow left"></span>
+              <div class="marquee-border-bevel"></div>
+              <div class="marquee-border-bevel shadow"></div>
+            </div>
+            <div id="clear-text-effects" aria-hidden="true"></div>
             <!-- Canvas is inserted here via JS -->
             <div id="game-failure-overlay" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; z-index:12; pointer-events:none; overflow:hidden;">
               <img id="game-failure-icon" alt="" style="width:58%; max-width:330px; height:auto; filter:drop-shadow(0 15px 12px rgba(0, 0, 0, 0.55));">
@@ -466,6 +753,12 @@
           </button>
           <button id="btn-collect-mode" class="menu-btn gray">
             <span class="icon">🎁</span>收集模式
+          </button>
+          <button id="btn-multi-collect-mode" class="menu-btn gray">
+            <span class="icon">🎁</span>多收集物
+          </button>
+          <button id="btn-tnt-mode" class="menu-btn gray">
+            <span class="icon">💣</span>三消TNT
           </button>
           <button id="btn-nogravity-mode" class="menu-btn gray">
             <span class="icon">🎈</span>无重力模式
@@ -588,11 +881,26 @@
           <label class="vc-toggle" title="开启后消除方块时不播放破碎动画"><input type="checkbox" id="input-hideshatter"><span>隐藏破碎</span></label>
         </div>
         <div class="vocal-controls">
+          <div id="top-ui-mode-group" role="group" aria-label="顶部UI样式">
+            <button type="button" class="voice-pack-btn" data-top-ui-mode="classic">经典顶框</button>
+            <button type="button" class="voice-pack-btn" data-top-ui-mode="heart">爱心底框</button>
+          </div>
+          <label class="vc-toggle marquee-border-toggle" title="打开后棋盘边框显示流动跑马灯，消除时触发底部光带">
+            <input type="checkbox" id="input-marquee-border">
+            <span>跑马灯边框</span>
+          </label>
+          <label class="vc-toggle" title="开启后每次消除行上方弹出 combo 和连消数字">
+            <input type="checkbox" id="input-combo-text-effect">
+            <span>Combo数字</span>
+          </label>
+        </div>
+        <div class="vocal-controls">
           <div id="voice-pack-group" role="group" aria-label="人声音效选择">
             <button type="button" class="voice-pack-btn" data-voice-pack="male">男生音效</button>
             <button type="button" class="voice-pack-btn" data-voice-pack="female">女生音效</button>
           </div>
           <label class="vc-toggle vocal-mute-toggle" title="开启后关闭消除时的人声激励词"><input type="checkbox" id="input-mutevocals"><span>关闭人声</span></label>
+          <label class="vc-toggle" title="开启后跟随人声在棋盘上方弹出激励词图片"><input type="checkbox" id="input-praise-text-effect"><span>激励词弹出</span></label>
         </div>
         <div style="margin-top: 6px;">
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -618,6 +926,12 @@
               <option value="blue">蓝色</option>
             </select>
           </div>
+        </div>
+        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #444;">
+          <label class="vc-toggle" title="开启后多行消除时，从最底行开始逐行播放破碎效果">
+            <input type="checkbox" id="input-sequential-row-clear">
+            <span>逐行消除（从底到顶）</span>
+          </label>
         </div>
         <!-- 可视化特效类型卡片管理 -->
         <div style="display: flex; flex-direction: column; border-top: 1px solid #444; padding-top: 6px; margin-top: 6px;">
