@@ -27526,6 +27526,33 @@ function checkEliminations() {
     const rowPlaybackGap = PARAMS.rowClearOrder === 'bottom-up' && rowsForPlayback.length > 1
       ? 0.8
       : 0;
+    const tntRowShatterTimes = new Map<number, number>();
+    if (tntBlastMode === 'three-rows' && detonatingTntIds.size > 0) {
+      expandedBlocksToRemove.forEach(block => {
+        const blastAt = tntBlastRemovalTimes.get(block.id);
+        if (blastAt === undefined) return;
+        const previous = tntRowShatterTimes.get(block.row);
+        tntRowShatterTimes.set(block.row, previous === undefined ? blastAt : Math.min(previous, blastAt));
+      });
+    }
+
+    const getRowExplosionColor = (row: number, rowBlocks: Block[]) => {
+      const draggedBlockInRow = rowBlocks.find(b => b.id === draggedBlockId);
+      if (draggedBlockInRow) return draggedBlockInRow.color;
+      const fallingBlock = rowBlocks.find(b => blocksThatFell.has(b.id));
+      return fallingBlock ? fallingBlock.color : (rowBlocks[0] ? rowBlocks[0].color : 'pink');
+    };
+
+    tntRowShatterTimes.forEach((blastAt, row) => {
+      const rowBlocks = expandedBlocksToRemove.filter(b => b.row === row);
+      const explosionColor = getRowExplosionColor(row, rowBlocks);
+      const propSkipCols = initialPropColsByRow.get(row) || new Set<number>();
+      tl.call(() => {
+        if (PARAMS.effectType !== 'gem-shatter') {
+          playRowShatterEffect(row, explosionColor, rowBlocks, propSkipCols);
+        }
+      }, [], blastAt);
+    });
 
     rowsForPlayback.forEach((r, rowPlaybackIndex) => {
       const rowPlaybackOffset = rowPlaybackIndex * rowPlaybackGap;
@@ -27540,35 +27567,7 @@ function checkEliminations() {
 
 
 
-      let explosionColor = 'pink';
-
-
-
-      const draggedBlockInRow = rowBlocks.find(b => b.id === draggedBlockId);
-
-
-
-      if (draggedBlockInRow) {
-
-
-
-        explosionColor = draggedBlockInRow.color;
-
-
-
-      } else {
-
-
-
-        const fallingBlock = rowBlocks.find(b => blocksThatFell.has(b.id));
-
-
-
-        explosionColor = fallingBlock ? fallingBlock.color : (rowBlocks[0] ? rowBlocks[0].color : 'pink');
-
-
-
-      }
+      const explosionColor = getRowExplosionColor(r, rowBlocks);
 
 
 
@@ -27584,7 +27583,7 @@ function checkEliminations() {
         if (rowPlaybackIndex === 0) {
           triggerComboTextEffect(fullRows, comboCount, rowBlocks.length > 0 ? rowBlocks : blocksToRemove);
         }
-        if (PARAMS.effectType !== 'gem-shatter') {
+        if (!tntRowShatterTimes.has(r) && PARAMS.effectType !== 'gem-shatter') {
           playRowShatterEffect(r, explosionColor, rowBlocks, propSkipCols);
         }
 
@@ -27686,7 +27685,10 @@ function checkEliminations() {
           scheduleTntDetonation(tl, b, tntDetonationStartTimes.get(b.id) ?? 0);
           return;
         }
-        const visualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id)
+        const tntRowShatterAt = tntRowShatterTimes.get(b.row);
+        const visualDelay = tntRowShatterAt !== undefined
+          ? tntRowShatterAt
+          : detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id)
           ? Math.max(rowPlaybackOffset + delay, tntBlastRemovalTimes.get(b.id) ?? TNT_PRE_EXPLOSION_SECONDS)
           : rowPlaybackOffset + delay;
 
