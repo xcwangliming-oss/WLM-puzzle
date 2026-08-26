@@ -31,18 +31,18 @@ assert.match(
 );
 assert.match(
   source,
-  /const newVisibleAllowedRows = visibleFullRows\.filter\([\s\S]*?!pendingRows\.includes\(row\)[\s\S]*?if \(newVisibleAllowedRows\.length === 0\) \{[\s\S]*?pendingOffscreenFullRowBlockIds\.push\(ids\);[\s\S]*?return \[\];/,
+  /const rowsToClear = getTriggeredVisibleFullRows\([\s\S]*?visibleFullRows,[\s\S]*?pendingRows,[\s\S]*?allowedFullRows[\s\S]*?const rowsClearingNow = new Set\(rowsToClear\);[\s\S]*?pendingOffscreenFullRowBlockIds\.push\(ids\);[\s\S]*?if \(rowsToClear\.length === 0\) return \[\];/,
   'an offscreen recorded wave should remain pending instead of clearing when it scrolls into view'
 );
 assert.match(
   source,
-  /const recordedChainFinished = recordedWaves\.length > 0[\s\S]*?const liveClearChainActive = hasAnyEliminationThisStep[\s\S]*?isPlayingStepTransition \|\| liveClearChainActive[\s\S]*?const continuingVisibleRows = getFullRowsFromOccupancy\([\s\S]*?visualRange\.minRow[\s\S]*?visualRange\.maxRow[\s\S]*?pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds\.filter/,
+  /const recordedChainFinished = recordedWaves\.length > 0[\s\S]*?const liveClearChainActive = hasAnyEliminationThisStep[\s\S]*?isPlayingStepTransition \|\| liveClearChainActive[\s\S]*?const continuingVisibleRows = getFullRowsFromOccupancy\([\s\S]*?getTriggeredVisibleFullRows\(continuingVisibleRows, pendingRows\)[\s\S]*?if \(rowsToClear\.length === 0\) return \[\];/,
   'gravity-created visible rows should continue a recorded scrolling clear after authored waves end'
 );
 assert.match(
   source,
-  /const rowsToClear = normalizeEliminatedRows\(\[[\s\S]*?\.\.\.allowedFullRows,[\s\S]*?\.\.\.refreshPendingOffscreenFullRows\(occ\)[\s\S]*?const clearedRows = new Set\(rowsToClear\);[\s\S]*?return rowsToClear;/,
-  'a later visible recorded trigger should clear its wave and every still-full pending row together'
+  /getTriggeredVisibleFullRows\([\s\S]*?visibleFullRows,[\s\S]*?pendingRows,[\s\S]*?allowedFullRows[\s\S]*?const clearedRows = new Set\(rowsToClear\);[\s\S]*?return rowsToClear;/,
+  'a later visible recorded trigger should clear its wave and visible pending rows together'
 );
 assert.match(
   source,
@@ -76,7 +76,7 @@ assert.match(
 );
 assert.match(
   source,
-  /function getTriggeredFullRowsFromOccupancy\([\s\S]*?rememberOffscreenFullRows\(occ, minVisibleRow, maxVisibleRow\)[\s\S]*?newlyCompletedVisibleRows[\s\S]*?if \(newlyCompletedVisibleRows\.length === 0\) return \[\];[\s\S]*?refreshPendingOffscreenFullRows\(occ\)/,
+  /function getTriggeredFullRowsFromOccupancy\([\s\S]*?rememberOffscreenFullRows\(occ, minVisibleRow, maxVisibleRow\)[\s\S]*?getTriggeredVisibleFullRows\(visibleFullRows, pendingRows\)[\s\S]*?if \(rowsToClear\.length === 0\) return \[\];/,
   'pending offscreen rows should clear only when another visible row is newly completed'
 );
 assert.match(

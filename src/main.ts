@@ -38,6 +38,7 @@ import {
   releaseNewlyUnsupportedNoGravityBlocks,
   releaseNoGravityBlocksInRange,
 } from './noGravityRules.ts'
+import { getTriggeredVisibleFullRows } from './playbackRowRules.ts'
 
 const EDITOR_STAGE_BASE_WIDTH = 2020;
 const EDITOR_STAGE_BASE_HEIGHT = 995;
@@ -5474,15 +5475,9 @@ function rememberOffscreenFullRows(occ: number[][], minVisibleRow: number, maxVi
 function getTriggeredFullRowsFromOccupancy(occ: number[][], minVisibleRow: number, maxVisibleRow: number): number[] {
   const pendingRows = rememberOffscreenFullRows(occ, minVisibleRow, maxVisibleRow);
   const visibleFullRows = getFullRowsFromOccupancy(occ, minVisibleRow, maxVisibleRow);
-  const newlyCompletedVisibleRows = visibleFullRows.filter(row => !pendingRows.includes(row));
-  const allFullRows = getFullRowsFromOccupancy(occ);
+  const rowsToClear = getTriggeredVisibleFullRows(visibleFullRows, pendingRows);
 
-  if (newlyCompletedVisibleRows.length === 0) return [];
-
-  const rowsToClear = normalizeEliminatedRows([
-    ...newlyCompletedVisibleRows,
-    ...refreshPendingOffscreenFullRows(occ)
-  ]).filter(row => allFullRows.includes(row));
+  if (rowsToClear.length === 0) return [];
 
   const clearedRows = new Set(rowsToClear);
   pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
@@ -5544,39 +5539,38 @@ function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): nu
           visualRange.minRow,
           visualRange.maxRow
         );
+        const rowsToClear = getTriggeredVisibleFullRows(continuingVisibleRows, pendingRows);
 
-        if (continuingVisibleRows.length > 0) {
-          const visibleRowSet = new Set(continuingVisibleRows);
-          pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
-            const member = blocks.find(block => ids.includes(block.id));
-            return member ? !visibleRowSet.has(member.row) : false;
-          });
-        }
+        if (rowsToClear.length === 0) return [];
 
-        return continuingVisibleRows;
+        const clearedRows = new Set(rowsToClear);
+        pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
+          const member = blocks.find(block => ids.includes(block.id));
+          return member ? !clearedRows.has(member.row) : false;
+        });
+
+        return rowsToClear;
       }
 
       return [];
     }
 
     const allowedFullRows = allFullRows.filter(row => allowed.includes(row));
-    const newVisibleAllowedRows = visibleFullRows.filter(
-      row => allowedFullRows.includes(row) && !pendingRows.includes(row)
+    const rowsToClear = getTriggeredVisibleFullRows(
+      visibleFullRows,
+      pendingRows,
+      allowedFullRows
     );
 
-    if (newVisibleAllowedRows.length === 0) {
-      allowedFullRows.forEach(row => {
-        if (pendingRows.includes(row)) return;
-        const ids = getFullRowBlockIds(row);
-        if (ids.length > 0) pendingOffscreenFullRowBlockIds.push(ids);
-      });
-      return [];
-    }
+    const rowsClearingNow = new Set(rowsToClear);
+    allowedFullRows.forEach(row => {
+      if (rowsClearingNow.has(row) || pendingRows.includes(row)) return;
+      const ids = getFullRowBlockIds(row);
+      if (ids.length > 0) pendingOffscreenFullRowBlockIds.push(ids);
+    });
 
-    const rowsToClear = normalizeEliminatedRows([
-      ...allowedFullRows,
-      ...refreshPendingOffscreenFullRows(occ)
-    ]).filter(row => allFullRows.includes(row));
+    if (rowsToClear.length === 0) return [];
+
     const clearedRows = new Set(rowsToClear);
     pendingOffscreenFullRowBlockIds = pendingOffscreenFullRowBlockIds.filter(ids => {
       const member = blocks.find(block => ids.includes(block.id));

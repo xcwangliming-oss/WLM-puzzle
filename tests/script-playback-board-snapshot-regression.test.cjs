@@ -73,9 +73,9 @@ test('recorded elimination waves require a visible trigger before clearing pendi
   assert.notEqual(end, -1);
   const body = source.slice(start, end);
 
-  assert.match(body, /const newVisibleAllowedRows = visibleFullRows\.filter\([\s\S]*?!pendingRows\.includes\(row\)/);
-  assert.match(body, /if \(newVisibleAllowedRows\.length === 0\) \{[\s\S]*?pendingOffscreenFullRowBlockIds\.push\(ids\);[\s\S]*?return \[\];/);
-  assert.match(body, /\.\.\.allowedFullRows,[\s\S]*?\.\.\.refreshPendingOffscreenFullRows\(occ\)[\s\S]*?return rowsToClear;/);
+  assert.match(body, /getTriggeredVisibleFullRows\([\s\S]*?visibleFullRows,[\s\S]*?pendingRows,[\s\S]*?allowedFullRows/);
+  assert.match(body, /const rowsClearingNow = new Set\(rowsToClear\);[\s\S]*?pendingOffscreenFullRowBlockIds\.push\(ids\);[\s\S]*?if \(rowsToClear\.length === 0\) return \[\];/);
+  assert.match(body, /const clearedRows = new Set\(rowsToClear\);[\s\S]*?return rowsToClear;/);
   assert.doesNotMatch(source, /function alignRecordedWaveRowsToCurrentFullRows\(/);
   assert.doesNotMatch(body, /return visibleRecordedRows;/);
 });
