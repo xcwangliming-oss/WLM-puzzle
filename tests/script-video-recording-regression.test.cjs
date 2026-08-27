@@ -119,11 +119,26 @@ assert.match(
   /downloadMap\.set\(taskId[\s\S]*?downloadUrl: `\/api\/download\?taskId=\$\{encodeURIComponent\(taskId\)\}`/,
   'production converter should return a download URL after conversion instead of streaming MP4 through the upload request'
 );
+assert.match(
+  convertServer,
+  /req\.method === 'GET' \|\| req\.method === 'HEAD'[\s\S]*?handleDownload\(req, res, url\)/,
+  'production converter should support browser HEAD probes for converted downloads'
+);
+assert.doesNotMatch(
+  convertServer,
+  /finally \{[\s\S]*?downloadMap\.delete\(taskId\)[\s\S]*?rm\(item\.path/,
+  'production converter should not delete converted files immediately after the first download request'
+);
 
 assert.match(
   viteConfig,
   /downloadMap\.set\(taskId[\s\S]*?downloadUrl: `\/api\/download\?taskId=\$\{encodeURIComponent\(taskId\)\}`/,
   'local converter should mirror the production download URL flow'
+);
+assert.match(
+  viteConfig,
+  /req\.method === 'GET' \|\| req\.method === 'HEAD'/,
+  'local converter should support browser HEAD probes for converted downloads'
 );
 
 console.log('script video recording regression checks passed');

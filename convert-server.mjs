@@ -146,7 +146,7 @@ async function handleConvert(req, res, url) {
   }
 }
 
-async function handleDownload(res, url) {
+async function handleDownload(req, res, url) {
   const taskId = url.searchParams.get('taskId') || '';
   const item = downloadMap.get(taskId);
   if (!item || !fs.existsSync(item.path)) {
@@ -162,11 +162,12 @@ async function handleDownload(res, url) {
     'cache-control': 'no-store'
   });
 
+  if (req.method === 'HEAD') return;
+
   try {
     await pipeline(fs.createReadStream(item.path), res);
-  } finally {
-    downloadMap.delete(taskId);
-    await rm(item.path, { force: true }).catch(() => {});
+  } catch (err) {
+    console.error('[download]', err);
   }
 }
 
@@ -184,8 +185,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && url.pathname === '/api/download') {
-    await handleDownload(res, url);
+  if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/api/download') {
+    await handleDownload(req, res, url);
     return;
   }
 

@@ -43,7 +43,7 @@ export default defineConfig({
               return;
           }
 
-          if (parsedUrl.pathname === '/api/download' && req.method === 'GET') {
+          if (parsedUrl.pathname === '/api/download' && (req.method === 'GET' || req.method === 'HEAD')) {
               const taskId = parsedUrl.query.taskId as string;
               const item = downloadMap.get(taskId);
               if (!item || !fs.existsSync(item.path)) {
@@ -57,12 +57,12 @@ export default defineConfig({
               res.setHeader('Content-Length', stat.size);
               res.setHeader('Content-Disposition', `attachment; filename="${item.filename}"`);
               res.setHeader('Cache-Control', 'no-store');
+              if (req.method === 'HEAD') {
+                  res.end();
+                  return;
+              }
               const readStream = fs.createReadStream(item.path);
               readStream.pipe(res);
-              readStream.on('end', () => {
-                  downloadMap.delete(taskId);
-                  if (fs.existsSync(item.path)) fs.unlinkSync(item.path);
-              });
               return;
           }
 
