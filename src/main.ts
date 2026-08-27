@@ -27584,11 +27584,18 @@ function checkEliminations() {
 
     tntRowShatterTimes.forEach((blastAt, row) => {
       const rowBlocks = expandedBlocksToRemove.filter(b => b.row === row);
+      const shatterCols = new Set<number>();
+      rowBlocks.forEach(block => {
+        for (let offset = 0; offset < Math.max(1, block.length); offset++) {
+          shatterCols.add(block.col + offset);
+        }
+      });
+      if (shatterCols.size === 0) return;
       const explosionColor = getRowExplosionColor(row, rowBlocks);
       const propSkipCols = initialPropColsByRow.get(row) || new Set<number>();
       tl.call(() => {
         if (PARAMS.effectType !== 'gem-shatter') {
-          playRowShatterEffect(row, explosionColor, rowBlocks, propSkipCols);
+          playRowShatterEffect(row, explosionColor, rowBlocks, propSkipCols, shatterCols);
         }
       }, [], blastAt);
     });
