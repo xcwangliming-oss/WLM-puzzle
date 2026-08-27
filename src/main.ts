@@ -40970,6 +40970,10 @@ function setupDOMUI() {
 
         isNoGravityMode,
 
+        isTntMode,
+
+        tntBlastMode,
+
 
 
         isFixedBoardMode,
@@ -41024,51 +41028,24 @@ function setupDOMUI() {
 
 
 
-    localStorage.setItem(`blockPuzzleDemoScript_${name}`, JSON.stringify(saveData));
+    try {
+      localStorage.setItem(`blockPuzzleDemoScript_${name}`, JSON.stringify(saveData));
 
+      const savedNames = readSaveNameList('blockPuzzleDemoScriptNames', 'blockPuzzleDemoScript_');
 
+      if (!savedNames.includes(name)) {
+        savedNames.push(name);
+        localStorage.setItem('blockPuzzleDemoScriptNames', JSON.stringify(savedNames));
+      }
 
-
-
-
-
-    const savedNames = readSaveNameList('blockPuzzleDemoScriptNames', 'blockPuzzleDemoScript_');
-
-
-
-    if (!savedNames.includes(name)) {
-
-
-
-      savedNames.push(name);
-
-
-
-      localStorage.setItem('blockPuzzleDemoScriptNames', JSON.stringify(savedNames));
-
-
-
+      refreshScriptSaveList();
+      scriptSaveSlotSelect.value = name;
+      inputScriptSaveName.value = '';
+      alert(`成功保存演示剧本：${name}`);
+    } catch (error) {
+      console.error('Failed to save demo script.', error);
+      alert('保存演示剧本失败：浏览器本地存储空间可能已满，请先删除不需要的剧本或导出备份后再保存。');
     }
-
-
-
-
-
-
-
-    refreshScriptSaveList();
-
-
-
-    scriptSaveSlotSelect.value = name;
-
-
-
-    inputScriptSaveName.value = '';
-
-
-
-    alert(`成功保存演示剧本?{name}`);
 
 
 
@@ -41173,6 +41150,13 @@ function setupDOMUI() {
 
 
       isNoGravityMode = !!modes.isNoGravityMode;
+
+      isTntMode = !!modes.isTntMode;
+
+      if (modes.tntBlastMode === 'three-rows' || modes.tntBlastMode === 'area-3x3') {
+        tntBlastMode = modes.tntBlastMode;
+        localStorage.setItem(TNT_STORAGE_BLAST_MODE, tntBlastMode);
+      }
 
 
 
