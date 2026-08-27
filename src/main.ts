@@ -27665,11 +27665,11 @@ function checkEliminations() {
 
 
         const propSkipCols = initialPropColsByRow.get(r) || new Set<number>();
-        playClearAudioAtShatter();
         if (rowPlaybackIndex === 0) {
           triggerComboTextEffect(fullRows, comboCount, rowBlocks.length > 0 ? rowBlocks : blocksToRemove);
         }
         if (!(shouldSyncTntThreeRowShatter && tntRowShatterTimes.has(r)) && PARAMS.effectType !== 'gem-shatter') {
+          playClearAudioAtShatter();
           playRowShatterEffect(r, explosionColor, rowBlocks, propSkipCols);
         }
 
