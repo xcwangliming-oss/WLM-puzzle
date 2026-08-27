@@ -26889,6 +26889,7 @@ function scheduleTntDetonation(tl: gsap.core.Timeline, block: Block, at: number)
   let baseScaleY = sprite.scale.y;
 
   tl.call(() => {
+    playTntSound();
     sprite.texture = getTntArmedTexture();
     sprite.width = PARAMS.cellSize;
     sprite.height = PARAMS.cellSize;
@@ -26908,7 +26909,6 @@ function scheduleTntDetonation(tl: gsap.core.Timeline, block: Block, at: number)
   tl.call(() => {
     sprite.zIndex = 20004;
     if (sprite.parent) sprite.parent.sortChildren();
-    playTntSound();
     playTntBurstWave(block);
     playTntExplosionEffect(block);
   }, [], at + TNT_PRE_EXPLOSION_SECONDS);
