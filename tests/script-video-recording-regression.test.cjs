@@ -73,5 +73,20 @@ assert.match(
   /'-g', String\(keyframeInterval\)[\s\S]*?'-keyint_min', String\(keyframeInterval\)[\s\S]*?'-sc_threshold', '0'/,
   'MP4 conversion should prevent scene-cut-generated keyframes'
 );
+assert.match(
+  viteConfig,
+  /'-avoid_negative_ts', 'make_zero'[\s\S]*?'-start_at_zero'/,
+  'MP4 conversion should avoid negative timestamps for AE imports'
+);
+assert.match(
+  viteConfig,
+  /'-bf', '0'[\s\S]*?'-video_track_timescale', String\(fps \* 1000\)/,
+  'MP4 conversion should avoid B-frame and timescale issues in AE'
+);
+assert.match(
+  viteConfig,
+  /'-tune', 'animation'[\s\S]*?'-profile:v', 'high'/,
+  'MP4 conversion should use an animation-friendly H.264 profile for AE'
+);
 
 console.log('script video recording regression checks passed');
