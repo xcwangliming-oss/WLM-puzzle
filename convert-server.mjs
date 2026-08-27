@@ -45,7 +45,7 @@ function convertWebm({ inputPath, outputPath, mode, duration, taskId, fps }) {
         '-map', '0:a?',
         '-fflags', '+genpts',
         '-vf', `fps=${fps}:round=near,format=yuv420p`,
-        '-fps_mode', 'cfr',
+        '-vsync', 'cfr',
         '-avoid_negative_ts', 'make_zero',
         '-start_at_zero',
         '-c:v', 'libx264',

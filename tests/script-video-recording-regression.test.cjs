@@ -66,7 +66,7 @@ assert.match(
 );
 assert.match(
   viteConfig,
-  /'-vf', `fps=\$\{fps\}:round=near,format=yuv420p`[\s\S]*?'-fps_mode', 'cfr'/,
+  /'-vf', `fps=\$\{fps\}:round=near,format=yuv420p`[\s\S]*?'-vsync', 'cfr'/,
   'MP4 conversion should force constant frame-rate output'
 );
 assert.match(
@@ -91,7 +91,7 @@ assert.match(
 );
 assert.match(
   convertServer,
-  /const keyframeInterval = Math\.max\(1, fps \* 2\);[\s\S]*?'-vf', `fps=\$\{fps\}:round=near,format=yuv420p`[\s\S]*?'-fps_mode', 'cfr'/,
+  /const keyframeInterval = Math\.max\(1, fps \* 2\);[\s\S]*?'-vf', `fps=\$\{fps\}:round=near,format=yuv420p`[\s\S]*?'-vsync', 'cfr'/,
   'production converter should force the same constant frame-rate MP4 output'
 );
 assert.match(
