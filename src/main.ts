@@ -25254,7 +25254,8 @@ function playRowShatterEffect(
   color: string,
   rowBlocks: Block[] = [],
   skipCols: Set<number> = new Set(),
-  onlyCols: Set<number> | null = null
+  onlyCols: Set<number> | null = null,
+  preserveRowTiming = false
 ) {
 
   // For continuous beam effects (mode 3 and 4), do not skip any columns so the beam passes over props
@@ -25466,7 +25467,7 @@ function playRowShatterEffect(
   const boardRowCenterX = (minCol + maxCol + 1) * PARAMS.cellSize / 2;
 
   const shouldRenderColumn = (col: number) => !onlyCols || onlyCols.has(col);
-  const isSingleCellEffect = Boolean(onlyCols && onlyCols.size > 0);
+  const isSingleCellEffect = Boolean(onlyCols && onlyCols.size > 0 && !preserveRowTiming);
 
 
 
@@ -27595,7 +27596,7 @@ function checkEliminations() {
       const propSkipCols = initialPropColsByRow.get(row) || new Set<number>();
       tl.call(() => {
         if (PARAMS.effectType !== 'gem-shatter') {
-          playRowShatterEffect(row, explosionColor, rowBlocks, propSkipCols, shatterCols);
+          playRowShatterEffect(row, explosionColor, rowBlocks, propSkipCols, shatterCols, true);
         }
       }, [], blastAt);
     });

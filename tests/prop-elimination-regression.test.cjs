@@ -124,13 +124,13 @@ assert.match(
 );
 assert.match(
   mainSource,
-  /function playRowShatterEffect\([\s\S]*?onlyCols: Set<number> \| null = null[\s\S]*?const shouldRenderColumn = \(col: number\) => !onlyCols \|\| onlyCols\.has\(col\);/,
+  /function playRowShatterEffect\([\s\S]*?onlyCols: Set<number> \| null = null,[\s\S]*?preserveRowTiming = false[\s\S]*?const shouldRenderColumn = \(col: number\) => !onlyCols \|\| onlyCols\.has\(col\);/,
   'row shatter effects must support a single-cell target for the machine head',
 );
 
 assert.match(
   mainSource,
-  /const isSingleCellEffect = Boolean\(onlyCols && onlyCols\.size > 0\);[\s\S]*?if \(isSingleCellEffect\) \{[\s\S]*?delay = 0;/,
+  /const isSingleCellEffect = Boolean\(onlyCols && onlyCols\.size > 0 && !preserveRowTiming\);[\s\S]*?if \(isSingleCellEffect\) \{[\s\S]*?delay = 0;/,
   'the final machine-head effect should start immediately instead of inheriting row stagger delay',
 );
 
