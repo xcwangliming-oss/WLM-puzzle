@@ -13,6 +13,7 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmpDir = path.join(__dirname, 'tmp');
 const progressMap = new Map();
+const downloadMap = new Map();
 const port = Number(process.env.PORT || 3099);
 
 await mkdir(tmpDir, { recursive: true });
@@ -32,6 +33,18 @@ function parseTimemark(timemark) {
   const m = Number(parts[1]) || 0;
   const s = Number(parts[2]) || 0;
   return h * 3600 + m * 60 + s;
+}
+
+function getDownloadFileName(mode) {
+  return mode === 'mp4' ? 'direct-output.mp4' : 'combo-material.mov';
+}
+
+function scheduleDownloadCleanup(taskId, filePath) {
+  setTimeout(() => {
+    const current = downloadMap.get(taskId);
+    if (current?.path === filePath) downloadMap.delete(taskId);
+    rm(filePath, { force: true }).catch(() => {});
+  }, 30 * 60 * 1000);
 }
 
 function convertWebm({ inputPath, outputPath, mode, duration, taskId, fps }) {
@@ -110,15 +123,16 @@ async function handleConvert(req, res, url) {
     await pipeline(req, fs.createWriteStream(inputPath));
     await convertWebm({ inputPath, outputPath, mode, duration, taskId, fps });
 
-    const stat = fs.statSync(outputPath);
-    res.writeHead(200, {
-      'content-type': mode === 'mp4' ? 'video/mp4' : 'video/quicktime',
-      'content-length': stat.size,
-      'content-disposition': `attachment; filename="${mode === 'mp4' ? 'direct-output.mp4' : 'combo-material.mov'}"`,
-      'cache-control': 'no-store'
+    downloadMap.set(taskId, {
+      path: outputPath,
+      mode,
+      filename: getDownloadFileName(mode)
     });
-
-    await pipeline(fs.createReadStream(outputPath), res);
+    scheduleDownloadCleanup(taskId, outputPath);
+    sendJson(res, 200, {
+      ok: true,
+      downloadUrl: `/api/download?taskId=${encodeURIComponent(taskId)}`
+    });
   } catch (err) {
     console.error('[convert]', err);
     if (!res.headersSent) {
@@ -128,10 +142,31 @@ async function handleConvert(req, res, url) {
     }
   } finally {
     progressMap.delete(taskId);
-    await Promise.allSettled([
-      rm(inputPath, { force: true }),
-      rm(outputPath, { force: true })
-    ]);
+    await rm(inputPath, { force: true }).catch(() => {});
+  }
+}
+
+async function handleDownload(res, url) {
+  const taskId = url.searchParams.get('taskId') || '';
+  const item = downloadMap.get(taskId);
+  if (!item || !fs.existsSync(item.path)) {
+    sendJson(res, 404, { error: 'Converted file not found' });
+    return;
+  }
+
+  const stat = fs.statSync(item.path);
+  res.writeHead(200, {
+    'content-type': item.mode === 'mp4' ? 'video/mp4' : 'video/quicktime',
+    'content-length': stat.size,
+    'content-disposition': `attachment; filename="${item.filename}"`,
+    'cache-control': 'no-store'
+  });
+
+  try {
+    await pipeline(fs.createReadStream(item.path), res);
+  } finally {
+    downloadMap.delete(taskId);
+    await rm(item.path, { force: true }).catch(() => {});
   }
 }
 
@@ -146,6 +181,11 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/api/convert') {
     await handleConvert(req, res, url);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/download') {
+    await handleDownload(res, url);
     return;
   }
 

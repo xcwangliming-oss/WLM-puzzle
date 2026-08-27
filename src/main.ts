@@ -42517,11 +42517,43 @@ function startRecording(): Promise<boolean> {
 
 
 
-        const expectedType = 'video/mp4';
+        if (response.ok && contentType.includes('application/json')) {
 
 
 
-        if (response.ok && contentType.includes(expectedType)) {
+            const payload = await response.json();
+
+
+
+            if (!payload?.downloadUrl) {
+
+
+
+                throw new Error('Conversion response missing downloadUrl');
+
+
+
+            }
+
+
+
+            const a = document.createElement('a');
+
+
+
+            a.href = payload.downloadUrl;
+
+
+
+            a.download = getRecordingDownloadName('direct-output', 'mp4');
+
+
+
+            a.click();
+
+
+
+        } else if (response.ok && contentType.includes('video/mp4')) {
 
 
 
@@ -42569,35 +42601,11 @@ function startRecording(): Promise<boolean> {
 
 
 
-        console.error('Server conversion failed or unavailable, downloading source WebM:', err);
+        console.error('Server conversion failed or unavailable:', err);
 
 
 
-        
-
-
-
-        const url = URL.createObjectURL(webmBlob);
-
-
-
-        const a = document.createElement('a');
-
-
-
-        a.href = url;
-
-
-
-        a.download = getRecordingDownloadName('direct-output', 'webm');
-
-
-
-        a.click();
-
-
-
-        URL.revokeObjectURL(url);
+        alert('MP4 转码失败，没有下载 WebM 兜底。请把控制台错误或录制时长发给开发排查。');
 
 
 

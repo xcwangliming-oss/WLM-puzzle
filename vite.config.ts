@@ -8,6 +8,19 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 const progressMap = new Map<string, number>();
+const downloadMap = new Map<string, { path: string; mode: 'mp4' | 'alpha'; filename: string }>();
+
+function getDownloadFileName(mode: 'mp4' | 'alpha') {
+  return mode === 'mp4' ? 'direct-output.mp4' : 'combo-material.mov';
+}
+
+function scheduleDownloadCleanup(taskId: string, filePath: string) {
+  setTimeout(() => {
+    const current = downloadMap.get(taskId);
+    if (current?.path === filePath) downloadMap.delete(taskId);
+    fs.rm(filePath, { force: true }, () => {});
+  }, 30 * 60 * 1000);
+}
 
 export default defineConfig({
   base: './',
@@ -27,6 +40,29 @@ export default defineConfig({
               const pct = progressMap.get(taskId) || 0;
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ progress: pct }));
+              return;
+          }
+
+          if (parsedUrl.pathname === '/api/download' && req.method === 'GET') {
+              const taskId = parsedUrl.query.taskId as string;
+              const item = downloadMap.get(taskId);
+              if (!item || !fs.existsSync(item.path)) {
+                  res.statusCode = 404;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ error: 'Converted file not found' }));
+                  return;
+              }
+              const stat = fs.statSync(item.path);
+              res.setHeader('Content-Type', item.mode === 'mp4' ? 'video/mp4' : 'video/quicktime');
+              res.setHeader('Content-Length', stat.size);
+              res.setHeader('Content-Disposition', `attachment; filename="${item.filename}"`);
+              res.setHeader('Cache-Control', 'no-store');
+              const readStream = fs.createReadStream(item.path);
+              readStream.pipe(res);
+              readStream.on('end', () => {
+                  downloadMap.delete(taskId);
+                  if (fs.existsSync(item.path)) fs.unlinkSync(item.path);
+              });
               return;
           }
 
@@ -87,15 +123,13 @@ export default defineConfig({
                    })
                    .save(mp4Path)
                    .on('end', () => {
-                       res.setHeader('Content-Type', 'video/mp4');
-                       res.setHeader('Content-Disposition', 'attachment; filename="direct-output.mp4"');
-                       const readStream = fs.createReadStream(mp4Path);
-                       readStream.pipe(res);
-                       readStream.on('end', () => {
-                           progressMap.delete(taskId);
-                           if (fs.existsSync(webmPath)) fs.unlinkSync(webmPath);
-                           if (fs.existsSync(mp4Path)) fs.unlinkSync(mp4Path);
-                       });
+                       downloadMap.set(taskId, { path: mp4Path, mode, filename: getDownloadFileName(mode) });
+                       scheduleDownloadCleanup(taskId, mp4Path);
+                       progressMap.delete(taskId);
+                       if (fs.existsSync(webmPath)) fs.unlinkSync(webmPath);
+                       res.setHeader('Content-Type', 'application/json');
+                       res.setHeader('Cache-Control', 'no-store');
+                       res.end(JSON.stringify({ ok: true, downloadUrl: `/api/download?taskId=${encodeURIComponent(taskId)}` }));
                    })
                    .on('error', (err) => {
                        console.error('FFmpeg MP4 Conversion Error:', err);
@@ -137,15 +171,13 @@ export default defineConfig({
                    })
                    .save(movPath)
                    .on('end', () => {
-                       res.setHeader('Content-Type', 'video/quicktime');
-                       res.setHeader('Content-Disposition', 'attachment; filename="combo-material.mov"');
-                       const readStream = fs.createReadStream(movPath);
-                       readStream.pipe(res);
-                       readStream.on('end', () => {
-                           progressMap.delete(taskId);
-                           if (fs.existsSync(webmPath)) fs.unlinkSync(webmPath);
-                           if (fs.existsSync(movPath)) fs.unlinkSync(movPath);
-                       });
+                       downloadMap.set(taskId, { path: movPath, mode, filename: getDownloadFileName(mode) });
+                       scheduleDownloadCleanup(taskId, movPath);
+                       progressMap.delete(taskId);
+                       if (fs.existsSync(webmPath)) fs.unlinkSync(webmPath);
+                       res.setHeader('Content-Type', 'application/json');
+                       res.setHeader('Cache-Control', 'no-store');
+                       res.end(JSON.stringify({ ok: true, downloadUrl: `/api/download?taskId=${encodeURIComponent(taskId)}` }));
                    })
                    .on('error', (err) => {
                        console.error('FFmpeg Conversion Error:', err);

@@ -58,6 +58,16 @@ assert.match(
 );
 assert.match(
   source,
+  /contentType\.includes\('application\/json'\)[\s\S]*?payload\?\.downloadUrl[\s\S]*?a\.href = payload\.downloadUrl/,
+  'script recording should download converted MP4 through the returned download URL'
+);
+assert.doesNotMatch(
+  source,
+  /Server conversion failed or unavailable, downloading source WebM|direct-output'[\s\S]*?'webm'/,
+  'direct MP4 recordings should not silently fall back to WebM when conversion fails'
+);
+assert.match(
+  source,
   /Math\.min\(30 \* 60_000, durationSeconds \* 30_000 \+ 3 \* 60_000\)/,
   'script recording should allow slow large MP4 conversions to finish instead of falling back to WebM'
 );
@@ -103,6 +113,17 @@ assert.match(
   convertServer,
   /'-avoid_negative_ts', 'make_zero'[\s\S]*?'-start_at_zero'[\s\S]*?'-bf', '0'[\s\S]*?'-video_track_timescale', String\(fps \* 1000\)/,
   'production converter should use AE-compatible timestamp and B-frame settings'
+);
+assert.match(
+  convertServer,
+  /downloadMap\.set\(taskId[\s\S]*?downloadUrl: `\/api\/download\?taskId=\$\{encodeURIComponent\(taskId\)\}`/,
+  'production converter should return a download URL after conversion instead of streaming MP4 through the upload request'
+);
+
+assert.match(
+  viteConfig,
+  /downloadMap\.set\(taskId[\s\S]*?downloadUrl: `\/api\/download\?taskId=\$\{encodeURIComponent\(taskId\)\}`/,
+  'local converter should mirror the production download URL flow'
 );
 
 console.log('script video recording regression checks passed');
