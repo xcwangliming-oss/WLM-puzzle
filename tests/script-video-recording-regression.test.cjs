@@ -58,6 +58,7 @@ assert.match(
 );
 
 const viteConfig = fs.readFileSync(path.join(__dirname, '..', 'vite.config.ts'), 'utf8');
+const convertServer = fs.readFileSync(path.join(__dirname, '..', 'convert-server.mjs'), 'utf8');
 assert.match(
   viteConfig,
   /const keyframeInterval = Math\.max\(1, fps \* 2\);/,
@@ -87,6 +88,16 @@ assert.match(
   viteConfig,
   /'-tune', 'animation'[\s\S]*?'-profile:v', 'high'/,
   'MP4 conversion should use an animation-friendly H.264 profile for AE'
+);
+assert.match(
+  convertServer,
+  /const keyframeInterval = Math\.max\(1, fps \* 2\);[\s\S]*?'-vf', `fps=\$\{fps\}:round=near,format=yuv420p`[\s\S]*?'-fps_mode', 'cfr'/,
+  'production converter should force the same constant frame-rate MP4 output'
+);
+assert.match(
+  convertServer,
+  /'-avoid_negative_ts', 'make_zero'[\s\S]*?'-start_at_zero'[\s\S]*?'-bf', '0'[\s\S]*?'-video_track_timescale', String\(fps \* 1000\)/,
+  'production converter should use AE-compatible timestamp and B-frame settings'
 );
 
 console.log('script video recording regression checks passed');
