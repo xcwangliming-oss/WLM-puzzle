@@ -27002,25 +27002,14 @@ function resolveCurrentTntBlast(
   };
 }
 
-const ROW_CLEAR_HIGHLIGHT_SECONDS = 0.18;
-
-function scheduleRowClearHighlight(tl: gsap.core.Timeline, rowBlocks: Block[], duration: number) {
-  if (duration <= 0 || rowBlocks.length === 0) return;
+function applyRowClearHighlight(rowBlocks: Block[]) {
+  if (rowBlocks.length === 0) return;
   const uniqueBlocks = [...new Map(rowBlocks.map(block => [block.id, block])).values()];
-  const originalFilters = new Map<number, PIXI.Filter[] | null>();
-  tl.call(() => {
-    uniqueBlocks.forEach(block => {
-      originalFilters.set(block.id, block.sprite.filters ? [...block.sprite.filters] : null);
-      const brightFilter = new PIXI.ColorMatrixFilter();
-      brightFilter.brightness(1.75, false);
-      block.sprite.filters = [brightFilter];
-    });
-  }, [], 0);
-  tl.call(() => {
-    uniqueBlocks.forEach(block => {
-      block.sprite.filters = originalFilters.get(block.id) || [];
-    });
-  }, [], duration);
+  uniqueBlocks.forEach(block => {
+    const brightFilter = new PIXI.ColorMatrixFilter();
+    brightFilter.brightness(1.75, false);
+    block.sprite.filters = [brightFilter];
+  });
 }
 
 function checkEliminations() {
@@ -27414,7 +27403,6 @@ function checkEliminations() {
 
 
     const customElimDelay = elimDelayInput ? (parseFloat(elimDelayInput.value) || 0.1) : 0.1;
-    const rowClearHighlightDelay = fullRows.length > 0 ? ROW_CLEAR_HIGHLIGHT_SECONDS : 0;
 
 
 
@@ -27584,13 +27572,16 @@ function checkEliminations() {
 
     });
 
-    scheduleRowClearHighlight(tl, blocksToRemove, rowClearHighlightDelay);
 
 
 
 
 
 
+
+    tl.call(() => {
+      applyRowClearHighlight(blocksToRemove);
+    }, [], 0);
 
     lastShatterCellColors = [];
 
@@ -27607,9 +27598,8 @@ function checkEliminations() {
       expandedBlocksToRemove.forEach(block => {
         const blastAt = tntBlastRemovalTimes.get(block.id);
         if (blastAt === undefined) return;
-        const visualBlastAt = rowClearHighlightDelay + blastAt;
         const previous = tntRowShatterTimes.get(block.row);
-        tntRowShatterTimes.set(block.row, previous === undefined ? visualBlastAt : Math.min(previous, visualBlastAt));
+        tntRowShatterTimes.set(block.row, previous === undefined ? blastAt : Math.min(previous, blastAt));
       });
     }
 
@@ -27665,7 +27655,7 @@ function checkEliminations() {
     });
 
     rowsForPlayback.forEach((r, rowPlaybackIndex) => {
-      const rowPlaybackOffset = rowClearHighlightDelay + rowPlaybackIndex * rowPlaybackGap;
+      const rowPlaybackOffset = rowPlaybackIndex * rowPlaybackGap;
 
 
 
@@ -27722,7 +27712,7 @@ function checkEliminations() {
 
 
         if (detonatingTntIds.has(b.id)) {
-          scheduleTntDetonation(tl, b, rowClearHighlightDelay + (tntDetonationStartTimes.get(b.id) ?? 0));
+          scheduleTntDetonation(tl, b, tntDetonationStartTimes.get(b.id) ?? 0);
           return;
         }
         const originalTntVisualDelay = detonatingTntIds.size > 0 && tntBlastIdSet.has(b.id) && !initialRemovedBlockIds.has(b.id)
@@ -27827,7 +27817,7 @@ function checkEliminations() {
       const tntExtraShatterGroups = new Map<string, { row: number; blastAt: number; blocks: Block[]; cols: Set<number> }>();
       tntBlastExtraBlocks.forEach(block => {
         if (detonatingTntIds.has(block.id)) return;
-        const blastAt = rowClearHighlightDelay + (detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0);
+        const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
         const key = `${blastAt}:${block.row}`;
         const group = tntExtraShatterGroups.get(key) || { row: block.row, blastAt, blocks: [], cols: new Set<number>() };
         group.blocks.push(block);
@@ -27839,13 +27829,14 @@ function checkEliminations() {
       tntExtraShatterGroups.forEach(group => {
         const explosionColor = getRowExplosionColor(group.row, group.blocks);
         tl.call(() => {
+          applyRowClearHighlight(group.blocks);
           playRowShatterEffect(group.row, explosionColor, group.blocks, new Set(), group.cols);
         }, [], group.blastAt);
       });
     }
 
     tntBlastExtraBlocks.forEach(block => {
-      const blastAt = rowClearHighlightDelay + (detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0);
+      const blastAt = detonatingTntIds.size > 0 ? (tntBlastRemovalTimes.get(block.id) ?? TNT_PRE_EXPLOSION_SECONDS) : 0;
       const tntRowShatterAt = shouldSyncTntThreeRowShatter ? tntRowShatterTimes.get(block.row) : undefined;
       const blastVisualDelay = tntRowShatterAt !== undefined
         ? tntRowShatterAt + getBlockShatterDelay(block)
@@ -27856,9 +27847,12 @@ function checkEliminations() {
         }, [], blastVisualDelay);
       }
       if (detonatingTntIds.has(block.id)) {
-        scheduleTntDetonation(tl, block, rowClearHighlightDelay + (tntDetonationStartTimes.get(block.id) ?? 0));
+        scheduleTntDetonation(tl, block, tntDetonationStartTimes.get(block.id) ?? 0);
         return;
       }
+      tl.call(() => {
+        applyRowClearHighlight([block]);
+      }, [], blastVisualDelay);
       tl.to(block.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, blastVisualDelay);
       tl.to(block.sprite, { alpha: 0, duration: 0.12, ease: 'power2.in' }, blastVisualDelay);
     });
