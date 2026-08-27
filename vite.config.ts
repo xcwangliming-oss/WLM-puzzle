@@ -53,10 +53,40 @@ export default defineConfig({
                   return;
               }
               const stat = fs.statSync(item.path);
-              res.setHeader('Content-Type', item.mode === 'mp4' ? 'video/mp4' : 'video/quicktime');
-              res.setHeader('Content-Length', stat.size);
+              const contentType = item.mode === 'mp4' ? 'video/mp4' : 'video/quicktime';
+              res.setHeader('Accept-Ranges', 'bytes');
+              res.setHeader('Content-Type', contentType);
               res.setHeader('Content-Disposition', `attachment; filename="${item.filename}"`);
               res.setHeader('Cache-Control', 'no-store');
+              const range = req.headers.range;
+              if (range) {
+                  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+                  if (!match) {
+                      res.statusCode = 416;
+                      res.setHeader('Content-Range', `bytes */${stat.size}`);
+                      res.end();
+                      return;
+                  }
+                  const start = match[1] ? Number(match[1]) : 0;
+                  const end = match[2] ? Number(match[2]) : stat.size - 1;
+                  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= stat.size) {
+                      res.statusCode = 416;
+                      res.setHeader('Content-Range', `bytes */${stat.size}`);
+                      res.end();
+                      return;
+                  }
+                  const safeEnd = Math.min(end, stat.size - 1);
+                  res.statusCode = 206;
+                  res.setHeader('Content-Length', safeEnd - start + 1);
+                  res.setHeader('Content-Range', `bytes ${start}-${safeEnd}/${stat.size}`);
+                  if (req.method === 'HEAD') {
+                      res.end();
+                      return;
+                  }
+                  fs.createReadStream(item.path, { start, end: safeEnd }).pipe(res);
+                  return;
+              }
+              res.setHeader('Content-Length', stat.size);
               if (req.method === 'HEAD') {
                   res.end();
                   return;

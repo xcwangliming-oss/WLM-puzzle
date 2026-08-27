@@ -155,11 +155,57 @@ async function handleDownload(req, res, url) {
   }
 
   const stat = fs.statSync(item.path);
-  res.writeHead(200, {
-    'content-type': item.mode === 'mp4' ? 'video/mp4' : 'video/quicktime',
-    'content-length': stat.size,
+  const contentType = item.mode === 'mp4' ? 'video/mp4' : 'video/quicktime';
+  const commonHeaders = {
+    'accept-ranges': 'bytes',
+    'content-type': contentType,
     'content-disposition': `attachment; filename="${item.filename}"`,
     'cache-control': 'no-store'
+  };
+
+  const range = req.headers.range;
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match) {
+      res.writeHead(416, {
+        ...commonHeaders,
+        'content-range': `bytes */${stat.size}`
+      });
+      res.end();
+      return;
+    }
+
+    const start = match[1] ? Number(match[1]) : 0;
+    const end = match[2] ? Number(match[2]) : stat.size - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= stat.size) {
+      res.writeHead(416, {
+        ...commonHeaders,
+        'content-range': `bytes */${stat.size}`
+      });
+      res.end();
+      return;
+    }
+
+    const safeEnd = Math.min(end, stat.size - 1);
+    res.writeHead(206, {
+      ...commonHeaders,
+      'content-length': safeEnd - start + 1,
+      'content-range': `bytes ${start}-${safeEnd}/${stat.size}`
+    });
+
+    if (req.method === 'HEAD') return;
+
+    try {
+      await pipeline(fs.createReadStream(item.path, { start, end: safeEnd }), res);
+    } catch (err) {
+      if (err?.code !== 'ERR_STREAM_PREMATURE_CLOSE') console.error('[download]', err);
+    }
+    return;
+  }
+
+  res.writeHead(200, {
+    ...commonHeaders,
+    'content-length': stat.size
   });
 
   if (req.method === 'HEAD') return;
@@ -167,7 +213,7 @@ async function handleDownload(req, res, url) {
   try {
     await pipeline(fs.createReadStream(item.path), res);
   } catch (err) {
-    console.error('[download]', err);
+    if (err?.code !== 'ERR_STREAM_PREMATURE_CLOSE') console.error('[download]', err);
   }
 }
 

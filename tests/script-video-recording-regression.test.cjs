@@ -124,6 +124,11 @@ assert.match(
   /req\.method === 'GET' \|\| req\.method === 'HEAD'[\s\S]*?handleDownload\(req, res, url\)/,
   'production converter should support browser HEAD probes for converted downloads'
 );
+assert.match(
+  convertServer,
+  /'accept-ranges': 'bytes'[\s\S]*?req\.headers\.range[\s\S]*?res\.writeHead\(206[\s\S]*?'content-range'/,
+  'production converter should support ranged browser downloads for converted MP4 files'
+);
 assert.doesNotMatch(
   convertServer,
   /finally \{[\s\S]*?downloadMap\.delete\(taskId\)[\s\S]*?rm\(item\.path/,
@@ -139,6 +144,11 @@ assert.match(
   viteConfig,
   /req\.method === 'GET' \|\| req\.method === 'HEAD'/,
   'local converter should support browser HEAD probes for converted downloads'
+);
+assert.match(
+  viteConfig,
+  /Accept-Ranges', 'bytes'[\s\S]*?req\.headers\.range[\s\S]*?res\.statusCode = 206[\s\S]*?Content-Range/,
+  'local converter should support ranged browser downloads for converted MP4 files'
 );
 
 console.log('script video recording regression checks passed');
