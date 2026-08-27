@@ -17154,6 +17154,8 @@ function applyBoardAdvanceMode(mode: BoardAdvanceMode, autoStartScroll = false) 
 
 let blocks: Block[] = [];
 
+let pendingTntDetonationIds = new Set<number>();
+
 
 
 let nextBlockId = 1;
@@ -26887,7 +26889,6 @@ function scheduleTntDetonation(tl: gsap.core.Timeline, block: Block, at: number)
   let baseScaleY = sprite.scale.y;
 
   tl.call(() => {
-    playTntSound();
     sprite.texture = getTntArmedTexture();
     sprite.width = PARAMS.cellSize;
     sprite.height = PARAMS.cellSize;
@@ -26907,6 +26908,7 @@ function scheduleTntDetonation(tl: gsap.core.Timeline, block: Block, at: number)
   tl.call(() => {
     sprite.zIndex = 20004;
     if (sprite.parent) sprite.parent.sortChildren();
+    playTntSound();
     playTntBurstWave(block);
     playTntExplosionEffect(block);
   }, [], at + TNT_PRE_EXPLOSION_SECONDS);
@@ -26958,6 +26960,46 @@ function getTntBlastRemovalTimes(
     });
   });
   return removalTimes;
+}
+
+function resolveCurrentTntBlast(
+  allBlocks: Block[],
+  initialRemovedBlocks: Block[],
+  forcedTntBlocks: Block[],
+  mode: TntBlastMode,
+) {
+  const removedIds = new Set(initialRemovedBlocks.map(block => block.id));
+  const detonatingTntIds = new Set<number>();
+  const pendingChainedTntIds = new Set<number>();
+  const detonationSourceBlocks = [...initialRemovedBlocks, ...forcedTntBlocks];
+
+  detonationSourceBlocks.forEach(block => {
+    if (!isTntBlock(block)) return;
+    detonatingTntIds.add(block.id);
+    removedIds.add(block.id);
+  });
+
+  detonationSourceBlocks.forEach(tnt => {
+    if (!isTntBlock(tnt)) return;
+    const blastCells = getTntBlastCells(tnt.row, tnt.col, PARAMS.totalRows, PARAMS.gridCols, mode);
+    allBlocks.forEach(block => {
+      for (let offset = 0; offset < Math.max(1, block.length); offset++) {
+        if (!blastCells.has(`${block.row}:${block.col + offset}`)) continue;
+        if (isTntBlock(block) && !detonatingTntIds.has(block.id)) {
+          pendingChainedTntIds.add(block.id);
+        } else {
+          removedIds.add(block.id);
+        }
+        break;
+      }
+    });
+  });
+
+  return {
+    removedIds: [...removedIds],
+    tntIds: [...detonatingTntIds],
+    pendingTntIds: [...pendingChainedTntIds],
+  };
 }
 
 function checkEliminations() {
@@ -27071,7 +27113,15 @@ function checkEliminations() {
     startLockedSequentialClear(fullRows);
   }
 
-  if (fullRows.length > 0) {
+  const pendingTntBlocks = fullRows.length === 0 && pendingTntDetonationIds.size > 0
+    ? blocks.filter(block => pendingTntDetonationIds.has(block.id) && isTntBlock(block))
+    : [];
+  const hasPendingTntDetonation = pendingTntBlocks.length > 0;
+
+  if (fullRows.length > 0 || hasPendingTntDetonation) {
+    if (hasPendingTntDetonation) {
+      pendingTntBlocks.forEach(block => pendingTntDetonationIds.delete(block.id));
+    }
     // TRACK ELIMINATIONS FOR PLAYABLE
     playableCombos++;
     playableRows += fullRows.length;
@@ -27178,16 +27228,16 @@ function checkEliminations() {
       ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
       : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
     const initialRemovedBlockIds = new Set(blocksToRemove.map(block => block.id));
-    const tntBlast = resolveTntBlast(
+    const tntBlast = resolveCurrentTntBlast(
       blocks.filter(b => !b.isProp),
-      blocksToRemove.map(block => block.id),
-      PARAMS.totalRows,
-      PARAMS.gridCols,
+      blocksToRemove,
+      pendingTntBlocks,
       tntBlastMode,
     );
+    tntBlast.pendingTntIds.forEach(id => pendingTntDetonationIds.add(id));
     const tntBlastIdSet = new Set(tntBlast.removedIds);
     const detonatingTntIds = new Set(tntBlast.tntIds);
-    const initialDetonatingTntIds = new Set(blocksToRemove.filter(block => isTntBlock(block)).map(block => block.id));
+    const initialDetonatingTntIds = new Set([...blocksToRemove, ...pendingTntBlocks].filter(block => isTntBlock(block)).map(block => block.id));
     const tntDetonationStartTimes = getTntDetonationStartTimes(tntBlast.tntIds, initialDetonatingTntIds);
     const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes, tntBlastMode);
     const expandedBlocksToRemove = blocks.filter(b => !b.isProp && tntBlastIdSet.has(b.id));
@@ -27254,31 +27304,6 @@ function checkEliminations() {
 
 
 
-    playSound(sounds.combos[Math.min(9, comboCount - 1)]);
-
-
-
-    
-
-
-
-    // 播放人声消除赞美音效
-
-
-
-    const isMuteVocals = (document.getElementById('input-mutevocals') as HTMLInputElement)?.checked || false;
-
-
-
-    if (!isMuteVocals) {
-
-      const praiseWord = getPraiseWordForCombo(comboCount);
-      playSound(sounds.vocals[praiseWord]);
-      triggerPraiseTextEffect(praiseWord);
-
-
-
-    }
     renderMultiCollectibleHud();
 
 
@@ -27582,6 +27607,18 @@ function checkEliminations() {
       const dist = isLeft ? (centerCol - refCol) : (refCol - centerCol);
       return Math.max(0, dist) * staggerPerCell;
     };
+    let clearAudioPlayed = false;
+    const playClearAudioAtShatter = () => {
+      if (clearAudioPlayed) return;
+      clearAudioPlayed = true;
+      playSound(sounds.combos[Math.min(9, comboCount - 1)]);
+      const isMuteVocals = (document.getElementById('input-mutevocals') as HTMLInputElement)?.checked || false;
+      if (!isMuteVocals) {
+        const praiseWord = getPraiseWordForCombo(comboCount);
+        playSound(sounds.vocals[praiseWord]);
+        triggerPraiseTextEffect(praiseWord);
+      }
+    };
 
     tntRowShatterTimes.forEach((blastAt, row) => {
       const rowBlocks = expandedBlocksToRemove.filter(b => b.row === row);
@@ -27595,8 +27632,9 @@ function checkEliminations() {
       const explosionColor = getRowExplosionColor(row, rowBlocks);
       const propSkipCols = initialPropColsByRow.get(row) || new Set<number>();
       tl.call(() => {
+        playClearAudioAtShatter();
         if (PARAMS.effectType !== 'gem-shatter') {
-          playRowShatterEffect(row, explosionColor, rowBlocks, propSkipCols, shatterCols, true);
+          playRowShatterEffect(row, explosionColor, rowBlocks, propSkipCols);
         }
       }, [], blastAt);
     });
@@ -27627,6 +27665,7 @@ function checkEliminations() {
 
 
         const propSkipCols = initialPropColsByRow.get(r) || new Set<number>();
+        playClearAudioAtShatter();
         if (rowPlaybackIndex === 0) {
           triggerComboTextEffect(fullRows, comboCount, rowBlocks.length > 0 ? rowBlocks : blocksToRemove);
         }
