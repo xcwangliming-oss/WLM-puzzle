@@ -15963,6 +15963,8 @@ let recAudioDest: MediaStreamAudioDestinationNode | null = null;
 
 let audioSourcesInitialized = false;
 
+let transientAudioSourceId = 0;
+
 
 
 
@@ -16155,7 +16157,31 @@ function playTntSound() {
   if (!source) return;
   const audio = source.cloneNode(true) as HTMLAudioElement;
   audio.volume = source.volume;
-  audio.play().catch(err => console.warn('TNT audio playback failed:', err));
+
+  const startPlayback = () => {
+    if (audioCtx && recAudioDest) {
+      try {
+        const node = audioCtx.createMediaElementSource(audio);
+        node.connect(audioCtx.destination);
+        node.connect(recAudioDest);
+        transientAudioSourceId += 1;
+        audio.dataset.sourceId = String(transientAudioSourceId);
+      } catch (error) {
+        console.warn('TNT audio recording connection failed:', error);
+      }
+    }
+    audio.play().catch(err => console.warn('TNT audio playback failed:', err));
+  };
+
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume().then(startPlayback).catch(err => {
+      console.warn('Audio context resume failed:', err);
+      startPlayback();
+    });
+    return;
+  }
+
+  startPlayback();
 }
 
 
@@ -27146,6 +27172,30 @@ function checkEliminations() {
 
 
 
+    const lockedSequentialIdSet = lockedSequentialBlockIds ? new Set(lockedSequentialBlockIds) : null;
+    const blocksToRemove = lockedSequentialIdSet
+      ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
+      : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    const initialRemovedBlockIds = new Set(blocksToRemove.map(block => block.id));
+    const tntBlast = resolveTntBlast(
+      blocks.filter(b => !b.isProp),
+      blocksToRemove.map(block => block.id),
+      PARAMS.totalRows,
+      PARAMS.gridCols,
+      tntBlastMode,
+    );
+    const tntBlastIdSet = new Set(tntBlast.removedIds);
+    const detonatingTntIds = new Set(tntBlast.tntIds);
+    const initialDetonatingTntIds = new Set(blocksToRemove.filter(block => isTntBlock(block)).map(block => block.id));
+    const tntDetonationStartTimes = getTntDetonationStartTimes(tntBlast.tntIds, initialDetonatingTntIds);
+    const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes, tntBlastMode);
+    const expandedBlocksToRemove = blocks.filter(b => !b.isProp && tntBlastIdSet.has(b.id));
+    const tntBlastExtraBlocks = expandedBlocksToRemove.filter(block => !fullRows.includes(block.row));
+    const tntThreeRowComboRows = tntBlastMode === 'three-rows' && detonatingTntIds.size > 0
+      ? new Set(expandedBlocksToRemove.map(block => block.row)).size
+      : 0;
+    const comboIncrement = Math.max(1, tntThreeRowComboRows || fullRows.length);
+
     isAnimating = true;
 
 
@@ -27154,7 +27204,7 @@ function checkEliminations() {
 
 
 
-    comboCount += Math.max(1, fullRows.length);
+    comboCount += comboIncrement;
 
     advanceSolidBackgroundColorOnElimination();
     triggerHeartClearHud();
@@ -27285,32 +27335,6 @@ function checkEliminations() {
 
 
     }
-
-
-
-
-
-
-
-    const lockedSequentialIdSet = lockedSequentialBlockIds ? new Set(lockedSequentialBlockIds) : null;
-    const blocksToRemove = lockedSequentialIdSet
-      ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
-      : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
-    const initialRemovedBlockIds = new Set(blocksToRemove.map(block => block.id));
-    const tntBlast = resolveTntBlast(
-      blocks.filter(b => !b.isProp),
-      blocksToRemove.map(block => block.id),
-      PARAMS.totalRows,
-      PARAMS.gridCols,
-      tntBlastMode,
-    );
-    const tntBlastIdSet = new Set(tntBlast.removedIds);
-    const detonatingTntIds = new Set(tntBlast.tntIds);
-    const initialDetonatingTntIds = new Set(blocksToRemove.filter(block => isTntBlock(block)).map(block => block.id));
-    const tntDetonationStartTimes = getTntDetonationStartTimes(tntBlast.tntIds, initialDetonatingTntIds);
-    const tntBlastRemovalTimes = getTntBlastRemovalTimes(blocks.filter(b => !b.isProp), tntBlast.tntIds, tntDetonationStartTimes, tntBlastMode);
-    const expandedBlocksToRemove = blocks.filter(b => !b.isProp && tntBlastIdSet.has(b.id));
-    const tntBlastExtraBlocks = expandedBlocksToRemove.filter(block => !fullRows.includes(block.row));
 
     if (isNoGravityMode) {
       releaseNewlyUnsupportedNoGravityBlocks(
