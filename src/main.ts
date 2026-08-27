@@ -27665,7 +27665,7 @@ function checkEliminations() {
           ? Math.max(rowPlaybackOffset + delay, tntBlastRemovalTimes.get(b.id) ?? TNT_PRE_EXPLOSION_SECONDS)
           : rowPlaybackOffset + delay;
         const tntRowShatterAt = shouldSyncTntThreeRowShatter ? tntRowShatterTimes.get(b.row) : undefined;
-        const visualDelay = tntRowShatterAt !== undefined ? tntRowShatterAt : originalTntVisualDelay;
+        const visualDelay = tntRowShatterAt !== undefined ? tntRowShatterAt + delay : originalTntVisualDelay;
 
         if (b.isCollectible) {
 
