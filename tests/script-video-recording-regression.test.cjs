@@ -58,8 +58,8 @@ assert.match(
 );
 assert.match(
   source,
-  /contentType\.includes\('application\/json'\)[\s\S]*?payload\?\.downloadUrl[\s\S]*?a\.href = payload\.downloadUrl/,
-  'script recording should download converted MP4 through the returned download URL'
+  /contentType\.includes\('application\/json'\)[\s\S]*?payload\?\.downloadUrl[\s\S]*?fetch\(payload\.downloadUrl, \{ cache: 'no-store' \}\)[\s\S]*?downloadResponse\.blob\(\)[\s\S]*?URL\.createObjectURL\(convertedBlob\)/,
+  'script recording should fetch the converted MP4 and download it from a blob URL'
 );
 assert.doesNotMatch(
   source,

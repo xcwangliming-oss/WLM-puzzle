@@ -42537,11 +42537,39 @@ function startRecording(): Promise<boolean> {
 
 
 
+            const downloadResponse = await fetch(payload.downloadUrl, { cache: 'no-store' });
+
+
+
+            const downloadContentType = downloadResponse.headers.get('content-type') || '';
+
+
+
+            if (!downloadResponse.ok || !downloadContentType.includes('video/mp4')) {
+
+
+
+                throw new Error(`MP4 download failed: status=${downloadResponse.status}, content-type=${downloadContentType || 'empty'}`);
+
+
+
+            }
+
+
+
+            const convertedBlob = await downloadResponse.blob();
+
+
+
+            const url = URL.createObjectURL(convertedBlob);
+
+
+
             const a = document.createElement('a');
 
 
 
-            a.href = payload.downloadUrl;
+            a.href = url;
 
 
 
@@ -42549,7 +42577,19 @@ function startRecording(): Promise<boolean> {
 
 
 
+            document.body.appendChild(a);
+
+
+
             a.click();
+
+
+
+            a.remove();
+
+
+
+            window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 
 
 
@@ -42577,11 +42617,19 @@ function startRecording(): Promise<boolean> {
 
 
 
+            document.body.appendChild(a);
+
+
+
             a.click();
 
 
 
-            URL.revokeObjectURL(url);
+            a.remove();
+
+
+
+            window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 
 
 
