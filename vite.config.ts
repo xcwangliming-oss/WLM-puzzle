@@ -36,6 +36,7 @@ export default defineConfig({
              const mode = parsedUrl.query.mode === 'mp4' ? 'mp4' : 'alpha';
              const fpsParam = Number((parsedUrl.query.fps as string) || 30);
              const fps = Math.max(24, Math.min(60, Number.isFinite(fpsParam) ? Math.round(fpsParam) : 30));
+             const keyframeInterval = Math.max(1, fps * 2);
              const webmPath = path.resolve(`./temp_${taskId}.webm`);
              const movPath = path.resolve(`./temp_${taskId}.mov`);
              const mp4Path = path.resolve(`./temp_${taskId}.mp4`);
@@ -51,11 +52,16 @@ export default defineConfig({
                     .outputOptions([
                         '-map', '0:v:0',
                         '-map', '0:a?',
-                        '-vf', `fps=${fps},format=yuv420p`,
+                        '-fflags', '+genpts',
+                        '-vf', `fps=${fps}:round=near,format=yuv420p`,
+                        '-fps_mode', 'cfr',
                         '-c:v', 'libx264',
                         '-preset', 'veryfast',
                         '-crf', '20',
                         '-pix_fmt', 'yuv420p',
+                        '-g', String(keyframeInterval),
+                        '-keyint_min', String(keyframeInterval),
+                        '-sc_threshold', '0',
                         '-threads', '0',
                         '-c:a', 'aac',
                         '-b:a', '192k',

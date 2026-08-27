@@ -43,8 +43,35 @@ assert.match(
 );
 assert.match(
   source,
+  /const RECORDING_CHUNK_MS = 1000 \/ DIRECT_OUTPUT_RECORDING_FPS;/,
+  'recording should slice WebM chunks at the target frame interval'
+);
+assert.match(
+  source,
+  /recorderWebM\.start\(RECORDING_CHUNK_MS\);[\s\S]*?recordingVideoTrack\?\.requestFrame\?\.\(\);/,
+  'recording should push an explicit stable frame as soon as MediaRecorder starts'
+);
+assert.match(
+  source,
   /fps=\$\{encoderSettings\.fps\}/,
   'server conversion should use the configured fps'
+);
+
+const viteConfig = fs.readFileSync(path.join(__dirname, '..', 'vite.config.ts'), 'utf8');
+assert.match(
+  viteConfig,
+  /const keyframeInterval = Math\.max\(1, fps \* 2\);/,
+  'MP4 conversion should use a deterministic 2-second keyframe interval'
+);
+assert.match(
+  viteConfig,
+  /'-vf', `fps=\$\{fps\}:round=near,format=yuv420p`[\s\S]*?'-fps_mode', 'cfr'/,
+  'MP4 conversion should force constant frame-rate output'
+);
+assert.match(
+  viteConfig,
+  /'-g', String\(keyframeInterval\)[\s\S]*?'-keyint_min', String\(keyframeInterval\)[\s\S]*?'-sc_threshold', '0'/,
+  'MP4 conversion should prevent scene-cut-generated keyframes'
 );
 
 console.log('script video recording regression checks passed');

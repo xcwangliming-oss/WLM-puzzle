@@ -17724,6 +17724,10 @@ const TRANSPARENT_RECORDING_BITRATE = 40_000_000;
 
 
 
+const RECORDING_CHUNK_MS = 1000 / DIRECT_OUTPUT_RECORDING_FPS;
+
+
+
 interface ManagedRecordingBackground {
 
 
@@ -43967,7 +43971,9 @@ function startRecording(): Promise<boolean> {
 
 
 
-    recorderWebM.start();
+    recorderWebM.start(RECORDING_CHUNK_MS);
+
+    recordingVideoTrack?.requestFrame?.();
 
 
 
