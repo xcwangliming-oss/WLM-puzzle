@@ -42417,11 +42417,11 @@ function startRecording(): Promise<boolean> {
 
 
 
-      90_000,
+      5 * 60_000,
 
 
 
-      Math.min(10 * 60_000, durationSeconds * 4_500 + 60_000)
+      Math.min(30 * 60_000, durationSeconds * 30_000 + 3 * 60_000)
 
 
 

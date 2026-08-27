@@ -56,6 +56,11 @@ assert.match(
   /fps=\$\{encoderSettings\.fps\}/,
   'server conversion should use the configured fps'
 );
+assert.match(
+  source,
+  /Math\.min\(30 \* 60_000, durationSeconds \* 30_000 \+ 3 \* 60_000\)/,
+  'script recording should allow slow large MP4 conversions to finish instead of falling back to WebM'
+);
 
 const viteConfig = fs.readFileSync(path.join(__dirname, '..', 'vite.config.ts'), 'utf8');
 const convertServer = fs.readFileSync(path.join(__dirname, '..', 'convert-server.mjs'), 'utf8');
