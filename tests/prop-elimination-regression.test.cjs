@@ -99,7 +99,7 @@ assert.match(
 );
 assert.match(
   mainSource,
-  /if \(!simBlocks\[i\]\.isProp && fullRows\.includes\(simBlocks\[i\]\.row\)\)/,
+  /const b = simBlocks\[i\];[\s\S]*?if \(!b\.isProp && fullRows\.includes\(b\.row\)[\s\S]*?\)/,
   'simulated row removal must exclude props',
 );
 assert.match(

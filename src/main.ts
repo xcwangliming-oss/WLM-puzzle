@@ -1,6 +1,7 @@
 import './style.css'
 
 import * as PIXI from 'pixi.js'
+import 'pixi.js/prepare'
 
 import gsap from 'gsap'
 import failureImpactUrl from '../assets/failure-impact.webp'
@@ -184,6 +185,7 @@ let hasTriggeredCTA = false;
 };
 
 function getActiveGameRuleForExport(): string {
+    if (isPastureLayerMode) return 'pasture-layer';
     if (isCollectMode) return 'collect';
     if (isColorChangingMode) return 'color';
     if (isSingleColorMode) return 'single-color';
@@ -307,6 +309,7 @@ function queueCustomPropStyle(style: unknown): void {
             isProp: block.isProp,
             propType: block.propType,
             propDir: block.propDir,
+            pastureStage: block.pastureStage,
         })),
         mechanic: exportBoardMechanic,
         cols: PARAMS.gridCols,
@@ -329,6 +332,7 @@ function queueCustomPropStyle(style: unknown): void {
         scriptSteps: Array.isArray(scriptSteps) ? scriptSteps : [],
         modes: {
             isCollectMode,
+            isPastureLayerMode,
             isFixedBoardMode: exportBoardAdvanceMode === 'fixed',
             isFallingMode,
             boardAdvanceMode: exportBoardAdvanceMode,
@@ -348,6 +352,7 @@ function queueCustomPropStyle(style: unknown): void {
         boardMechanic: exportBoardMechanic,
         gameRule: exportGameRule,
         isCollectMode,
+        isPastureLayerMode,
         jewelTarget: parseInt(document.getElementById('jewel-collect-target-val')?.innerText || '0'),
         currentLevel: parseInt(document.getElementById('level-val')?.innerText || '284'),
         currentScore: parseInt(document.getElementById('score-val')?.innerText?.replace(/,/g, '') || '0'),
@@ -375,6 +380,10 @@ function queueCustomPropStyle(style: unknown): void {
             soundPack: getExportableCustomSoundPack(),
         },
         customPropStyle: getExportableCustomPropStyle(),
+        pastureLayer: {
+            enabled: isPastureLayerMode,
+            assets: getExportablePastureLayerAssets(),
+        },
         collectionAvatarStyle: getExportableCollectionAvatarStyle(),
         shatterColor: getExportableShatterColor(),
         tutorialMoveAvailable: Boolean(tutorialTarget),
@@ -421,13 +430,15 @@ function queueCustomPropStyle(style: unknown): void {
     });
     setBoardMechanic(loadedBoardMechanic, false);
     const loadedGameRule = saveData.gameRule ?? savedModes.gameRule ?? 'normal';
-    isCollectMode = loadedGameRule === 'collect' || !!(saveData.isCollectMode ?? savedModes.isCollectMode);
+    isPastureLayerMode = loadedGameRule === 'pasture-layer' || !!(saveData.isPastureLayerMode ?? savedModes.isPastureLayerMode);
+    isCollectMode = !isPastureLayerMode && (loadedGameRule === 'collect' || !!(saveData.isCollectMode ?? savedModes.isCollectMode));
     isColorChangingMode = loadedGameRule === 'color';
     isSingleColorMode = loadedGameRule === 'single-color';
     isCustomTwoColorMode = loadedGameRule === 'custom-two-color';
     isRainbowMode = loadedGameRule === 'rainbow';
     isRainbowFixedMode = loadedGameRule === 'rainbow-fixed';
     isMaterialChangingMode = loadedGameRule === 'material';
+    applyPastureLayerAssetPayload(saveData.pastureLayer?.assets);
     isNoGravityMode = loadedGameRule === 'no-gravity';
 
     const savedBackground = saveData.background;
@@ -587,6 +598,7 @@ function queueCustomPropStyle(style: unknown): void {
         isProp: !!sb.isProp,
         propType: sb.propType,
         propDir: sb.propDir || 'left'
+        ,pastureStage: sb.pastureStage
     }));
     savedBlocks.forEach((sb: any) => {
         spawnBlock(
@@ -600,9 +612,14 @@ function queueCustomPropStyle(style: unknown): void {
             sb.isProp,
             sb.propType,
             sb.propDir || 'left',
-            typeof sb.collectibleId === 'string' ? sb.collectibleId : undefined
+            typeof sb.collectibleId === 'string' ? sb.collectibleId : undefined,
+            sb.pastureStage
         );
     });
+    // A saved board can predate this rule and therefore have no pastureStage
+    // on its green blocks.  Hydrate it after all sprites exist, rather than
+    // leaving a checked toggle with an unchanged ordinary board.
+    if (isPastureLayerMode) setPastureLayerMode(true);
 
     const expectedBlockCount = Number.isFinite(Number(saveData.exportedBlockCount))
         ? Number(saveData.exportedBlockCount)
@@ -912,6 +929,326 @@ function getSavedBoardAdvanceMode(savedMode: unknown, legacyFixed?: unknown): Bo
 
 
 let isColorChangingMode = false;
+
+// ============================================================================
+// PASTURE_LAYER_MODE — standalone "green framed grass → grass → sheep"
+// rule.  Do not merge this into `isProp`: props use adjacent-row damage and
+// shrinking, while pasture blocks advance only when their own full row clears.
+// ============================================================================
+type PastureLayerStage = 'framed-grass' | 'grass' | 'sheep';
+let isPastureLayerMode = false;
+// Incremented whenever the standalone rule is toggled.  Delayed sheep-arrival
+// callbacks capture this value so they cannot write an old pasture state back
+// onto a board after the user has returned to a different rule.
+type PastureLayerAssetValue = string | string[];
+type PastureLayerAssets = Record<PastureLayerStage, Partial<Record<1 | 2 | 3 | 4, PastureLayerAssetValue>>>;
+type PastureLayerTextureSet = { sourceKey: string; textures: PIXI.Texture[] };
+const PASTURE_LAYER_ASSET_STORAGE = 'pasture_layer_assets_v1';
+const PASTURE_LAYER_ASSET_DB = 'puzzle-editor-pasture-assets';
+const PASTURE_LAYER_ASSET_STORE = 'assets';
+const PASTURE_LAYER_ASSET_DB_KEY = 'current';
+const PASTURE_LAYER_ANIMATION_SPEED = 0.35;
+const PASTURE_SHEEP_GRAVITY_DEBOUNCE_MS = 80;
+const PASTURE_LAYER_LABELS: Record<PastureLayerStage, string> = {
+  'framed-grass': '绿框草（初始块）',
+  grass: '草（第一层消除后）',
+  sheep: '羊（第二层）',
+};
+const emptyPastureLayerAssets = (): PastureLayerAssets => ({
+  'framed-grass': {}, grass: {}, sheep: {},
+});
+const pastureLayerTextureCache = new Map<string, PastureLayerTextureSet>();
+const pastureLayerTextureLoads = new Map<string, Promise<PIXI.Texture[] | null>>();
+
+function getPastureLayerTextureSourceHash(source: string | string[]): string {
+  const sources = Array.isArray(source) ? source : [source];
+  let hash = 2166136261;
+  sources.forEach(item => {
+    for (let i = 0; i < item.length; i++) {
+      hash ^= item.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    hash ^= 31;
+    hash = Math.imul(hash, 16777619);
+  });
+  return `${sources.length}-${(hash >>> 0).toString(36)}`;
+}
+
+function normalizePastureLayerAssetFrames(value: unknown): string[] {
+  if (typeof value === 'string' && value.startsWith('data:image/')) return [value];
+  if (!Array.isArray(value)) return [];
+  const frames = value.filter((item): item is string => typeof item === 'string' && item.startsWith('data:image/'));
+  return frames.length > 0 ? frames : [];
+}
+
+function setPastureLayerAssetFrames(stage: PastureLayerStage, length: 1 | 2 | 3 | 4, frames: string[]): void {
+  const validFrames = normalizePastureLayerAssetFrames(frames);
+  if (validFrames.length === 0) {
+    delete pastureLayerAssets[stage][length];
+    return;
+  }
+  pastureLayerAssets[stage][length] = validFrames.length === 1 ? validFrames[0] : validFrames;
+}
+
+function getPastureLayerTextureSlotKey(stage: PastureLayerStage, length: number): string {
+  const normalizedLength = Math.max(1, Math.min(4, Math.round(length))) as 1 | 2 | 3 | 4;
+  return `${stage}:${normalizedLength}`;
+}
+
+function getCachedPastureLayerTextures(stage: PastureLayerStage, length: number): PIXI.Texture[] | null {
+  const normalizedLength = Math.max(1, Math.min(4, Math.round(length))) as 1 | 2 | 3 | 4;
+  const frames = normalizePastureLayerAssetFrames(pastureLayerAssets[stage]?.[normalizedLength]);
+  if (frames.length === 0) return null;
+  const cached = pastureLayerTextureCache.get(getPastureLayerTextureSlotKey(stage, normalizedLength));
+  return cached?.sourceKey === getPastureLayerTextureSourceHash(frames) ? cached.textures : null;
+}
+
+function loadPastureLayerImageTexture(source: string): Promise<PIXI.Texture> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        resolve(PIXI.Texture.from(image, true));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    image.onerror = () => reject(new Error('Pasture image failed to decode'));
+    image.src = source;
+  });
+}
+
+async function preparePastureLayerTexturesForRender(textures: PIXI.Texture[]): Promise<void> {
+  if (textures.length === 0) return;
+  const renderer = app?.renderer as any;
+  const prepare = renderer?.prepare;
+  try {
+    if (prepare && typeof prepare.upload === 'function') {
+      await prepare.upload(textures);
+      return;
+    }
+    const textureSystem = renderer?.texture;
+    if (textureSystem && typeof textureSystem.initSource === 'function') {
+      textures.forEach(texture => textureSystem.initSource(texture.source));
+    }
+  } catch (error) {
+    console.warn('牧场素材显存预热失败，将在首次渲染时上传', error);
+  }
+}
+
+async function ensurePastureLayerTexturesLoaded(stage: PastureLayerStage, length: number): Promise<PIXI.Texture[] | null> {
+  const normalizedLength = Math.max(1, Math.min(4, Math.round(length))) as 1 | 2 | 3 | 4;
+  const frames = normalizePastureLayerAssetFrames(pastureLayerAssets[stage]?.[normalizedLength]);
+  if (frames.length === 0) return null;
+  const slotKey = getPastureLayerTextureSlotKey(stage, normalizedLength);
+  const cached = pastureLayerTextureCache.get(slotKey);
+  const sourceKey = getPastureLayerTextureSourceHash(frames);
+  if (cached?.sourceKey === sourceKey) return cached.textures;
+  const loadKey = `${slotKey}:${sourceKey}`;
+  const existingLoad = pastureLayerTextureLoads.get(loadKey);
+  if (existingLoad) return existingLoad;
+
+  const loadPromise = Promise.all(frames.map(source => loadPastureLayerImageTexture(source)))
+    .then(async (textures: PIXI.Texture[]) => {
+      const currentFrames = normalizePastureLayerAssetFrames(pastureLayerAssets[stage]?.[normalizedLength]);
+      if (getPastureLayerTextureSourceHash(currentFrames) !== sourceKey) return textures;
+      await preparePastureLayerTexturesForRender(textures);
+      pastureLayerTextureCache.set(slotKey, { sourceKey, textures });
+      blocks.forEach(block => {
+        if (block.pastureStage !== stage || block.length !== normalizedLength) return;
+        refreshPastureLayerSprite(block);
+      });
+      return textures;
+    })
+    .catch(error => {
+      console.error('牧场素材纹理加载失败', { stage, length: normalizedLength, error });
+      return null;
+    })
+    .finally(() => {
+      pastureLayerTextureLoads.delete(loadKey);
+    });
+
+  pastureLayerTextureLoads.set(loadKey, loadPromise);
+  return loadPromise;
+}
+
+async function preloadPastureLayerTextures(stages: PastureLayerStage[] = Object.keys(PASTURE_LAYER_LABELS) as PastureLayerStage[]): Promise<void> {
+  const loads: Promise<PIXI.Texture[] | null>[] = [];
+  stages.forEach(stage => {
+    ([1, 2, 3, 4] as const).forEach(length => {
+      if (normalizePastureLayerAssetFrames(pastureLayerAssets[stage]?.[length]).length > 0) {
+        loads.push(ensurePastureLayerTexturesLoaded(stage, length));
+      }
+    });
+  });
+  await Promise.all(loads);
+}
+
+let pastureLayerAssets: PastureLayerAssets = (() => {
+  // IndexedDB is the only runtime source for uploaded pasture images.  Earlier
+  // builds mirrored 12 base64 images into localStorage; after several uploads
+  // that stale cache could win over the fresh IndexedDB data and make the
+  // first-clear grass render as the framed grass again.
+  return emptyPastureLayerAssets();
+})();
+
+function openPastureLayerAssetDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PASTURE_LAYER_ASSET_DB, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(PASTURE_LAYER_ASSET_STORE)) {
+        request.result.createObjectStore(PASTURE_LAYER_ASSET_STORE, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('无法打开牧场素材库'));
+  });
+}
+
+async function persistPastureLayerAssets(): Promise<void> {
+  // 12 images easily exceed localStorage's small quota after Base64 expansion.
+  // IndexedDB is the durable source of truth for the pasture asset groups.
+  const db = await openPastureLayerAssetDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(PASTURE_LAYER_ASSET_STORE, 'readwrite');
+      transaction.objectStore(PASTURE_LAYER_ASSET_STORE).put({
+        id: PASTURE_LAYER_ASSET_DB_KEY,
+        assets: getExportablePastureLayerAssets(),
+      });
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || new Error('无法保存牧场素材'));
+    });
+  } finally {
+    db.close();
+  }
+  // Do not mirror uploaded images to localStorage. It is quota-limited and was
+  // the source of stale framed-grass artwork overriding the real grass slot.
+  try { localStorage.removeItem(PASTURE_LAYER_ASSET_STORAGE); } catch { /* IndexedDB has already saved it. */ }
+}
+
+function getExportablePastureLayerAssets(): PastureLayerAssets {
+  const result = emptyPastureLayerAssets();
+  (Object.keys(result) as PastureLayerStage[]).forEach(stage => {
+    ([1, 2, 3, 4] as const).forEach(length => {
+      const frames = normalizePastureLayerAssetFrames(pastureLayerAssets[stage]?.[length]);
+      if (frames.length > 0) result[stage][length] = frames.length === 1 ? frames[0] : frames;
+    });
+  });
+  return result;
+}
+
+function applyPastureLayerAssetPayload(payload: unknown): void {
+  if (!payload || typeof payload !== 'object') return;
+  const next = emptyPastureLayerAssets();
+  (Object.keys(next) as PastureLayerStage[]).forEach(stage => {
+    ([1, 2, 3, 4] as const).forEach(length => {
+      const frames = normalizePastureLayerAssetFrames((payload as any)?.[stage]?.[length]);
+      if (frames.length > 0) next[stage][length] = frames.length === 1 ? frames[0] : frames;
+    });
+  });
+  pastureLayerAssets = next;
+  void persistPastureLayerAssets().catch(error => console.error('保存牧场素材失败', error));
+  void preloadPastureLayerTextures().then(() => {
+    blocks.forEach(block => { if (block.pastureStage) refreshPastureLayerSprite(block); });
+  });
+  syncPastureLayerPanel();
+}
+
+async function hydratePastureLayerAssets(): Promise<void> {
+  try {
+    const db = await openPastureLayerAssetDb();
+    const value = await new Promise<any>((resolve, reject) => {
+      const request = db.transaction(PASTURE_LAYER_ASSET_STORE, 'readonly')
+        .objectStore(PASTURE_LAYER_ASSET_STORE)
+        .get(PASTURE_LAYER_ASSET_DB_KEY);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('无法读取牧场素材'));
+    });
+    db.close();
+    const persistedAssets = value?.assets;
+    let merged = false;
+    if (persistedAssets && typeof persistedAssets === 'object') {
+      (Object.keys(PASTURE_LAYER_LABELS) as PastureLayerStage[]).forEach(stage => {
+        ([1, 2, 3, 4] as const).forEach(length => {
+          const frames = normalizePastureLayerAssetFrames(persistedAssets?.[stage]?.[length]);
+          // Do not overwrite an asset supplied by the current loaded board;
+          // use IndexedDB to restore only absent local slots.
+          if (!pastureLayerAssets[stage][length] && frames.length > 0) {
+            pastureLayerAssets[stage][length] = frames.length === 1 ? frames[0] : frames;
+            merged = true;
+          }
+        });
+      });
+    }
+    if (!value || merged) await persistPastureLayerAssets();
+    await preloadPastureLayerTextures();
+    blocks.forEach(block => { if (block.pastureStage) refreshPastureLayerSprite(block); });
+    try { localStorage.removeItem(PASTURE_LAYER_ASSET_STORAGE); } catch { /* legacy cleanup best effort */ }
+    syncPastureLayerPanel();
+  } catch (error) {
+    console.error('读取牧场素材失败', error);
+    syncPastureLayerPanel();
+  }
+}
+
+function setPastureLayerMode(enabled: boolean): void {
+  isPastureLayerMode = enabled;
+  if (enabled) {
+    // PASTURE_LAYER_MODE is a standalone ruleset, so never silently combine it
+    // with any colour-changing, collection, material, or no-gravity rule.
+    isColorChangingMode = false;
+    isSingleColorMode = false;
+    isCustomTwoColorMode = false;
+    isRainbowMode = false;
+    isRainbowFixedMode = false;
+    isMaterialChangingMode = false;
+    isCollectMode = false;
+    isNoGravityMode = false;
+    blocks.forEach(block => {
+      block.noGravity = false;
+      if (block.pastureStage) {
+        refreshPastureLayerSprite(block);
+      } else if (isPastureLayerCandidate(block)) {
+        block.pastureStage = 'framed-grass';
+        refreshPastureLayerSprite(block);
+      }
+    });
+  } else {
+    blocks.forEach(block => {
+      if (!block.pastureStage) return;
+      block.pastureStage = undefined;
+      const texture = PIXI.Assets.get(`${block.color}-${block.length}`);
+      if (texture) {
+        block.sprite.texture = texture;
+        fitBlockSpriteToGrid(block);
+      }
+    });
+  }
+  syncPastureLayerPanel();
+  syncModeButtonsUI();
+}
+
+function getPastureBlocksForConfirmedClear(candidates: Block[]): Block[] {
+  if (!isPastureLayerMode) return candidates.filter(block => Boolean(block.pastureStage));
+  return candidates.filter(block => {
+    if (!isPastureLayerCandidate(block)) {
+      return Boolean(block.pastureStage);
+    }
+    // Some older saved-step/repair paths recreate the sprite without its
+    // pastureStage field.  A confirmed clear is the last safe point to recover
+    // that state; never let a green pasture block silently behave as a gem.
+    if (!block.pastureStage) {
+      block.pastureStage = 'framed-grass';
+      refreshPastureLayerSprite(block);
+    }
+    return true;
+  });
+}
+
+function isPastureLayerCandidate(block: Pick<Block, 'color' | 'isProp' | 'isCollectible'>): boolean {
+  return block.color === 'green' && !block.isProp && !block.isCollectible;
+}
 
 
 
@@ -1276,6 +1613,8 @@ interface BoardBlockState {
 
   propDir?: 'left' | 'right';
 
+  pastureStage?: PastureLayerStage;
+
 
 
 }
@@ -1304,7 +1643,8 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
       sb.isProp,
       sb.propType,
       sb.propDir || 'left',
-      sb.collectibleId
+      sb.collectibleId,
+      sb.pastureStage
     );
   } finally {
     multiCollectibleModeEnabled = previousMultiCollectibleMode;
@@ -1323,7 +1663,8 @@ function captureCurrentBoardBlockStates(): BoardBlockState[] {
     isProp: b.isProp,
     propType: b.propType,
     propDir: b.propDir,
-    collectibleId: b.collectibleId
+    collectibleId: b.collectibleId,
+    pastureStage: b.pastureStage
   }));
 }
 
@@ -1350,6 +1691,7 @@ function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
     if (block.propType !== state.propType) return false;
     if ((block.propDir || 'left') !== (state.propDir || 'left')) return false;
     if (block.collectibleId !== state.collectibleId) return false;
+    if (block.pastureStage !== state.pastureStage) return false;
   }
 
   return true;
@@ -3674,7 +4016,7 @@ async function applyMaterialPack(textures: Record<string, string>) {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || b.pastureStage) return;
 
 
 
@@ -3742,7 +4084,7 @@ async function restoreDefaultTextures() {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || b.pastureStage) return;
 
 
 
@@ -4032,7 +4374,7 @@ function applyCachedMaterialPack(cachedTextures: Record<string, PIXI.Texture>) {
 
 
 
-      blocks.forEach(b => { if (b.isCollectible || b.isProp) return;
+      blocks.forEach(b => { if (b.isCollectible || b.isProp || b.pastureStage) return;
 
 
 
@@ -4243,7 +4585,8 @@ function captureBoardState() {
     propType: b.propType,
 
         propDir: b.propDir,
-        collectibleId: b.collectibleId
+        collectibleId: b.collectibleId,
+        pastureStage: b.pastureStage
 
 
 
@@ -5884,6 +6227,7 @@ function runPhysicsInstant() {
 
 
       if (isNoGravityMode && b.noGravity) return;
+      if (isPastureLayerGravityLocked(b)) return;
 
 
 
@@ -6203,11 +6547,19 @@ function runPhysicsInstant() {
 
 
 
-        blocks.filter(b => b.row === r).forEach(b => blocksContainer.removeChild(b.sprite));
-
-
-
-        blocks = blocks.filter(b => b.row !== r);
+        const rowBlocks = blocks.filter(b => !b.isProp && b.row === r);
+        // PASTURE_LAYER_MODE must also run during the editor's instant physics
+        // path (used by manual/script playback repair).  Previously this path
+        // deleted every row block directly, bypassing framed grass -> grass ->
+        // sheep entirely.
+        const pastureBlocks = getPastureBlocksForConfirmedClear(rowBlocks);
+        const physicalBlocks = rowBlocks.filter(b => !b.pastureStage || b.pastureStage === 'sheep');
+        pastureBlocks.forEach(block => advancePastureLayer(block));
+        physicalBlocks.forEach(block => {
+          if (block.sprite.parent) blocksContainer.removeChild(block.sprite);
+        });
+        const physicallyRemovedIds = new Set(physicalBlocks.map(block => block.id));
+        blocks = blocks.filter(block => !physicallyRemovedIds.has(block.id));
 
 
 
@@ -16166,6 +16518,9 @@ interface Block {
 
   propDir?: 'left' | 'right';
 
+  /** PASTURE_LAYER_MODE: current visual/clear layer, absent for ordinary blocks. */
+  pastureStage?: PastureLayerStage;
+
 
 
 }
@@ -16871,9 +17226,6 @@ function registerGameLoop() {
 
 
 function getBottomWorldY(): number {
-
-
-
   return -Math.max(0, PARAMS.totalRows * PARAMS.cellSize - getScrollViewportGameHeight());
 
 
@@ -21938,6 +22290,212 @@ function initPropStylePanel(): void {
   refreshPropStylePanel();
 }
 
+// PASTURE_LAYER_MODE asset panel. This deliberately lives beside the existing
+// obstacle-style uploader instead of the gameplay-rule buttons: it is a
+// self-contained feature with its own enable switch and 1-4 cell materials.
+type PastureLayerAssetLength = 1 | 2 | 3 | 4;
+const PASTURE_LAYER_ASSET_LENGTHS: PastureLayerAssetLength[] = [1, 2, 3, 4];
+
+function getPastureAssetLengthFromFileName(name: string): PastureLayerAssetLength | null {
+  // "草 1.png", "sheep-2格.webp", and "frame_3x.png" all map cleanly.
+  // Only use a number at the end of the stem: numbers elsewhere may belong to
+  // an art version name rather than the occupied grid width.
+  const stem = name.replace(/\.[^.]+$/, '').trim();
+  const explicitMatch = stem.match(/(?:^|[\s_-])([1-4])\s*(?:格|x|cell|cells?)(?:[\s_-]|$)/i);
+  if (explicitMatch) return Number(explicitMatch[1]) as PastureLayerAssetLength;
+  const sequenceMatch = stem.match(/(?:^|[\s_-])([1-4])[\s_-]+(?:frame|帧)?\d{2,}$/i);
+  if (sequenceMatch) return Number(sequenceMatch[1]) as PastureLayerAssetLength;
+  const trailingMatch = stem.match(/(?:^|[\s_-])([1-4])$/i);
+  return trailingMatch ? Number(trailingMatch[1]) as PastureLayerAssetLength : null;
+}
+
+function sortPastureAssetFiles(files: File[]): File[] {
+  return [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function readPastureAssetFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('读取素材失败'));
+    reader.onload = () => {
+      const source = String(reader.result || '');
+      if (!source.startsWith('data:image/')) {
+        reject(new Error('素材不是图片'));
+        return;
+      }
+      resolve(source);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function readPastureAssetFrames(files: File[]): Promise<string[]> {
+  const frames = await Promise.all(sortPastureAssetFiles(files).map(file => readPastureAssetFile(file)));
+  return normalizePastureLayerAssetFrames(frames);
+}
+
+async function applyPastureLayerAssetFiles(stage: PastureLayerStage, files: File[]): Promise<number> {
+  // Prefer the explicit 1/2/3/4 in filenames; files without it fill the
+  // remaining slots in the same order in which the user selected them.
+  const assigned = new Map<PastureLayerAssetLength, File[]>();
+  const unordered: File[] = [];
+  sortPastureAssetFiles(files).forEach(file => {
+    const length = getPastureAssetLengthFromFileName(file.name);
+    if (length) {
+      const bucket = assigned.get(length) || [];
+      bucket.push(file);
+      assigned.set(length, bucket);
+    }
+    else unordered.push(file);
+  });
+  PASTURE_LAYER_ASSET_LENGTHS.forEach(length => {
+    if (assigned.has(length)) return;
+    const nextFile = unordered.shift();
+    if (nextFile) assigned.set(length, [nextFile]);
+  });
+
+  const results = await Promise.all(Array.from(assigned.entries()).map(async ([length, slotFiles]) => ({
+    length,
+    frames: await readPastureAssetFrames(slotFiles),
+  })));
+  results.forEach(({ length, frames }) => { setPastureLayerAssetFrames(stage, length, frames); });
+  if (results.length > 0) {
+    await persistPastureLayerAssets();
+    await preloadPastureLayerTextures([stage]);
+    blocks.forEach(block => {
+      if (block.pastureStage === stage && results.some(result => result.length === block.length)) {
+        refreshPastureLayerSprite(block);
+      }
+    });
+    syncPastureLayerPanel();
+  }
+  return results.reduce((count, result) => count + result.frames.length, 0);
+}
+
+function initPastureLayerPanel(): void {
+  const panel = ensureStyleAssetsPanel();
+  if (!panel || document.getElementById('pasture-layer-section')) return;
+  const collectibleManagerSection = document.getElementById('collectible-manager-section');
+  const sec = document.createElement('section');
+  sec.id = 'pasture-layer-section';
+  sec.style.cssText = 'display:flex;flex-direction:column;border-top:1px solid #444;padding-top:8px;margin-top:8px;gap:6px;';
+  sec.innerHTML = `<h3 style="margin:2px 0 0;display:flex;align-items:center;gap:6px;font-size:14px;">🐑 牧场双层消除 <span style="font-size:9px;background:#1d7a3c;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;">独立模式</span></h3>
+    <label style="display:flex;align-items:center;gap:5px;padding:5px 6px;background:#173d28;border:1px solid #2f8c50;border-radius:5px;cursor:pointer;font-size:10px;color:#e4ffe8;"><input id="toggle-pasture-layer-mode" type="checkbox" style="margin:0;accent-color:#48ca68;"/><span>启用牧场双层消除</span></label>
+    <div style="font-size:9px;color:#aaa;line-height:1.3;">绿色块：绿框草 → 草 → 羊；羊下次消除时移除。单个格位可多选 PNG/WebP 作为序列帧；组批量上传会优先按文件名里的 1格/2格/3格/4格 或 2_001 这类规则分组。</div>
+    <div id="pasture-layer-asset-grid" style="display:flex;flex-direction:column;gap:5px;"></div>
+    <button id="btn-clear-pasture-assets" type="button" style="padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;">恢复测试占位素材</button>`;
+  if (collectibleManagerSection && collectibleManagerSection.parentElement === panel) panel.insertBefore(sec, collectibleManagerSection);
+  else panel.appendChild(sec);
+
+  const grid = sec.querySelector('#pasture-layer-asset-grid') as HTMLElement;
+  (Object.keys(PASTURE_LAYER_LABELS) as PastureLayerStage[]).forEach(stage => {
+    const group = document.createElement('div');
+    group.style.cssText = 'display:flex;flex-direction:column;gap:3px;padding:4px;border:1px solid #315d3d;border-radius:5px;background:#14241a;';
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;min-height:19px;';
+    const title = document.createElement('div');
+    title.textContent = PASTURE_LAYER_LABELS[stage];
+    title.style.cssText = 'font-size:10px;color:#d7e8d9;line-height:1.2;font-weight:600;';
+    const batchLabel = document.createElement('label');
+    batchLabel.htmlFor = `input-pasture-batch-${stage}`;
+    batchLabel.textContent = '批量上传 1～4格';
+    batchLabel.style.cssText = 'padding:3px 5px;border:1px solid #4e9d64;background:#1e6b36;color:#effff3;border-radius:4px;cursor:pointer;font-size:9px;white-space:nowrap;';
+    const batchInput = document.createElement('input');
+    batchInput.id = `input-pasture-batch-${stage}`;
+    batchInput.type = 'file';
+    batchInput.accept = 'image/png,image/webp';
+    batchInput.multiple = true;
+    batchInput.hidden = true;
+    const batchStatus = document.createElement('span');
+    batchStatus.id = `pasture-batch-status-${stage}`;
+    batchStatus.style.cssText = 'font-size:8px;color:#8ccf9d;';
+    batchInput.addEventListener('change', async () => {
+      const files = Array.from(batchInput.files || []);
+      batchInput.value = '';
+      if (files.length === 0) return;
+      batchStatus.textContent = `正在导入 ${files.length} 张…`;
+      try {
+        const importedCount = await applyPastureLayerAssetFiles(stage, files);
+        batchStatus.textContent = `已导入 ${importedCount} 张`;
+      } catch (error) {
+        console.error('牧场素材批量导入失败', error);
+        batchStatus.textContent = '导入失败，请检查图片格式';
+      }
+    });
+    header.append(title, batchLabel, batchInput);
+    group.append(header);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:repeat(4, 1fr);gap:3px;align-items:stretch;';
+    ([1, 2, 3, 4] as const).forEach(length => {
+      const label = document.createElement('label');
+      label.htmlFor = `input-pasture-${stage}-${length}`;
+      label.style.cssText = 'min-height:30px;border:1px dashed #4e8660;border-radius:4px;background:#182b20;cursor:pointer;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;';
+      const image = document.createElement('img');
+      image.id = `pasture-thumb-${stage}-${length}`;
+      image.style.cssText = 'display:none;max-width:100%;height:28px;object-fit:contain;';
+      const text = document.createElement('span');
+      text.id = `pasture-label-${stage}-${length}`;
+      text.textContent = `${length}格\n单独换`;
+      text.style.cssText = 'font-size:9px;color:#b8c7ba;';
+      const input = document.createElement('input');
+      input.id = `input-pasture-${stage}-${length}`;
+      input.type = 'file';
+      input.accept = 'image/png,image/webp';
+      input.multiple = true;
+      input.hidden = true;
+      input.addEventListener('change', async () => {
+        const files = Array.from(input.files || []);
+        if (files.length === 0) return;
+        input.value = '';
+        try {
+          setPastureLayerAssetFrames(stage, length, await readPastureAssetFrames(files));
+          await persistPastureLayerAssets();
+          await preloadPastureLayerTextures([stage]);
+          blocks.forEach(block => { if (block.pastureStage === stage && block.length === length) refreshPastureLayerSprite(block); });
+          syncPastureLayerPanel();
+        } catch (error) {
+          console.error('牧场单张素材导入失败', error);
+        }
+      });
+      label.append(image, text, input);
+      row.appendChild(label);
+    });
+    group.append(row, batchStatus);
+    grid.appendChild(group);
+  });
+  const toggle = sec.querySelector('#toggle-pasture-layer-mode') as HTMLInputElement;
+  toggle.addEventListener('change', () => setPastureLayerMode(toggle.checked));
+  const clearButton = sec.querySelector('#btn-clear-pasture-assets') as HTMLButtonElement;
+  clearButton.addEventListener('click', async () => {
+    pastureLayerAssets = emptyPastureLayerAssets();
+    await persistPastureLayerAssets();
+    blocks.forEach(block => { if (block.pastureStage) refreshPastureLayerSprite(block); });
+    syncPastureLayerPanel();
+  });
+  syncPastureLayerPanel();
+}
+
+function syncPastureLayerPanel(): void {
+  const toggle = document.getElementById('toggle-pasture-layer-mode') as HTMLInputElement | null;
+  if (toggle) toggle.checked = isPastureLayerMode;
+  (Object.keys(PASTURE_LAYER_LABELS) as PastureLayerStage[]).forEach(stage => {
+    ([1, 2, 3, 4] as const).forEach(length => {
+      const frames = normalizePastureLayerAssetFrames(pastureLayerAssets[stage]?.[length]);
+      const source = frames[0] || '';
+      const image = document.getElementById(`pasture-thumb-${stage}-${length}`) as HTMLImageElement | null;
+      const label = document.getElementById(`pasture-label-${stage}-${length}`) as HTMLElement | null;
+      if (image) { image.src = source; image.style.display = source ? 'block' : 'none'; }
+      if (label) {
+        label.textContent = frames.length > 1 ? `${frames.length}帧` : (source ? '' : `${length}格`);
+        label.style.cssText = frames.length > 1
+          ? 'position:absolute;right:2px;bottom:1px;padding:0 3px;border-radius:3px;background:rgba(0,0,0,.62);font-size:8px;color:#dfffe5;display:block;'
+          : 'font-size:9px;color:#b8c7ba;';
+        label.style.display = source && frames.length <= 1 ? 'none' : 'block';
+      }
+    });
+  });
+}
+
 function refreshObstacleEaterToggle(): void {
   const toggle = document.getElementById('toggle-obstacle-eater') as HTMLInputElement | null;
   if (toggle) toggle.checked = obstacleEaterEnabled;
@@ -22879,11 +23437,303 @@ function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineI
 
 
 
-function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left', collectibleId?: string) {
+function createPasturePlaceholderTexture(stage: PastureLayerStage, length: number): PIXI.Texture | null {
+  // PASTURE_LAYER_MODE test artwork. Real 1-4 cell PNGs will replace these
+  // generated textures through the dedicated pasture asset slots in the next UI pass.
+  if (!app?.renderer) return null;
+  const cell = Math.max(1, PARAMS.cellSize || 50);
+  const width = length * cell;
+  const g = new PIXI.Graphics();
+  const fill = (color: number, alpha = 1) => g.fill({ color, alpha });
+  if (stage === 'framed-grass') {
+    g.roundRect(1, 1, width - 2, cell - 2, Math.max(5, cell * .15)); fill(0x126d20);
+    g.roundRect(5, 5, width - 10, cell - 10, Math.max(4, cell * .12)); fill(0x249b30);
+    g.stroke({ width: Math.max(2, cell * .07), color: 0x9bea3d, alpha: .95 });
+  } else if (stage === 'grass') {
+    g.roundRect(2, 5, width - 4, cell - 7, Math.max(4, cell * .12)); fill(0x2aa83a);
+    for (let x = 7; x < width - 4; x += Math.max(7, cell * .16)) {
+      g.moveTo(x, cell - 5).lineTo(x + 3, 7).lineTo(x + 6, cell - 5); fill(0x73d845);
+    }
+  } else if (stage === 'sheep') {
+    g.roundRect(3, cell * .23, width - 6, cell * .59, cell * .3); fill(0xf6f2e7);
+    for (let x = cell * .22; x < width - cell * .15; x += cell * .25) {
+      g.circle(x, cell * .45, cell * .18); fill(0xffffff);
+    }
+    g.circle(cell * .23, cell * .56, cell * .17); fill(0x34333a);
+    g.circle(cell * .18, cell * .52, cell * .035); fill(0xffffff);
+  }
+  const texture = app.renderer.generateTexture(g);
+  g.destroy();
+  return texture;
+}
+
+function createPastureLayerSpriteFromTextures(textures: PIXI.Texture[]): PIXI.Sprite {
+  if (textures.length > 1) {
+    const animSprite = new PIXI.AnimatedSprite(textures);
+    animSprite.animationSpeed = PASTURE_LAYER_ANIMATION_SPEED;
+    animSprite.loop = true;
+    animSprite.play();
+    return animSprite;
+  }
+  return new PIXI.Sprite(textures[0] || PIXI.Texture.WHITE);
+}
+
+function replacePastureLayerSprite(block: Block, nextSprite: PIXI.Sprite): void {
+  const previousSprite = block.sprite;
+  const parent = previousSprite.parent;
+  if (nextSprite.parent) {
+    nextSprite.parent.removeChild(nextSprite);
+  }
+  nextSprite.x = previousSprite.x;
+  nextSprite.y = previousSprite.y;
+  nextSprite.width = previousSprite.width;
+  nextSprite.height = previousSprite.height;
+  nextSprite.alpha = previousSprite.alpha;
+  nextSprite.zIndex = previousSprite.zIndex;
+  nextSprite.eventMode = previousSprite.eventMode;
+  nextSprite.cursor = previousSprite.cursor;
+  previousSprite.listeners('pointerdown').forEach(listener => {
+    nextSprite.on('pointerdown', listener as any);
+  });
+  if (parent) {
+    const childIndex = parent.getChildIndex(previousSprite);
+    parent.removeChild(previousSprite);
+    parent.addChildAt(nextSprite, Math.min(childIndex, parent.children.length));
+  }
+  previousSprite.destroy();
+  block.sprite = nextSprite;
+}
+
+function applyPastureLayerSpriteTextures(block: Block, textures: PIXI.Texture[]): void {
+  if (textures.length <= 0) return;
+  const shouldAnimate = textures.length > 1;
+  const currentSprite = block.sprite;
+  const isAnimated = currentSprite instanceof PIXI.AnimatedSprite;
+  if (shouldAnimate && isAnimated) {
+    if (currentSprite.textures !== textures) currentSprite.textures = textures;
+    currentSprite.animationSpeed = PASTURE_LAYER_ANIMATION_SPEED;
+    currentSprite.loop = true;
+    if (!currentSprite.playing) currentSprite.play();
+    return;
+  }
+  if (!shouldAnimate && !isAnimated) {
+    block.sprite.texture = textures[0];
+    return;
+  }
+  replacePastureLayerSprite(block, createPastureLayerSpriteFromTextures(textures));
+}
+
+function refreshPastureLayerSprite(block: Block): void {
+  if (!block.pastureStage) return;
+  const textures = getPastureLayerTextures(block.pastureStage, block.length);
+  if (textures && textures.length > 0) applyPastureLayerSpriteTextures(block, textures);
+  block.sprite.alpha = 1;
+  // Uploaded pasture artwork is usually much larger than an editor gem.  A
+  // PIXI texture swap retains the old scale, so explicitly fit it to the
+  // occupied 1-4 grid cells instead of letting the source bitmap cover board.
+  fitBlockSpriteToGrid(block);
+}
+
+function setPastureSpriteScale(block: Block, scale: number): void {
+  const baseWidth = block.length * PARAMS.cellSize;
+  const baseHeight = PARAMS.cellSize;
+  const width = baseWidth * scale;
+  const height = baseHeight * scale;
+  block.sprite.width = width;
+  block.sprite.height = height;
+  block.sprite.x = block.col * PARAMS.cellSize + (baseWidth - width) / 2;
+  block.sprite.y = block.row * PARAMS.cellSize + (baseHeight - height) / 2;
+}
+
+function isPastureLayerGravityLocked(block: Pick<Block, 'pastureStage'>): boolean {
+  // The first-clear grass is a short transition layer: it must stay in the
+  // cleared cell until the sheep arrives.  Once the block becomes sheep it is
+  // a normal occupying block again and should fall with gravity.
+  return block.pastureStage === 'grass';
+}
+
+function fitBlockSpriteToGrid(block: Pick<Block, 'sprite' | 'length'>): void {
+  block.sprite.scale.set(1);
+  block.sprite.width = block.length * PARAMS.cellSize;
+  block.sprite.height = PARAMS.cellSize;
+}
+
+function getPastureLayerTextures(stage: PastureLayerStage, length: number): PIXI.Texture[] | null {
+  const normalizedLength = Math.max(1, Math.min(4, Math.round(length))) as 1 | 2 | 3 | 4;
+  const frames = normalizePastureLayerAssetFrames(pastureLayerAssets[stage]?.[normalizedLength]);
+  if (frames.length > 0) {
+    const cached = getCachedPastureLayerTextures(stage, normalizedLength);
+    if (cached) return cached;
+    void ensurePastureLayerTexturesLoaded(stage, normalizedLength);
+  }
+  const placeholder = createPasturePlaceholderTexture(stage, normalizedLength);
+  return placeholder ? [placeholder] : null;
+}
+
+let pastureSheepGravityScheduled = false;
+let pastureSheepGravityTimer: number | null = null;
+
+function schedulePastureSheepGravity(): void {
+  if (!pastureSheepGravityScheduled) pastureSheepGravityScheduled = true;
+  if (pastureSheepGravityTimer !== null) {
+    window.clearTimeout(pastureSheepGravityTimer);
+  }
+  pastureSheepGravityTimer = window.setTimeout(() => {
+    pastureSheepGravityTimer = null;
+    pastureSheepGravityScheduled = false;
+    if (!blocks.some(b => b.pastureStage === 'sheep')) return;
+    applyGravity(true);
+  }, PASTURE_SHEEP_GRAVITY_DEBOUNCE_MS);
+}
+
+function sendSheepToPastureBlock(block: Block): void {
+  const visitor = createPastureLayerSpriteFromTextures(getPastureLayerTextures('sheep', block.length) || [PIXI.Texture.WHITE]);
+  visitor.width = block.sprite.width;
+  visitor.height = block.sprite.height;
+  visitor.x = block.col * PARAMS.cellSize + block.length * PARAMS.cellSize + PARAMS.cellSize * .35;
+  visitor.y = block.row * PARAMS.cellSize;
+  visitor.zIndex = 19999;
+  blocksContainer.addChild(visitor);
+
+  let completed = false;
+  const discardVisitor = () => {
+    gsap.killTweensOf(visitor);
+    if (visitor.parent) visitor.parent.removeChild(visitor);
+    visitor.destroy();
+  };
+  const completeArrival = () => {
+    if (completed) return;
+    completed = true;
+    // The block's actual stage is the only authority here.  Script playback
+    // can re-sync its mode while this animation is running; cancelling the
+    // arrival merely because a mode counter changed left the first layer stuck.
+    // Disabling the mode clears pastureStage, so this still cannot resurrect a
+    // sheep after the feature has been turned off.
+    if (!blocks.includes(block) || block.pastureStage !== 'grass') {
+      discardVisitor();
+      return;
+    }
+    visitor.x = block.sprite.x;
+    visitor.y = block.sprite.y;
+    visitor.width = block.sprite.width;
+    visitor.height = block.sprite.height;
+    visitor.alpha = 1;
+    block.pastureStage = 'sheep';
+    replacePastureLayerSprite(block, visitor);
+    fitBlockSpriteToGrid(block);
+    schedulePastureSheepGravity();
+  };
+  gsap.to(visitor, {
+    x: block.sprite.x,
+    duration: .5,
+    ease: 'power2.out',
+    onComplete: completeArrival,
+  });
+  // Some scripted playback paths clear/rebuild GSAP timelines immediately
+  // after a row clear.  The logical arrival must survive that visual cleanup.
+  window.setTimeout(completeArrival, 650);
+}
+
+function advancePastureLayer(block: Block): number {
+  // PASTURE_LAYER_MODE: this state change is deliberately owned by the row
+  // clear timeline.  Do not move it to the "row confirmed" phase: doing so
+  // lets later gravity/recording cleanup race the grass -> sheep hand-off.
+  if (block.pastureStage === 'framed-grass') {
+    const vanishSprite = new PIXI.Sprite(block.sprite.texture);
+    vanishSprite.x = block.sprite.x;
+    vanishSprite.y = block.sprite.y;
+    vanishSprite.width = block.sprite.width;
+    vanishSprite.height = block.sprite.height;
+    vanishSprite.alpha = block.sprite.alpha;
+    vanishSprite.zIndex = (block.sprite.zIndex || 0) + 1;
+    blocksContainer.addChild(vanishSprite);
+
+    const centerX = block.col * PARAMS.cellSize + block.length * PARAMS.cellSize / 2;
+    const centerY = block.row * PARAMS.cellSize + PARAMS.cellSize / 2;
+    gsap.killTweensOf(block.sprite);
+    block.pastureStage = 'grass';
+    refreshPastureLayerSprite(block);
+    setPastureSpriteScale(block, .7);
+
+    gsap.to(vanishSprite, {
+      x: centerX,
+      y: centerY,
+      width: 0,
+      height: 0,
+      alpha: 0,
+      duration: .16,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (vanishSprite.parent) vanishSprite.parent.removeChild(vanishSprite);
+        vanishSprite.destroy();
+      },
+    });
+
+    const bounce = { scale: .7 };
+    gsap.to(bounce, {
+      scale: 1,
+      duration: .32,
+      ease: 'back.out(2.2)',
+      onUpdate: () => setPastureSpriteScale(block, bounce.scale),
+      onComplete: () => {
+        if (!blocks.includes(block) || block.pastureStage !== 'grass') return;
+        setPastureSpriteScale(block, 1);
+        sendSheepToPastureBlock(block);
+      },
+    });
+    return .95;
+  }
+  if (block.pastureStage === 'grass') {
+    // The sheep visit belongs to the first transition.  A grass tile which is
+    // cleared before that visitor lands is simply held for this clear.
+    return .05;
+  }
+  if (block.pastureStage === 'sheep') {
+    // Sheep is the final occupying block. Its next own-row clear removes it
+    // after a squash-pop vanish; there is no persisted wool/effect layer.
+    gsap.killTweensOf(block.sprite);
+    const pop = { scale: 1 };
+    gsap.to(pop, {
+      scale: .72,
+      duration: .1,
+      ease: 'power2.in',
+      onUpdate: () => setPastureSpriteScale(block, pop.scale),
+      onComplete: () => {
+        gsap.to(pop, {
+          scale: 1.28,
+          duration: .08,
+          ease: 'back.out(1.8)',
+          onUpdate: () => setPastureSpriteScale(block, pop.scale),
+          onComplete: () => {
+            gsap.to(block.sprite, {
+              alpha: 0,
+              duration: .12,
+              ease: 'power2.in',
+              onComplete: () => setPastureSpriteScale(block, 1),
+            });
+          },
+        });
+      },
+    });
+    return .34;
+  }
+  return .05;
+}
+
+function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left', collectibleId?: string, pastureStage?: PastureLayerStage) {
 
 
 
   if (isProp && !isValidPropLength(length)) return null;
+
+  // A normal board block must always use one of the five real gem aliases.
+  // Previously an unexpected colour key fell into a flat red debug rectangle;
+  // that made missing textures look like real red blocks in the board.
+  const standardGemColors = ['red', 'blue', 'green', 'yellow', 'pink'];
+  if (!isProp && !isCollectible && !standardGemColors.includes(color)) {
+    console.warn('[BLOCK_TEXTURE_SANITIZE] Replaced unexpected normal-block color', { color, length, col, row });
+    color = 'red';
+  }
 
 
 
@@ -22963,19 +23813,17 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    if (!texture) {
+    if (!texture && !isCollectible) {
+      // Do not draw a coloured debug square in the game.  The Vite module map
+      // is available even during a cache race, so it gives the sprite its real
+      // gem image while PIXI finishes resolving the registered alias.
+      const assetKey = `../assets/playable-blocks/${color}-${length}.webp`;
+      const source = playableBlockAssetsMap[assetKey] || `assets/playable-blocks/${color}-${length}.webp`;
       try {
-        const fallbackG = new PIXI.Graphics();
-        const colorHexMap: Record<string, number> = {
-          red: 0xee5253, blue: 0x2e86de, green: 0x10ac84, yellow: 0xff9f43, pink: 0xf368e0,
-          purple: 0x9b59b6, cyan: 0x00d2d3, orange: 0xff9f43
-        };
-        const hex = colorHexMap[color] || 0xee5253;
-        fallbackG.roundRect(2, 2, length * PARAMS.cellSize - 4, PARAMS.cellSize - 4, 8);
-        fallbackG.fill({ color: hex });
-        fallbackG.stroke({ width: 2, color: 0xffffff, alpha: 0.6 });
-        texture = app.renderer.generateTexture(fallbackG);
-      } catch(e) {}
+        texture = PIXI.Texture.from(source);
+      } catch (error) {
+        console.error('[BLOCK_TEXTURE_MISSING] Failed to create normal gem texture', { color, length, source, error });
+      }
     }
 
     if (!texture) return null;
@@ -23082,7 +23930,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    sprite.cursor = 'grabbing';
+    block.sprite.cursor = 'grabbing';
 
 
 
@@ -23090,7 +23938,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    dragStartX = sprite.x;
+    dragStartX = block.sprite.x;
 
 
 
@@ -23110,7 +23958,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    sprite.filters = [brightFilter];
+    block.sprite.filters = [brightFilter];
 
 
 
@@ -23154,7 +24002,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    sprite.x = newX;
+    block.sprite.x = newX;
 
 
 
@@ -23178,7 +24026,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    sprite.cursor = 'grab';
+    block.sprite.cursor = 'grab';
 
 
 
@@ -23186,7 +24034,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    sprite.filters = [];
+    block.sprite.filters = [];
 
 
 
@@ -23194,11 +24042,11 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    const newCol = Math.round(sprite.x / PARAMS.cellSize);
+    const newCol = Math.round(block.sprite.x / PARAMS.cellSize);
 
 
 
-    sprite.x = newCol * PARAMS.cellSize;
+    block.sprite.x = newCol * PARAMS.cellSize;
 
 
 
@@ -23453,11 +24301,13 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, collectibleId, isProp, propType, propDir };
+  const resolvedPastureStage = pastureStage || (isPastureLayerMode && isPastureLayerCandidate({ color, isProp, isCollectible }) ? 'framed-grass' : undefined);
+  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, collectibleId, isProp, propType, propDir, pastureStage: resolvedPastureStage };
+  if (resolvedPastureStage) refreshPastureLayerSprite(block);
 
 
 
-  blocksContainer.addChild(sprite);
+  blocksContainer.addChild(block.sprite);
 
 
 
@@ -23587,6 +24437,95 @@ if (new URLSearchParams(window.location.search).has('prop-test')) {
   });
   document.body.appendChild(triggerButton);
 
+}
+
+// PASTURE_LAYER_MODE regression harness. It is only reachable with the local
+// `?pasture-test` URL and gives browser tests a real full-row path without
+// touching authored boards or production controls.
+if (new URLSearchParams(window.location.search).has('pasture-test')) {
+  const stateNode = document.createElement('pre');
+  stateNode.id = 'pasture-test-state';
+  stateNode.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;';
+  document.body.appendChild(stateNode);
+  const makeButton = (id: string, left: number, action: () => void) => {
+    const button = document.createElement('button');
+    button.id = id;
+    button.style.cssText = `position:fixed;left:${left}px;top:0;width:16px;height:6px;padding:0;opacity:0.001;`;
+    button.addEventListener('click', action);
+    document.body.appendChild(button);
+  };
+  const seedPastureTestRow = () => {
+    // Use the real mode entry point.  Directly flipping the flag skips the
+    // same conversion/refresh work that the editor checkbox performs.
+    setPastureLayerMode(true);
+    clearAllBlocks();
+    const row = Math.min(PARAMS.totalRows - 1, 9);
+    spawnBlock(0, row, 2, 'green');
+    for (let col = 2; col < PARAMS.gridCols; col++) spawnBlock(col, row, 1, 'red');
+  };
+  const fillPastureTestRow = () => {
+    const pastureBlock = blocks.find(block => Boolean(block.pastureStage));
+    if (!pastureBlock) return;
+    const visibleRange = worldContainer
+      ? getEliminationVisibleRowRangeForWorldY(worldContainer.y)
+      : null;
+    const row = Math.min(pastureBlock.row, visibleRange?.maxRow ?? pastureBlock.row);
+    // The first clear may settle the retained block below the normal preview
+    // trigger band.  This local-only harness repositions it into that band so
+    // it can verify the second, sheep-removal transition independently of the
+    // board scrolling mechanic.
+    if (pastureBlock.row !== row) {
+      pastureBlock.row = row;
+      pastureBlock.sprite.y = row * PARAMS.cellSize;
+    }
+    setWorldY(getWorldYFromScrollRow(row));
+    const occ = getGridOccupancy();
+    for (let col = 0; col < PARAMS.gridCols; col++) {
+      if (occ[row][col] === 0) spawnBlock(col, row, 1, 'red');
+    }
+  };
+  makeButton('pasture-test-seed', 0, seedPastureTestRow);
+  makeButton('pasture-test-fill-row', 20, fillPastureTestRow);
+  makeButton('pasture-test-trigger-elimination', 40, () => checkEliminations());
+  window.setInterval(() => {
+    stateNode.textContent = JSON.stringify(blocks.map(block => ({
+      id: block.id, row: block.row, col: block.col, length: block.length,
+      pastureStage: block.pastureStage || null,
+    })));
+    const range = worldContainer
+      ? getEliminationVisibleRowRangeForWorldY(worldContainer.y)
+      : null;
+    stateNode.dataset.debug = JSON.stringify({
+      worldY: worldContainer?.y ?? null,
+      range,
+      fullRows: getFullRowsFromOccupancy(getGridOccupancy()),
+      pendingRows: pendingOffscreenFullRowBlockIds.map(ids => [...ids]),
+    });
+  }, 50);
+  // Automatic local-only regression path: first clear produces a sheep;
+  // the next full-row clear removes it with a wool burst. It never runs outside this URL.
+  const runPastureRegression = () => {
+    // This file declares the harness before the asynchronous Pixi app has
+    // finished creating its world container.  Do not call checkEliminations
+    // against a half-built board: that exception used to stop the first
+    // replacement before grass and sheep could be observed in the local test.
+    if (!worldContainer || !blocksContainer) {
+      window.setTimeout(runPastureRegression, 50);
+      return;
+    }
+    seedPastureTestRow();
+    checkEliminations();
+    window.setTimeout(() => {
+      fillPastureTestRow();
+      checkEliminations();
+    }, 1800);
+  };
+  // Keep the normal local regression URL controllable by the browser test.
+  // Auto-running is opt-in so each stage can be inspected before the next
+  // clear changes the board again.
+  if (new URLSearchParams(window.location.search).has('pasture-auto')) {
+    window.setTimeout(runPastureRegression, 80);
+  }
 }
 
 
@@ -24324,6 +25263,20 @@ function applyGravity(checkElim: boolean = true) {
 
 
     if (isNoGravityMode && b.noGravity) {
+
+
+
+      simulatedRows[b.id] = targetRow;
+
+
+
+      return;
+
+
+
+    }
+
+    if (isPastureLayerGravityLocked(b)) {
 
 
 
@@ -26703,6 +27656,17 @@ function checkEliminations() {
     const blocksToRemove = lockedSequentialIdSet
       ? blocks.filter(b => !b.isProp && lockedSequentialIdSet.has(b.id))
       : blocks.filter(b => !b.isProp && fullRows.includes(b.row));
+    // A board restored from an older save/recording can contain ordinary green
+    // blocks even though pasture mode is already enabled.  Normalize them at
+    // the start of their confirmed clear so they are retained and advanced by
+    // the row timeline below instead of being physically removed as gems.
+    // This only repairs their initial marker; it does not advance a layer
+    // before the clear animation owns that transition.
+    getPastureBlocksForConfirmedClear(blocksToRemove);
+    // PASTURE_LAYER_MODE: the first two layers remain occupied.  Their stage
+    // changes are scheduled below on the same timeline as their row clear.
+    // This is the original, working ownership model for the feature.
+    const blocksToPhysicallyRemove = blocksToRemove.filter(b => !b.pastureStage || b.pastureStage === 'sheep');
 
     if (isNoGravityMode) {
       releaseNewlyUnsupportedNoGravityBlocks(
@@ -26749,7 +27713,7 @@ function checkEliminations() {
       onComplete: () => {
 
 
-        blocksToRemove.forEach(b => {
+        blocksToPhysicallyRemove.forEach(b => {
           if (isCollectMode && b.isCollectible && !multiCollectibleModeEnabled) {
             const coin = new PIXI.Sprite(activeCollectibleTexture || PIXI.Texture.WHITE);
             coin.width = b.sprite.width;
@@ -26798,9 +27762,8 @@ function checkEliminations() {
         });
 
 
-        blocks = lockedSequentialIdSet
-          ? blocks.filter(b => b.isProp || !lockedSequentialIdSet.has(b.id))
-          : blocks.filter(b => b.isProp || !fullRows.includes(b.row));
+        const physicallyRemovedIds = new Set(blocksToPhysicallyRemove.map(block => block.id));
+        blocks = blocks.filter(b => !physicallyRemovedIds.has(b.id));
 
 
 
@@ -26931,6 +27894,8 @@ function checkEliminations() {
 
 
       const rowBlocks = blocksToRemove.filter(b => b.row === r);
+      const pastureRowBlocks = rowBlocks.filter(b => b.pastureStage);
+      const effectRowBlocks = rowBlocks.filter(b => !b.pastureStage);
 
 
 
@@ -26938,7 +27903,7 @@ function checkEliminations() {
 
 
 
-      const draggedBlockInRow = rowBlocks.find(b => b.id === draggedBlockId);
+      const draggedBlockInRow = effectRowBlocks.find(b => b.id === draggedBlockId);
 
 
 
@@ -26954,11 +27919,11 @@ function checkEliminations() {
 
 
 
-        const fallingBlock = rowBlocks.find(b => blocksThatFell.has(b.id));
+        const fallingBlock = effectRowBlocks.find(b => blocksThatFell.has(b.id));
 
 
 
-        explosionColor = fallingBlock ? fallingBlock.color : (rowBlocks[0] ? rowBlocks[0].color : 'pink');
+        explosionColor = fallingBlock ? fallingBlock.color : (effectRowBlocks[0] ? effectRowBlocks[0].color : 'pink');
 
 
 
@@ -26975,11 +27940,26 @@ function checkEliminations() {
 
 
         const propSkipCols = initialPropColsByRow.get(r) || new Set<number>();
+        const effectSkipCols = new Set(propSkipCols);
+        const effectOnlyCols = new Set<number>();
+        effectRowBlocks.forEach(block => {
+          for (let c = block.col; c < block.col + block.length; c++) {
+            if (!propSkipCols.has(c)) effectOnlyCols.add(c);
+          }
+        });
+        pastureRowBlocks.forEach(block => {
+          for (let c = block.col; c < block.col + block.length; c++) {
+            effectSkipCols.add(c);
+          }
+        });
         if (rowPlaybackIndex === 0) {
-          triggerComboTextEffect(fullRows, comboCount, rowBlocks.length > 0 ? rowBlocks : blocksToRemove);
+          const comboAnchorBlocks = effectRowBlocks.length > 0
+            ? effectRowBlocks
+            : blocksToRemove.filter(block => !block.pastureStage);
+          triggerComboTextEffect(fullRows, comboCount, comboAnchorBlocks.length > 0 ? comboAnchorBlocks : blocksToRemove);
         }
-        if (PARAMS.effectType !== 'gem-shatter') {
-          playRowShatterEffect(r, explosionColor, rowBlocks, propSkipCols);
+        if (PARAMS.effectType !== 'gem-shatter' && effectOnlyCols.size > 0) {
+          playRowShatterEffect(r, explosionColor, effectRowBlocks, effectSkipCols, effectOnlyCols);
         }
 
 
@@ -27021,6 +28001,23 @@ function checkEliminations() {
 
 
       rowBlocksAnim.forEach((b) => {
+
+        // PASTURE_LAYER_MODE: first-layer replacement is intentionally fired
+        // here, at this row's playback position.  Keeping it inside the
+        // timeline prevents scripted clear/gravity from skipping the sheep.
+        if (b.pastureStage && b.pastureStage !== 'sheep') {
+          const pastureHold = b.pastureStage === 'framed-grass' ? .95 : .3;
+          tl.call(() => { advancePastureLayer(b); }, [], rowPlaybackOffset);
+          tl.to({}, { duration: pastureHold }, rowPlaybackOffset);
+          return;
+        }
+
+        // Sheep uses its own final clear animation: zoom, then disappear.
+        if (b.pastureStage === 'sheep') {
+          tl.call(() => { advancePastureLayer(b); }, [], rowPlaybackOffset);
+          tl.to({}, { duration: .36 }, rowPlaybackOffset);
+          return;
+        }
 
 
 
@@ -34374,7 +35371,8 @@ function setupDOMUI() {
       propType: b.propType,
 
         propDir: b.propDir,
-        collectibleId: b.collectibleId
+        collectibleId: b.collectibleId,
+        pastureStage: b.pastureStage
 
 
 
@@ -36053,6 +37051,17 @@ function setupDOMUI() {
 
   const btnNoGravityMode = document.getElementById('btn-nogravity-mode')!;
 
+  const disablePastureLayerMode = () => setPastureLayerMode(false);
+
+  // PASTURE_LAYER_MODE is intentionally exclusive. Existing buttons keep their
+  // own behaviour; this small boundary prevents hidden combinations with colour,
+  // collection, no-gravity, or material-changing rules.
+  [btnNormalMode, btnColorMode, btnSingleColorMode, btnCustomTwoColorMode,
+    btnRainbowMode, btnRainbowFixedMode, btnMaterialMode, btnCollectMode,
+    btnMultiCollectMode, btnNoGravityMode].forEach(button => {
+      button.addEventListener('click', disablePastureLayerMode);
+    });
+
 
 
 
@@ -36203,7 +37212,7 @@ function setupDOMUI() {
 
 
 
-      if (!isColorChangingMode && !isSingleColorMode && !isRainbowMode && !isRainbowFixedMode && !isMaterialChangingMode) {
+      if (!isPastureLayerMode && !isColorChangingMode && !isSingleColorMode && !isRainbowMode && !isRainbowFixedMode && !isMaterialChangingMode) {
 
 
 
@@ -36287,7 +37296,7 @@ function setupDOMUI() {
 
 
 
-                      !isMaterialChangingMode;
+                      !isMaterialChangingMode && !isPastureLayerMode;
 
 
 
@@ -36350,8 +37359,6 @@ function setupDOMUI() {
 
 
     setBtnActive(btnNoGravityMode, isNoGravityMode);
-
-
 
     setBtnActive(btnDrawCollect, isCollectMode);
 
@@ -38098,11 +39105,6 @@ function setupDOMUI() {
   };
 
 
-
-
-
-
-
   btnCollectMode.onclick = async () => {
 
 
@@ -39441,7 +40443,8 @@ function setupDOMUI() {
       propType: b.propType,
 
         propDir: b.propDir,
-        collectibleId: b.collectibleId
+        collectibleId: b.collectibleId,
+        pastureStage: b.pastureStage
 
 
 
@@ -40220,7 +41223,8 @@ function setupDOMUI() {
       propType: b.propType,
 
         propDir: b.propDir,
-        collectibleId: b.collectibleId
+        collectibleId: b.collectibleId,
+        pastureStage: b.pastureStage
 
 
 
@@ -40254,6 +41258,11 @@ function setupDOMUI() {
 
       holeMask: holeMask,
 
+      pastureLayer: {
+        enabled: isPastureLayerMode,
+        assets: getExportablePastureLayerAssets(),
+      },
+
 
 
       modes: {
@@ -40285,6 +41294,8 @@ function setupDOMUI() {
 
 
         isMaterialChangingMode,
+
+        isPastureLayerMode,
 
 
 
@@ -40321,6 +41332,8 @@ function setupDOMUI() {
         multiCollectibleSlotIds: multiCollectibleSlotIds.slice(0, multiCollectibleSlotCount),
 
         multiCollectibleAssets: getExportableMultiCollectibleAssets(),
+
+        pastureLayerAssets: getExportablePastureLayerAssets(),
 
         solidBackgroundVariant,
 
@@ -40489,6 +41502,9 @@ function setupDOMUI() {
 
 
       isMaterialChangingMode = !!modes.isMaterialChangingMode;
+
+      isPastureLayerMode = !!modes.isPastureLayerMode;
+      applyPastureLayerAssetPayload(saveData.pastureLayer?.assets ?? modes.pastureLayerAssets);
 
 
 
@@ -40683,6 +41699,11 @@ function setupDOMUI() {
 
 
       });
+
+      // Imports/restored scripts set the mode before their saved blocks are
+      // recreated.  Apply the same conversion used by the visible toggle now
+      // that those blocks are actually on the board.
+      if (isPastureLayerMode) setPastureLayerMode(true);
 
 
 
@@ -43456,7 +44477,11 @@ function stopRecording() {
 customPropStyleSystemReady = true;
 loadCustomPropImages();
 applyPendingCustomPropStyle();
-setTimeout(() => { initPropStylePanel(); }, 600);
+setTimeout(() => {
+  initPropStylePanel();
+  initPastureLayerPanel();
+  void hydratePastureLayerAssets();
+}, 600);
 (window as any).importPropImage      = (role: 'machine'|'candy') => importPropImage(role);
   (window as any).clearCustomPropImages = clearCustomPropImages;
   (window as any).parseMaterialTextureName = (fileName: string) => parseMaterialTextureName(fileName);
@@ -43753,6 +44778,10 @@ interface SimBlock {
 
 
 
+  isCollectible?: boolean;
+
+
+
   isProp?: boolean;
 
 
@@ -43760,6 +44789,10 @@ interface SimBlock {
   propType?: 'row-bomb' | 'peppermint';
 
   propDir?: 'left' | 'right';
+
+
+
+  pastureStage?: PastureLayerStage;
 
 
 
@@ -44040,6 +45073,11 @@ function applySimGravity(simBlocks: SimBlock[], maxGravityRow: number = PARAMS.t
 
     let targetRow = b.row;
 
+    if (isPastureLayerGravityLocked(b)) {
+      simulatedRows[b.id] = targetRow;
+      return;
+    }
+
 
 
     while (targetRow < maxGravityRow) {
@@ -44168,6 +45206,7 @@ function applySimGravity(simBlocks: SimBlock[], maxGravityRow: number = PARAMS.t
 
 function checkSimEliminations(simBlocks: SimBlock[]): number[] {
   const fullRows = getSimFullRows(simBlocks);
+  const fullRowSet = new Set(fullRows);
 
 
 
@@ -44200,6 +45239,13 @@ function checkSimEliminations(simBlocks: SimBlock[]): number[] {
 
 
 
+
+  if (isPastureLayerMode) {
+    simBlocks.forEach(b => {
+      if (!fullRowSet.has(b.row) || !isPastureLayerCandidate(b) || b.pastureStage === 'sheep') return;
+      b.pastureStage = 'sheep';
+    });
+  }
 
   return fullRows;
 
@@ -44299,6 +45345,7 @@ function simulateSimMove(
 
 
 
+    const pastureStagesBeforeClear = new Map(simBlocks.map(b => [b.id, b.pastureStage]));
     const fullRows = checkSimEliminations(simBlocks);
 
 
@@ -44319,7 +45366,12 @@ function simulateSimMove(
 
 
 
-      if (!simBlocks[i].isProp && fullRows.includes(simBlocks[i].row)) {
+      const b = simBlocks[i];
+      const retainedPastureLayer = isPastureLayerMode
+        && isPastureLayerCandidate(b)
+        && fullRows.includes(b.row)
+        && pastureStagesBeforeClear.get(b.id) !== 'sheep';
+      if (!b.isProp && fullRows.includes(b.row) && !retainedPastureLayer) {
 
 
 
@@ -46152,7 +47204,8 @@ function bindAutoplayGeneratorEvents() {
         propType: b.propType,
 
         propDir: b.propDir,
-        collectibleId: b.collectibleId
+        collectibleId: b.collectibleId,
+        pastureStage: b.pastureStage
 
 
 
@@ -46624,7 +47677,8 @@ function getPlayableTutorialTarget() {
     isProp: b.isProp,
     propType: b.propType,
         propDir: b.propDir,
-        collectibleId: b.collectibleId
+        collectibleId: b.collectibleId,
+        pastureStage: b.pastureStage
   }));
 
   // Exported playables open at row 0. The editor camera can be scrolled to a
