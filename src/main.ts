@@ -23587,17 +23587,37 @@ function schedulePastureSheepGravity(): void {
 }
 
 function sendSheepToPastureBlock(block: Block): void {
+  const targetX = block.sprite.x;
+  const targetY = block.sprite.y;
+  const targetWidth = block.sprite.width;
+  const targetHeight = block.sprite.height;
   const visitor = createPastureLayerSpriteFromTextures(getPastureLayerTextures('sheep', block.length) || [PIXI.Texture.WHITE]);
-  visitor.width = block.sprite.width;
-  visitor.height = block.sprite.height;
-  visitor.x = block.col * PARAMS.cellSize + block.length * PARAMS.cellSize + PARAMS.cellSize * .35;
-  visitor.y = block.row * PARAMS.cellSize;
+  visitor.width = targetWidth;
+  visitor.height = targetHeight;
+  visitor.x = targetX;
+  visitor.y = targetY;
   visitor.zIndex = 19999;
   blocksContainer.addChild(visitor);
+
+  const revealMask = new PIXI.Graphics();
+  const revealState = { width: Math.max(4, PARAMS.cellSize * .16) };
+  const drawRevealMask = () => {
+    revealMask.clear();
+    revealMask.beginFill(0xffffff);
+    revealMask.drawRect(targetX, targetY, Math.min(targetWidth, revealState.width), targetHeight);
+    revealMask.endFill();
+  };
+  drawRevealMask();
+  visitor.mask = revealMask;
+  blocksContainer.addChild(revealMask);
 
   let completed = false;
   const discardVisitor = () => {
     gsap.killTweensOf(visitor);
+    gsap.killTweensOf(revealState);
+    visitor.mask = null;
+    if (revealMask.parent) revealMask.parent.removeChild(revealMask);
+    revealMask.destroy();
     if (visitor.parent) visitor.parent.removeChild(visitor);
     visitor.destroy();
   };
@@ -23613,6 +23633,10 @@ function sendSheepToPastureBlock(block: Block): void {
       discardVisitor();
       return;
     }
+    gsap.killTweensOf(revealState);
+    visitor.mask = null;
+    if (revealMask.parent) revealMask.parent.removeChild(revealMask);
+    revealMask.destroy();
     visitor.x = block.sprite.x;
     visitor.y = block.sprite.y;
     visitor.width = block.sprite.width;
@@ -23623,15 +23647,16 @@ function sendSheepToPastureBlock(block: Block): void {
     fitBlockSpriteToGrid(block);
     schedulePastureSheepGravity();
   };
-  gsap.to(visitor, {
-    x: block.sprite.x,
-    duration: .5,
+  gsap.to(revealState, {
+    width: targetWidth,
+    duration: .22,
     ease: 'power2.out',
+    onUpdate: drawRevealMask,
     onComplete: completeArrival,
   });
   // Some scripted playback paths clear/rebuild GSAP timelines immediately
   // after a row clear.  The logical arrival must survive that visual cleanup.
-  window.setTimeout(completeArrival, 650);
+  window.setTimeout(completeArrival, 360);
 }
 
 function advancePastureLayer(block: Block): number {

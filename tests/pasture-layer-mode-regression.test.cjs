@@ -24,8 +24,18 @@ assert.match(
 );
 assert.match(
   mainSource,
-  /function sendSheepToPastureBlock[\s\S]*?visitor\.x = block\.col \* PARAMS\.cellSize \+ block\.length \* PARAMS\.cellSize[\s\S]*?block\.pastureStage = 'sheep'[\s\S]*?replacePastureLayerSprite\(block, visitor\)[\s\S]*?schedulePastureSheepGravity\(\)[\s\S]*?if \(block\.pastureStage === 'framed-grass'\)[\s\S]*?const vanishSprite = new PIXI\.Sprite\(block\.sprite\.texture\)[\s\S]*?block\.pastureStage = 'grass'[\s\S]*?refreshPastureLayerSprite\(block\)[\s\S]*?setPastureSpriteScale\(block, \.7\)[\s\S]*?width: 0[\s\S]*?ease: 'back\.out\(2\.2\)'[\s\S]*?sendSheepToPastureBlock\(block\)/,
-  'the first clear must clone and remove framed grass while immediately switching the occupying block to uploaded grass, bouncing from 70%, then bringing in the sheep from that block edge',
+  /function sendSheepToPastureBlock[\s\S]*?const targetX = block\.sprite\.x[\s\S]*?visitor\.x = targetX[\s\S]*?const revealMask = new PIXI\.Graphics\(\)[\s\S]*?revealMask\.drawRect\(targetX, targetY, Math\.min\(targetWidth, revealState\.width\), targetHeight\)[\s\S]*?visitor\.mask = revealMask[\s\S]*?block\.pastureStage = 'sheep'[\s\S]*?replacePastureLayerSprite\(block, visitor\)[\s\S]*?schedulePastureSheepGravity\(\)[\s\S]*?gsap\.to\(revealState, \{[\s\S]*?width: targetWidth[\s\S]*?duration: \.22[\s\S]*?onUpdate: drawRevealMask[\s\S]*?onComplete: completeArrival/,
+  'the sheep must be revealed in-place from the grass block with a left-side mask instead of sliding in from the right',
+);
+assert.doesNotMatch(
+  mainSource,
+  /function sendSheepToPastureBlock[\s\S]*?visitor\.x = block\.col \* PARAMS\.cellSize \+ block\.length \* PARAMS\.cellSize/,
+  'sheep arrival must not start from the right side of the block',
+);
+assert.match(
+  mainSource,
+  /if \(block\.pastureStage === 'framed-grass'\)[\s\S]*?const vanishSprite = new PIXI\.Sprite\(block\.sprite\.texture\)[\s\S]*?block\.pastureStage = 'grass'[\s\S]*?refreshPastureLayerSprite\(block\)[\s\S]*?setPastureSpriteScale\(block, \.7\)[\s\S]*?width: 0[\s\S]*?ease: 'back\.out\(2\.2\)'[\s\S]*?sendSheepToPastureBlock\(block\)/,
+  'the first clear must still switch to uploaded grass, bounce from 70%, and then trigger sheep arrival',
 );
 assert.match(
   mainSource,
@@ -135,7 +145,7 @@ assert.match(
 );
 assert.match(
   mainSource,
-  /let pastureSheepGravityScheduled = false[\s\S]*?let pastureSheepGravityTimer: number \| null = null[\s\S]*?function schedulePastureSheepGravity\(\)[\s\S]*?window\.clearTimeout\(pastureSheepGravityTimer\)[\s\S]*?window\.setTimeout[\s\S]*?applyGravity\(true\)[\s\S]*?PASTURE_SHEEP_GRAVITY_DEBOUNCE_MS[\s\S]*?function sendSheepToPastureBlock[\s\S]*?replacePastureLayerSprite\(block, visitor\)[\s\S]*?schedulePastureSheepGravity\(\)/,
+  /let pastureSheepGravityScheduled = false[\s\S]*?let pastureSheepGravityTimer: number \| null = null[\s\S]*?function schedulePastureSheepGravity\(\)[\s\S]*?window\.clearTimeout\(pastureSheepGravityTimer\)[\s\S]*?window\.setTimeout[\s\S]*?applyGravity\(true\)[\s\S]*?PASTURE_SHEEP_GRAVITY_DEBOUNCE_MS[\s\S]*?function sendSheepToPastureBlock[\s\S]*?visitor\.mask = revealMask[\s\S]*?replacePastureLayerSprite\(block, visitor\)[\s\S]*?schedulePastureSheepGravity\(\)/,
   'sheep arrival must reuse the incoming sheep sprite and debounce gravity so multiple sheep do not trigger repeated full-board gravity passes',
 );
 assert.match(
