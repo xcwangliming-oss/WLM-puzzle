@@ -23591,30 +23591,25 @@ function sendSheepToPastureBlock(block: Block): void {
   const targetY = block.sprite.y;
   const targetWidth = block.sprite.width;
   const targetHeight = block.sprite.height;
+  const startX = targetX + Math.min(targetWidth, PARAMS.cellSize * .9);
   const visitor = createPastureLayerSpriteFromTextures(getPastureLayerTextures('sheep', block.length) || [PIXI.Texture.WHITE]);
   visitor.width = targetWidth;
   visitor.height = targetHeight;
-  visitor.x = targetX;
+  visitor.x = startX;
   visitor.y = targetY;
   visitor.zIndex = 19999;
   blocksContainer.addChild(visitor);
 
   const revealMask = new PIXI.Graphics();
-  const revealState = { width: Math.max(4, PARAMS.cellSize * .16) };
-  const drawRevealMask = () => {
-    revealMask.clear();
-    revealMask.beginFill(0xffffff);
-    revealMask.drawRect(targetX, targetY, Math.min(targetWidth, revealState.width), targetHeight);
-    revealMask.endFill();
-  };
-  drawRevealMask();
+  revealMask.beginFill(0xffffff);
+  revealMask.drawRect(targetX, targetY, targetWidth, targetHeight);
+  revealMask.endFill();
   visitor.mask = revealMask;
   blocksContainer.addChild(revealMask);
 
   let completed = false;
   const discardVisitor = () => {
     gsap.killTweensOf(visitor);
-    gsap.killTweensOf(revealState);
     visitor.mask = null;
     if (revealMask.parent) revealMask.parent.removeChild(revealMask);
     revealMask.destroy();
@@ -23633,7 +23628,7 @@ function sendSheepToPastureBlock(block: Block): void {
       discardVisitor();
       return;
     }
-    gsap.killTweensOf(revealState);
+    gsap.killTweensOf(visitor);
     visitor.mask = null;
     if (revealMask.parent) revealMask.parent.removeChild(revealMask);
     revealMask.destroy();
@@ -23647,16 +23642,15 @@ function sendSheepToPastureBlock(block: Block): void {
     fitBlockSpriteToGrid(block);
     schedulePastureSheepGravity();
   };
-  gsap.to(revealState, {
-    width: targetWidth,
-    duration: .22,
+  gsap.to(visitor, {
+    x: targetX,
+    duration: .36,
     ease: 'power2.out',
-    onUpdate: drawRevealMask,
     onComplete: completeArrival,
   });
   // Some scripted playback paths clear/rebuild GSAP timelines immediately
   // after a row clear.  The logical arrival must survive that visual cleanup.
-  window.setTimeout(completeArrival, 360);
+  window.setTimeout(completeArrival, 560);
 }
 
 function advancePastureLayer(block: Block): number {
