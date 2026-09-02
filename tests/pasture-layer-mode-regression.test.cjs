@@ -145,8 +145,8 @@ assert.match(
 );
 assert.match(
   mainSource,
-  /let pastureSheepGravityScheduled = false[\s\S]*?let pastureSheepGravityTimer: number \| null = null[\s\S]*?function schedulePastureSheepGravity\(\)[\s\S]*?window\.clearTimeout\(pastureSheepGravityTimer\)[\s\S]*?window\.setTimeout[\s\S]*?applyGravity\(true\)[\s\S]*?PASTURE_SHEEP_GRAVITY_DEBOUNCE_MS/,
-  'sheep gravity passes must be debounced so multiple sheep do not trigger repeated full-board gravity passes',
+  /let pastureSheepGravityScheduled = false[\s\S]*?let pastureSheepGravityTimer: number \| null = null[\s\S]*?function schedulePastureSheepGravity\(\)[\s\S]*?window\.clearTimeout\(pastureSheepGravityTimer\)[\s\S]*?window\.setTimeout[\s\S]*?if \(isAnimating\) \{[\s\S]*?schedulePastureSheepGravity\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?applyGravity\(true\)[\s\S]*?PASTURE_SHEEP_GRAVITY_DEBOUNCE_MS/,
+  'sheep gravity passes must be debounced and retried if row-clear animation is still busy',
 );
 assert.match(
   mainSource,

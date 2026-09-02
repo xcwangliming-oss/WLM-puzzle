@@ -23582,6 +23582,10 @@ function schedulePastureSheepGravity(): void {
     pastureSheepGravityTimer = null;
     pastureSheepGravityScheduled = false;
     if (!blocks.some(b => b.pastureStage === 'sheep')) return;
+    if (isAnimating) {
+      schedulePastureSheepGravity();
+      return;
+    }
     applyGravity(true);
   }, PASTURE_SHEEP_GRAVITY_DEBOUNCE_MS);
 }
