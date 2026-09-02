@@ -24,7 +24,7 @@ assert.match(
 );
 assert.match(
   mainSource,
-  /function sendSheepToPastureBlock[\s\S]*?const startX = targetX \+ Math\.min\(targetWidth, PARAMS\.cellSize \* \.9\)[\s\S]*?visitor\.x = startX[\s\S]*?const revealMask = new PIXI\.Graphics\(\)[\s\S]*?revealMask\.drawRect\(targetX, targetY, targetWidth, targetHeight\)[\s\S]*?visitor\.mask = revealMask[\s\S]*?block\.pastureStage = 'sheep'[\s\S]*?replacePastureLayerSprite\(block, visitor\)[\s\S]*?schedulePastureSheepGravity\(\)[\s\S]*?gsap\.to\(visitor, \{[\s\S]*?x: targetX[\s\S]*?duration: \.36[\s\S]*?onComplete: completeArrival/,
+  /function sendSheepToPastureBlock[\s\S]*?const startX = targetX \+ Math\.min\(targetWidth, PARAMS\.cellSize \* \.9\)[\s\S]*?visitor\.x = startX[\s\S]*?const revealMask = new PIXI\.Graphics\(\)[\s\S]*?revealMask\.drawRect\(targetX, targetY, targetWidth, targetHeight\)[\s\S]*?visitor\.mask = revealMask[\s\S]*?block\.pastureStage = 'sheep'[\s\S]*?replacePastureLayerSprite\(block, visitor\)[\s\S]*?schedulePastureSheepGravity\(\)[\s\S]*?gsap\.to\(visitor, \{[\s\S]*?x: targetX[\s\S]*?duration: \.72[\s\S]*?onComplete: completeArrival/,
   'the sheep must move right-to-left into the grass block while a fixed tile mask clips the motion',
 );
 assert.doesNotMatch(
@@ -155,7 +155,7 @@ assert.match(
 );
 assert.match(
   mainSource,
-  /function sendSheepToPastureBlock[\s\S]*?gsap\.to\(visitor, \{[\s\S]*?x: targetX[\s\S]*?duration: \.36[\s\S]*?onComplete: completeArrival/,
+  /function sendSheepToPastureBlock[\s\S]*?gsap\.to\(visitor, \{[\s\S]*?x: targetX[\s\S]*?duration: \.72[\s\S]*?onComplete: completeArrival/,
   'sheep visitor must animate right-to-left inside the fixed grass-block mask at the slower requested speed',
 );
 assert.match(

@@ -23644,13 +23644,13 @@ function sendSheepToPastureBlock(block: Block): void {
   };
   gsap.to(visitor, {
     x: targetX,
-    duration: .36,
+    duration: .72,
     ease: 'power2.out',
     onComplete: completeArrival,
   });
   // Some scripted playback paths clear/rebuild GSAP timelines immediately
   // after a row clear.  The logical arrival must survive that visual cleanup.
-  window.setTimeout(completeArrival, 560);
+  window.setTimeout(completeArrival, 920);
 }
 
 function advancePastureLayer(block: Block): number {
