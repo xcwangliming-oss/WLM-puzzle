@@ -23591,7 +23591,7 @@ function sendSheepToPastureBlock(block: Block): void {
   const targetY = block.sprite.y;
   const targetWidth = block.sprite.width;
   const targetHeight = block.sprite.height;
-  const startX = targetX + Math.min(targetWidth, PARAMS.cellSize * .9);
+  const startX = targetX + targetWidth;
   const visitor = createPastureLayerSpriteFromTextures(getPastureLayerTextures('sheep', block.length) || [PIXI.Texture.WHITE]);
   visitor.width = targetWidth;
   visitor.height = targetHeight;
@@ -23644,13 +23644,13 @@ function sendSheepToPastureBlock(block: Block): void {
   };
   gsap.to(visitor, {
     x: targetX,
-    duration: 1,
+    duration: .8,
     ease: 'none',
     onComplete: completeArrival,
   });
   // Some scripted playback paths clear/rebuild GSAP timelines immediately
   // after a row clear.  The logical arrival must survive that visual cleanup.
-  window.setTimeout(completeArrival, 1250);
+  window.setTimeout(completeArrival, 1050);
 }
 
 function advancePastureLayer(block: Block): number {
