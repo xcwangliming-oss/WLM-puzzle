@@ -2260,7 +2260,7 @@ body:not(.is-playable) #script-steps-panel {
   display: none;
   align-items: center;
   justify-content: flex-end;
-  gap: 18px;
+  gap: 16px;
   margin-left: auto;
   pointer-events: none;
   z-index: 5;
@@ -2268,31 +2268,32 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 .jewelry-score-hud .multi-collectible-target {
-  width: 54px;
-  min-height: 62px;
+  width: auto;
+  min-height: auto;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 6px;
   border-radius: 8px;
   background: transparent;
   box-shadow: none;
 }
 
 .jewelry-header-icon {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
-  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.42));
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
 }
 
 .jewelry-score-val {
   color: #fff;
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 2px 4px rgba(0,0,0,0.45), 0 0 8px rgba(46,252,255,0.42);
+  min-width: 14px;
 }
 
 .jewelry-fly-img {
