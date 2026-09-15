@@ -2234,3 +2234,46 @@ body:not(.is-playable) #script-steps-panel {
 .mapper-btn-cancel { background: #2e2e50; color: #a0a0c0; }
 .mapper-btn-confirm { background: linear-gradient(135deg, #5060d0, #7878f0); color: #fff; box-shadow: 0 4px 14px rgba(80,100,220,0.4); }
 .mapper-btn-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ===== Jewelry Box Mode Styling ===== */
+.jewelry-score-hud {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  background: rgba(20, 15, 36, 0.88);
+  border: 1.5px solid rgba(212, 175, 55, 0.75);
+  border-radius: 20px;
+  padding: 3px 10px 3px 6px;
+  box-shadow: 0 0 14px rgba(212, 175, 55, 0.4);
+  z-index: 5;
+}
+
+.jewelry-header-icon {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 4px rgba(255, 215, 0, 0.7));
+}
+
+.jewelry-score-label {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.jewelry-score-val {
+  color: #ffd700;
+  font-weight: 900;
+  font-size: 20px;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.6);
+  min-width: 16px;
+  text-align: center;
+}
+
+.jewelry-fly-img {
+  position: absolute;
+  pointer-events: none;
+  z-index: 9999;
+  filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.9));
+  will-change: transform, left, top;
+}
+

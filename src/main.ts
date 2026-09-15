@@ -186,6 +186,7 @@ let hasTriggeredCTA = false;
 };
 
 function getActiveGameRuleForExport(): string {
+    if (isJewelryBoxMode) return 'jewelry-box';
     if (isPastureLayerMode) return 'pasture-layer';
     if (isCollectMode) return 'collect';
     if (isColorChangingMode) return 'color';
@@ -334,6 +335,7 @@ function queueCustomPropStyle(style: unknown): void {
         modes: {
             isCollectMode,
             isPastureLayerMode,
+            isJewelryBoxMode,
             isFixedBoardMode: exportBoardAdvanceMode === 'fixed',
             isFallingMode,
             boardAdvanceMode: exportBoardAdvanceMode,
@@ -354,6 +356,7 @@ function queueCustomPropStyle(style: unknown): void {
         gameRule: exportGameRule,
         isCollectMode,
         isPastureLayerMode,
+        isJewelryBoxMode,
         jewelTarget: parseInt(document.getElementById('jewel-collect-target-val')?.innerText || '0'),
         currentLevel: parseInt(document.getElementById('level-val')?.innerText || '284'),
         currentScore: parseInt(document.getElementById('score-val')?.innerText?.replace(/,/g, '') || '0'),
@@ -432,7 +435,13 @@ function queueCustomPropStyle(style: unknown): void {
     setBoardMechanic(loadedBoardMechanic, false);
     const loadedGameRule = saveData.gameRule ?? savedModes.gameRule ?? 'normal';
     isPastureLayerMode = loadedGameRule === 'pasture-layer' || !!(saveData.isPastureLayerMode ?? savedModes.isPastureLayerMode);
-    isCollectMode = !isPastureLayerMode && (loadedGameRule === 'collect' || !!(saveData.isCollectMode ?? savedModes.isCollectMode));
+    isJewelryBoxMode = loadedGameRule === 'jewelry-box' || !!(saveData.isJewelryBoxMode ?? savedModes.isJewelryBoxMode);
+    if (isJewelryBoxMode) {
+        isPastureLayerMode = false;
+        isCollectMode = false;
+    } else {
+        isCollectMode = !isPastureLayerMode && (loadedGameRule === 'collect' || !!(saveData.isCollectMode ?? savedModes.isCollectMode));
+    }
     isColorChangingMode = loadedGameRule === 'color';
     isSingleColorMode = loadedGameRule === 'single-color';
     isCustomTwoColorMode = loadedGameRule === 'custom-two-color';
@@ -614,13 +623,16 @@ function queueCustomPropStyle(style: unknown): void {
             sb.propType,
             sb.propDir || 'left',
             typeof sb.collectibleId === 'string' ? sb.collectibleId : undefined,
-            sb.pastureStage
+            sb.pastureStage,
+            sb.isJewelryBox,
+            sb.jewelryBoxState
         );
     });
     // A saved board can predate this rule and therefore have no pastureStage
     // on its green blocks.  Hydrate it after all sprites exist, rather than
     // leaving a checked toggle with an unchanged ordinary board.
     if (isPastureLayerMode) setPastureLayerMode(true);
+    if (isJewelryBoxMode) setJewelryBoxMode(true);
 
     const expectedBlockCount = Number.isFinite(Number(saveData.exportedBlockCount))
         ? Number(saveData.exportedBlockCount)
@@ -1196,6 +1208,7 @@ async function hydratePastureLayerAssets(): Promise<void> {
 function setPastureLayerMode(enabled: boolean): void {
   isPastureLayerMode = enabled;
   if (enabled) {
+    if (isJewelryBoxMode) setJewelryBoxMode(false);
     // PASTURE_LAYER_MODE is a standalone ruleset, so never silently combine it
     // with any colour-changing, collection, material, or no-gravity rule.
     isColorChangingMode = false;
@@ -1249,6 +1262,510 @@ function getPastureBlocksForConfirmedClear(candidates: Block[]): Block[] {
 
 function isPastureLayerCandidate(block: Pick<Block, 'color' | 'isProp' | 'isCollectible'>): boolean {
   return block.color === 'green' && !block.isProp && !block.isCollectible;
+}
+
+type JewelryBoxAssetKey = '1-closed' | '1-open' | '2-closed' | '2-open' | 'gem';
+
+const JEWELRY_BOX_ASSET_KEYS: JewelryBoxAssetKey[] = ['1-closed', '1-open', '2-closed', '2-open', 'gem'];
+
+const JEWELRY_BOX_LABELS: Record<JewelryBoxAssetKey, string> = {
+  '1-closed': '1x1 关盒',
+  '1-open': '1x1 开盒',
+  '2-closed': '1x2 关盒',
+  '2-open': '1x2 开盒',
+  'gem': '飞行宝物'
+};
+
+const jewelryCustomAssets: Record<JewelryBoxAssetKey, string> = {
+  '1-closed': '',
+  '1-open': '',
+  '2-closed': '',
+  '2-open': '',
+  'gem': ''
+};
+
+function initJewelryCustomAssetsFromStorage(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  JEWELRY_BOX_ASSET_KEYS.forEach(key => {
+    try {
+      const saved = localStorage.getItem(`puzzle_jewelry_custom_${key}`);
+      if (saved) jewelryCustomAssets[key] = saved;
+    } catch (_) {}
+  });
+}
+initJewelryCustomAssetsFromStorage();
+
+const proceduralJewelryTextureCache = new Map<string, PIXI.Texture>();
+
+function drawJewelryRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawJewelryClasp(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+  ctx.save();
+  ctx.fillStyle = '#ffd700';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff2a8';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#3b0764';
+  ctx.beginPath();
+  ctx.arc(cx, cy - 1, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(cx - 2, cy - 1, 4, 6);
+  ctx.restore();
+}
+
+function drawJewelryGemInside(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, color1: string, color2: string): void {
+  ctx.save();
+  const aura = ctx.createRadialGradient(cx, cy, size * 0.2, cx, cy, size * 1.3);
+  aura.addColorStop(0, 'rgba(0, 240, 255, 0.6)');
+  aura.addColorStop(1, 'rgba(0, 240, 255, 0)');
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 1.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  const hw = size * 0.9;
+  const hh = size * 0.9;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - hh);
+  ctx.lineTo(cx + hw, cy);
+  ctx.lineTo(cx, cy + hh);
+  ctx.lineTo(cx - hw, cy);
+  ctx.closePath();
+
+  const gemGrad = ctx.createLinearGradient(cx - hw, cy - hh, cx + hw, cy + hh);
+  gemGrad.addColorStop(0, color2);
+  gemGrad.addColorStop(0.5, color1);
+  gemGrad.addColorStop(1, '#005f73');
+  ctx.fillStyle = gemGrad;
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - hh);
+  ctx.lineTo(cx + hw * 0.4, cy);
+  ctx.lineTo(cx, cy + hh);
+  ctx.lineTo(cx - hw * 0.4, cy);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawJewelrySparkle(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+  ctx.save();
+  ctx.fillStyle = '#ffffff';
+  const r = 6;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r);
+  ctx.quadraticCurveTo(cx, cy, cx + r, cy);
+  ctx.quadraticCurveTo(cx, cy, cx, cy + r);
+  ctx.quadraticCurveTo(cx, cy, cx - r, cy);
+  ctx.quadraticCurveTo(cx, cy, cx, cy - r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
+  if (typeof document === 'undefined') {
+    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  }
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  if (key === 'gem') {
+    canvas.width = 128;
+    canvas.height = 128;
+    const cx = 64, cy = 64;
+
+    const halo = ctx.createRadialGradient(cx, cy, 10, cx, cy, 60);
+    halo.addColorStop(0, 'rgba(0, 240, 255, 0.8)');
+    halo.addColorStop(0.5, 'rgba(0, 160, 255, 0.3)');
+    halo.addColorStop(1, 'rgba(0, 100, 255, 0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, 128, 128);
+
+    ctx.save();
+    const topW = 32, midW = 54;
+    const topY = 28, midY = 50, botY = 100;
+
+    ctx.beginPath();
+    ctx.moveTo(cx - topW, topY);
+    ctx.lineTo(cx + topW, topY);
+    ctx.lineTo(cx + midW, midY);
+    ctx.lineTo(cx - midW, midY);
+    ctx.closePath();
+    const gradTop = ctx.createLinearGradient(0, topY, 0, midY);
+    gradTop.addColorStop(0, '#e0ffff');
+    gradTop.addColorStop(1, '#68d8d6');
+    ctx.fillStyle = gradTop;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(cx - 20, topY + 4);
+    ctx.lineTo(cx + 20, topY + 4);
+    ctx.lineTo(cx + 34, midY - 6);
+    ctx.lineTo(cx - 34, midY - 6);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(cx - midW, midY);
+    ctx.lineTo(cx - 18, midY);
+    ctx.lineTo(cx, botY);
+    ctx.closePath();
+    ctx.fillStyle = '#07b1ca';
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(cx - 18, midY);
+    ctx.lineTo(cx + 18, midY);
+    ctx.lineTo(cx, botY);
+    ctx.closePath();
+    ctx.fillStyle = '#2ec4b6';
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(cx + 18, midY);
+    ctx.lineTo(cx + midW, midY);
+    ctx.lineTo(cx, botY);
+    ctx.closePath();
+    ctx.fillStyle = '#0077b6';
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(cx - 16, midY - 10, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+    return canvas.toDataURL('image/png');
+  }
+
+  const isWide = key.startsWith('2-');
+  const isOpen = key.endsWith('-open');
+  const w = isWide ? 256 : 128;
+  const h = 128;
+  canvas.width = w;
+  canvas.height = h;
+
+  const pad = 6;
+  const bw = w - pad * 2;
+  const bh = h - pad * 2;
+  const r = 16;
+
+  ctx.save();
+  drawJewelryRoundRect(ctx, pad, pad, bw, bh, r);
+  const goldGrad = ctx.createLinearGradient(0, pad, w, pad + bh);
+  goldGrad.addColorStop(0, '#ffd700');
+  goldGrad.addColorStop(0.3, '#fff4b8');
+  goldGrad.addColorStop(0.6, '#d4af37');
+  goldGrad.addColorStop(1, '#aa7c11');
+  ctx.fillStyle = goldGrad;
+  ctx.fill();
+
+  const innerPad = 4;
+  drawJewelryRoundRect(ctx, pad + innerPad, pad + innerPad, bw - innerPad * 2, bh - innerPad * 2, r - 3);
+  const velvetGrad = ctx.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w / 1.5);
+  if (!isOpen) {
+    velvetGrad.addColorStop(0, '#581c87');
+    velvetGrad.addColorStop(0.6, '#3b0764');
+    velvetGrad.addColorStop(1, '#240046');
+  } else {
+    velvetGrad.addColorStop(0, '#1e1b4b');
+    velvetGrad.addColorStop(0.7, '#0f172a');
+    velvetGrad.addColorStop(1, '#020617');
+  }
+  ctx.fillStyle = velvetGrad;
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(212, 175, 55, 0.4)';
+  ctx.lineWidth = 1.5;
+  drawJewelryRoundRect(ctx, pad + innerPad + 3, pad + innerPad + 3, bw - innerPad * 2 - 6, bh - innerPad * 2 - 6, r - 5);
+  ctx.stroke();
+  ctx.restore();
+
+  if (!isOpen) {
+    ctx.save();
+    if (isWide) {
+      [w * 0.35, w * 0.65].forEach(claspX => {
+        drawJewelryClasp(ctx, claspX, h / 2);
+      });
+      ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(pad + 10, h / 2);
+      ctx.lineTo(w - pad - 10, h / 2);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(pad + 8, h / 2);
+      ctx.lineTo(w - pad - 8, h / 2);
+      ctx.stroke();
+      drawJewelryClasp(ctx, w / 2, h / 2);
+    }
+    ctx.restore();
+  } else {
+    ctx.save();
+    if (isWide) {
+      drawJewelryGemInside(ctx, w * 0.32, h / 2, 28, '#00f0ff', '#ffffff');
+      drawJewelryGemInside(ctx, w * 0.68, h / 2, 28, '#ff3366', '#ffffff');
+      drawJewelrySparkle(ctx, w * 0.32 - 12, h / 2 - 14);
+      drawJewelrySparkle(ctx, w * 0.68 + 12, h / 2 - 14);
+    } else {
+      drawJewelryGemInside(ctx, w / 2, h / 2, 34, '#00e5ff', '#ffffff');
+      drawJewelrySparkle(ctx, w / 2 + 15, h / 2 - 15);
+      drawJewelrySparkle(ctx, w / 2 - 14, h / 2 + 10);
+    }
+    ctx.restore();
+  }
+
+  return canvas.toDataURL('image/png');
+}
+
+function getJewelryBoxTexture(length: number, state: 'closed' | 'open'): PIXI.Texture {
+  const normLength = length === 2 ? 2 : 1;
+  const assetKey: JewelryBoxAssetKey = `${normLength}-${state}`;
+  const customDataUrl = jewelryCustomAssets[assetKey];
+  const cacheKey = customDataUrl ? `custom_${assetKey}_${customDataUrl.slice(-16)}` : `proc_${assetKey}`;
+
+  if (proceduralJewelryTextureCache.has(cacheKey)) {
+    return proceduralJewelryTextureCache.get(cacheKey)!;
+  }
+
+  const src = customDataUrl || generateProceduralJewelryDataUrl(assetKey);
+  let tex: PIXI.Texture | null = null;
+  if (typeof PIXI !== 'undefined' && PIXI.Texture) {
+    try {
+      tex = PIXI.Texture.from(src);
+    } catch (_) {}
+  }
+  const resultTex = tex || (typeof PIXI !== 'undefined' ? PIXI.Texture.WHITE : (null as any));
+  if (resultTex) proceduralJewelryTextureCache.set(cacheKey, resultTex);
+  return resultTex;
+}
+
+function refreshJewelryBoxSprite(block: Block): void {
+  if (!block.isJewelryBox) return;
+  const state = block.jewelryBoxState || 'closed';
+  const texture = getJewelryBoxTexture(block.length, state);
+  if (texture && block.sprite) {
+    block.sprite.texture = texture;
+    block.sprite.alpha = 1;
+    fitBlockSpriteToGrid(block);
+  }
+}
+
+function advanceJewelryBox(block: Block): number {
+  if (!block.isJewelryBox || block.jewelryBoxState === 'open') return 0;
+  block.jewelryBoxState = 'open';
+  refreshJewelryBoxSprite(block);
+
+  try {
+    if (typeof playSound === 'function' && sounds?.obtain) {
+      playSound(sounds.obtain);
+    }
+  } catch (_) {}
+
+  if (typeof gsap !== 'undefined' && block.sprite) {
+    const baseW = block.length * PARAMS.cellSize;
+    const baseH = PARAMS.cellSize;
+    const texW = block.sprite.texture?.width || baseW;
+    const texH = block.sprite.texture?.height || baseH;
+    gsap.fromTo(block.sprite.scale,
+      { x: (baseW / texW) * 0.8, y: (baseH / texH) * 0.8 },
+      { x: baseW / texW, y: baseH / texH, duration: 0.35, ease: 'back.out(2)' }
+    );
+  }
+  return 1;
+}
+
+function playJewelryBoxFlyAnimation(block: Block): void {
+  const gemSrc = jewelryCustomAssets['gem'] || generateProceduralJewelryDataUrl('gem');
+  const count = block.length;
+
+  jewelryCollectedCount += count;
+  syncJewelryBoxUI();
+
+  if (typeof document === 'undefined') return;
+
+  const hud = document.getElementById('jewelry-score-hud');
+  const hudRect = hud ? hud.getBoundingClientRect() : null;
+  const canvas = (typeof app !== 'undefined' && app?.view) ? (app.view as HTMLCanvasElement) : null;
+  const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
+
+  if (!hudRect || !canvasRect) return;
+
+  const cell = PARAMS.cellSize;
+  const startCanvasX = block.col * cell + (block.length * cell) / 2;
+  const startCanvasY = block.row * cell + cell / 2;
+
+  const worldY = typeof worldContainer !== 'undefined' ? worldContainer.y : 0;
+  const scaleX = canvasRect.width / (PARAMS.gridCols * cell);
+  const scaleY = canvasRect.height / (PARAMS.viewportRows * cell);
+
+  const startScreenX = canvasRect.left + startCanvasX * scaleX;
+  const startScreenY = canvasRect.top + (startCanvasY + worldY) * scaleY;
+
+  const targetScreenX = hudRect.left + hudRect.width / 2;
+  const targetScreenY = hudRect.top + hudRect.height / 2;
+
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => {
+      const flyImg = document.createElement('img');
+      flyImg.src = gemSrc;
+      flyImg.className = 'jewelry-fly-img';
+      flyImg.style.width = '36px';
+      flyImg.style.height = '36px';
+      flyImg.style.left = `${startScreenX - 18 + (i - (count - 1) / 2) * 20}px`;
+      flyImg.style.top = `${startScreenY - 18}px`;
+      document.body.appendChild(flyImg);
+
+      const midX = (startScreenX + targetScreenX) / 2 + (Math.random() - 0.5) * 80;
+      const midY = Math.min(startScreenY, targetScreenY) - 50 - Math.random() * 40;
+
+      const startTime = performance.now();
+      const duration = 650;
+
+      const animateFly = (now: number) => {
+        const p = Math.min(1, (now - startTime) / duration);
+        const inv = 1 - p;
+        const curX = inv * inv * startScreenX + 2 * inv * p * midX + p * p * targetScreenX;
+        const curY = inv * inv * startScreenY + 2 * inv * p * midY + p * p * targetScreenY;
+        const scale = 1 + Math.sin(p * Math.PI) * 0.4;
+
+        flyImg.style.left = `${curX - 18}px`;
+        flyImg.style.top = `${curY - 18}px`;
+        flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
+        flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
+
+        if (p < 1) {
+          requestAnimationFrame(animateFly);
+        } else {
+          flyImg.remove();
+          if (hud) {
+            hud.style.transform = 'scale(1.25)';
+            hud.style.transition = 'transform 0.15s ease-out';
+            setTimeout(() => {
+              hud.style.transform = 'scale(1)';
+            }, 150);
+          }
+        }
+      };
+      requestAnimationFrame(animateFly);
+    }, i * 120);
+  }
+}
+
+let isJewelryBoxMode = false;
+let jewelryCollectedCount = 0;
+
+function isJewelryBoxCandidate(block: Pick<Block, 'length' | 'isProp' | 'isCollectible'>): boolean {
+  return (block.length === 1 || block.length === 2) && !block.isProp && !block.isCollectible;
+}
+
+function getJewelryBoxBlocksForConfirmedClear(candidates: Block[]): Block[] {
+  return candidates.filter(b => b.isJewelryBox && b.jewelryBoxState !== 'open');
+}
+
+function setJewelryBoxMode(enabled: boolean): void {
+  isJewelryBoxMode = enabled;
+  if (enabled) {
+    if (isPastureLayerMode) setPastureLayerMode(false);
+    isColorChangingMode = false;
+    isSingleColorMode = false;
+    isCustomTwoColorMode = false;
+    isRainbowMode = false;
+    isRainbowFixedMode = false;
+    isMaterialChangingMode = false;
+    isCollectMode = false;
+    isNoGravityMode = false;
+    jewelryCollectedCount = 0;
+    blocks.forEach(block => {
+      block.noGravity = false;
+      if (block.isJewelryBox) {
+        refreshJewelryBoxSprite(block);
+      } else if (isJewelryBoxCandidate(block)) {
+        block.isJewelryBox = true;
+        block.jewelryBoxState = 'closed';
+        refreshJewelryBoxSprite(block);
+      }
+    });
+  } else {
+    blocks.forEach(block => {
+      if (!block.isJewelryBox) return;
+      block.isJewelryBox = false;
+      block.jewelryBoxState = undefined;
+      const texture = PIXI.Assets.get(`${block.color}-${block.length}`);
+      if (texture) {
+        block.sprite.texture = texture;
+        block.sprite.scale.set(1);
+        block.sprite.width = block.length * PARAMS.cellSize;
+        block.sprite.height = PARAMS.cellSize;
+      }
+    });
+  }
+  syncJewelryBoxUI();
+  syncModeButtonsUI();
+}
+
+function syncJewelryBoxUI(): void {
+  const toggle = document.getElementById('toggle-jewelry-box-mode') as HTMLInputElement | null;
+  if (toggle) toggle.checked = isJewelryBoxMode;
+
+  const btn = document.getElementById('btn-jewelry-box-mode');
+  if (btn) {
+    btn.classList.toggle('blue', isJewelryBoxMode);
+    btn.classList.toggle('gray', !isJewelryBoxMode);
+  }
+
+  const hud = document.getElementById('jewelry-score-hud');
+  if (hud) {
+    hud.style.display = (isJewelryBoxMode || blocks.some(b => b.isJewelryBox)) ? 'flex' : 'none';
+    const val = document.getElementById('jewelry-collect-val');
+    if (val) val.innerText = String(jewelryCollectedCount);
+    const icon = document.getElementById('jewelry-header-icon') as HTMLImageElement | null;
+    if (icon) {
+      icon.src = jewelryCustomAssets['gem'] || generateProceduralJewelryDataUrl('gem');
+    }
+  }
+
+  JEWELRY_BOX_ASSET_KEYS.forEach(key => {
+    const thumb = document.getElementById(`jewelry-thumb-${key}`) as HTMLImageElement | null;
+    if (thumb) {
+      thumb.src = jewelryCustomAssets[key] || generateProceduralJewelryDataUrl(key);
+    }
+  });
 }
 
 
@@ -1615,16 +2132,9 @@ interface BoardBlockState {
   propDir?: 'left' | 'right';
 
   pastureStage?: PastureLayerStage;
-
-
-
+  isJewelryBox?: boolean;
+  jewelryBoxState?: 'closed' | 'open';
 }
-
-
-
-
-
-
 
 function spawnRecordedBlockState(sb: BoardBlockState | any) {
   const shouldUseSingleCollectible =
@@ -1645,7 +2155,9 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
       sb.propType,
       sb.propDir || 'left',
       sb.collectibleId,
-      sb.pastureStage
+      sb.pastureStage,
+      sb.isJewelryBox,
+      sb.jewelryBoxState
     );
   } finally {
     multiCollectibleModeEnabled = previousMultiCollectibleMode;
@@ -1665,7 +2177,9 @@ function captureCurrentBoardBlockStates(): BoardBlockState[] {
     propType: b.propType,
     propDir: b.propDir,
     collectibleId: b.collectibleId,
-    pastureStage: b.pastureStage
+    pastureStage: b.pastureStage,
+    isJewelryBox: b.isJewelryBox,
+    jewelryBoxState: b.jewelryBoxState
   }));
 }
 
@@ -1693,6 +2207,8 @@ function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
     if ((block.propDir || 'left') !== (state.propDir || 'left')) return false;
     if (block.collectibleId !== state.collectibleId) return false;
     if (block.pastureStage !== state.pastureStage) return false;
+    if (!!block.isJewelryBox !== !!state.isJewelryBox) return false;
+    if (block.jewelryBoxState !== state.jewelryBoxState) return false;
   }
 
   return true;
@@ -6565,8 +7081,10 @@ function runPhysicsInstant() {
         // deleted every row block directly, bypassing framed grass -> grass ->
         // sheep entirely.
         const pastureBlocks = getPastureBlocksForConfirmedClear(rowBlocks);
-        const physicalBlocks = rowBlocks.filter(b => !b.pastureStage || b.pastureStage === 'sheep');
+        const physicalBlocks = rowBlocks.filter(b => !b.pastureStage || b.pastureStage === 'sheep').filter(b => !b.isJewelryBox || b.jewelryBoxState === 'open');
         pastureBlocks.forEach(block => advancePastureLayer(block));
+        const jewelryBoxBlocks = getJewelryBoxBlocksForConfirmedClear(rowBlocks);
+        jewelryBoxBlocks.forEach(block => advanceJewelryBox(block));
         physicalBlocks.forEach(block => {
           if (block.sprite.parent) blocksContainer.removeChild(block.sprite);
         });
@@ -16594,9 +17112,8 @@ interface Block {
 
   /** PASTURE_LAYER_MODE: current visual/clear layer, absent for ordinary blocks. */
   pastureStage?: PastureLayerStage;
-
-
-
+  isJewelryBox?: boolean;
+  jewelryBoxState?: 'closed' | 'open';
 }
 
 
@@ -22570,6 +23087,95 @@ function syncPastureLayerPanel(): void {
   });
 }
 
+function initJewelryBoxPanel(): void {
+  const panel = ensureStyleAssetsPanel();
+  if (!panel || document.getElementById('jewelry-box-section')) return;
+  const pastureSection = document.getElementById('pasture-layer-section');
+  const sec = document.createElement('section');
+  sec.id = 'jewelry-box-section';
+  sec.style.cssText = 'display:flex;flex-direction:column;border-top:1px solid #444;padding-top:8px;margin-top:8px;gap:6px;';
+  sec.innerHTML = `<h3 style="margin:2px 0 0;display:flex;align-items:center;gap:6px;font-size:14px;">💎 首饰盒双层收集 <span style="font-size:9px;background:#926815;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;">独立模式</span></h3>
+    <label style="display:flex;align-items:center;gap:5px;padding:5px 6px;background:#2d2411;border:1px solid #7c5e1c;border-radius:5px;cursor:pointer;font-size:10px;color:#ffeeb8;"><input id="toggle-jewelry-box-mode" type="checkbox" style="margin:0;accent-color:#d4af37;"/><span>启用首饰盒双层收集模式</span></label>
+    <div style="font-size:9px;color:#aaa;line-height:1.3;">1x1 与 1x2 方块变为首饰盒：第1次消行开盒露出珍珠/钻石，第2次消行消除并飞入顶部HUD计数。点击下方可上传自定义 PNG/WebP。</div>
+    <div id="jewelry-box-asset-grid" style="display:grid;grid-template-columns:repeat(5, 1fr);gap:4px;"></div>
+    <button id="btn-clear-jewelry-assets" type="button" style="padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;">恢复默认程序化素材</button>`;
+
+  if (pastureSection && pastureSection.parentElement === panel) {
+    panel.insertBefore(sec, pastureSection.nextSibling);
+  } else {
+    panel.appendChild(sec);
+  }
+
+  const grid = sec.querySelector('#jewelry-box-asset-grid') as HTMLElement;
+  JEWELRY_BOX_ASSET_KEYS.forEach(key => {
+    const label = document.createElement('label');
+    label.htmlFor = `input-jewelry-${key}`;
+    label.style.cssText = 'min-height:38px;border:1px dashed #7c5e1c;border-radius:4px;background:#1e180d;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:3px;';
+
+    const img = document.createElement('img');
+    img.id = `jewelry-thumb-${key}`;
+    img.src = jewelryCustomAssets[key] || generateProceduralJewelryDataUrl(key);
+    img.style.cssText = 'max-width:100%;max-height:26px;object-fit:contain;';
+
+    const title = document.createElement('span');
+    title.id = `jewelry-title-${key}`;
+    title.textContent = JEWELRY_BOX_LABELS[key];
+    title.style.cssText = 'font-size:8px;color:#d4af37;text-align:center;line-height:1;margin-top:2px;';
+
+    const input = document.createElement('input');
+    input.id = `input-jewelry-${key}`;
+    input.type = 'file';
+    input.accept = 'image/png,image/webp';
+    input.hidden = true;
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      input.value = '';
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        if (!dataUrl) return;
+        jewelryCustomAssets[key] = dataUrl;
+        try {
+          localStorage.setItem(`puzzle_jewelry_custom_${key}`, dataUrl);
+        } catch (_) {}
+        img.src = dataUrl;
+        proceduralJewelryTextureCache.clear();
+        blocks.forEach(b => {
+          if (b.isJewelryBox) refreshJewelryBoxSprite(b);
+        });
+        syncJewelryBoxUI();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    label.append(img, title, input);
+    grid.appendChild(label);
+  });
+
+  const toggle = sec.querySelector('#toggle-jewelry-box-mode') as HTMLInputElement;
+  toggle.addEventListener('change', () => setJewelryBoxMode(toggle.checked));
+
+  const clearBtn = sec.querySelector('#btn-clear-jewelry-assets') as HTMLButtonElement;
+  clearBtn.addEventListener('click', () => {
+    JEWELRY_BOX_ASSET_KEYS.forEach(key => {
+      jewelryCustomAssets[key] = '';
+      try {
+        localStorage.removeItem(`puzzle_jewelry_custom_${key}`);
+      } catch (_) {}
+      const thumb = document.getElementById(`jewelry-thumb-${key}`) as HTMLImageElement | null;
+      if (thumb) thumb.src = generateProceduralJewelryDataUrl(key);
+    });
+    proceduralJewelryTextureCache.clear();
+    blocks.forEach(b => {
+      if (b.isJewelryBox) refreshJewelryBoxSprite(b);
+    });
+    syncJewelryBoxUI();
+  });
+
+  syncJewelryBoxUI();
+}
+
 function refreshObstacleEaterToggle(): void {
   const toggle = document.getElementById('toggle-obstacle-eater') as HTMLInputElement | null;
   if (toggle) toggle.checked = obstacleEaterEnabled;
@@ -23817,9 +24423,7 @@ function advancePastureLayer(block: Block): number {
   return .05;
 }
 
-function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left', collectibleId?: string, pastureStage?: PastureLayerStage) {
-
-
+function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left', collectibleId?: string, pastureStage?: PastureLayerStage, isJewelryBox?: boolean, jewelryBoxState?: 'closed' | 'open') {
 
   if (isProp && !isValidPropLength(length)) return null;
 
@@ -23832,13 +24436,15 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
     color = 'red';
   }
 
-
+  const resolvedIsJewelryBox = Boolean(isJewelryBox || (isJewelryBoxMode && isJewelryBoxCandidate({ length, isProp, isCollectible })));
+  const resolvedJewelryBoxState = resolvedIsJewelryBox ? (jewelryBoxState || 'closed') : undefined;
 
   let sprite: PIXI.Sprite;
 
-
-
-  if (isProp) {
+  if (resolvedIsJewelryBox) {
+    const jTex = getJewelryBoxTexture(length, resolvedJewelryBoxState || 'closed');
+    sprite = new PIXI.Sprite(jTex || PIXI.Texture.WHITE);
+  } else if (isProp) {
     const propTextures = getPropAnimationTextures(length, propDir, 'idle');
     if (customPropMachineFrameImages.length > 0) {
       const animSprite = new PIXI.AnimatedSprite(propTextures);
@@ -24399,8 +25005,9 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
   const resolvedPastureStage = pastureStage || (isPastureLayerMode && isPastureLayerCandidate({ color, isProp, isCollectible }) ? 'framed-grass' : undefined);
-  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, collectibleId, isProp, propType, propDir, pastureStage: resolvedPastureStage };
+  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, collectibleId, isProp, propType, propDir, pastureStage: resolvedPastureStage, isJewelryBox: resolvedIsJewelryBox, jewelryBoxState: resolvedJewelryBoxState };
   if (resolvedPastureStage) refreshPastureLayerSprite(block);
+  if (resolvedIsJewelryBox) refreshJewelryBoxSprite(block);
 
 
 
@@ -27773,10 +28380,11 @@ function checkEliminations() {
     // This only repairs their initial marker; it does not advance a layer
     // before the clear animation owns that transition.
     getPastureBlocksForConfirmedClear(blocksToRemove);
+    getJewelryBoxBlocksForConfirmedClear(blocksToRemove);
     // PASTURE_LAYER_MODE: the first two layers remain occupied.  Their stage
     // changes are scheduled below on the same timeline as their row clear.
     // This is the original, working ownership model for the feature.
-    const blocksToPhysicallyRemove = blocksToRemove.filter(b => !b.pastureStage || b.pastureStage === 'sheep');
+    const blocksToPhysicallyRemove = blocksToRemove.filter(b => !b.pastureStage || b.pastureStage === 'sheep').filter(b => !b.isJewelryBox || b.jewelryBoxState === 'open');
 
     if (isNoGravityMode) {
       releaseNewlyUnsupportedNoGravityBlocks(
@@ -28131,6 +28739,12 @@ function checkEliminations() {
           return;
         }
 
+        if (b.isJewelryBox && b.jewelryBoxState !== 'open') {
+          tl.call(() => { advanceJewelryBox(b); }, [], rowPlaybackOffset);
+          tl.to({}, { duration: .35 }, rowPlaybackOffset);
+          return;
+        }
+
 
 
         const refCol = b.col + b.length / 2;
@@ -28205,10 +28819,16 @@ function checkEliminations() {
 
 
 
+        if (b.isJewelryBox && b.jewelryBoxState === 'open') {
+          tl.call(() => {
+            playJewelryBoxFlyAnimation(b);
+          }, [], rowPlaybackOffset + delay);
+        }
+
         tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, rowPlaybackOffset + delay);
         tl.to(b.sprite, { alpha: 0, duration: 0.1 }, rowPlaybackOffset + delay);
 
-        if (PARAMS.effectType === 'gem-shatter') {
+        if (PARAMS.effectType === 'gem-shatter' && !b.isJewelryBox) {
           tl.call(() => {
             const texArray = gemShatterTextures[b.color as string];
             if (texArray && texArray.length > 0 && texArray[0]) {
@@ -37168,6 +37788,7 @@ function setupDOMUI() {
   const btnObstacleMode = document.getElementById('btn-obstacle-mode');
 
   const disablePastureLayerMode = () => setPastureLayerMode(false);
+  const disableJewelryBoxMode = () => setJewelryBoxMode(false);
 
   // PASTURE_LAYER_MODE is intentionally exclusive. Existing buttons keep their
   // own behaviour; this small boundary prevents hidden combinations with colour,
@@ -37176,6 +37797,7 @@ function setupDOMUI() {
     btnRainbowMode, btnRainbowFixedMode, btnMaterialMode, btnCollectMode,
     btnMultiCollectMode, btnNoGravityMode].forEach(button => {
       button.addEventListener('click', disablePastureLayerMode);
+      button.addEventListener('click', disableJewelryBoxMode);
     });
 
 
@@ -37328,7 +37950,7 @@ function setupDOMUI() {
 
 
 
-      if (!isPastureLayerMode && !isColorChangingMode && !isSingleColorMode && !isRainbowMode && !isRainbowFixedMode && !isMaterialChangingMode) {
+      if (!isJewelryBoxMode && !isPastureLayerMode && !isColorChangingMode && !isSingleColorMode && !isRainbowMode && !isRainbowFixedMode && !isMaterialChangingMode) {
 
 
 
@@ -37412,7 +38034,7 @@ function setupDOMUI() {
 
 
 
-                      !isMaterialChangingMode && !isPastureLayerMode;
+                      !isMaterialChangingMode && !isPastureLayerMode && !isJewelryBoxMode;
 
 
 
@@ -41412,6 +42034,7 @@ function setupDOMUI() {
         isMaterialChangingMode,
 
         isPastureLayerMode,
+        isJewelryBoxMode,
 
 
 
@@ -41620,6 +42243,7 @@ function setupDOMUI() {
       isMaterialChangingMode = !!modes.isMaterialChangingMode;
 
       isPastureLayerMode = !!modes.isPastureLayerMode;
+      isJewelryBoxMode = !!modes.isJewelryBoxMode;
       applyPastureLayerAssetPayload(saveData.pastureLayer?.assets ?? modes.pastureLayerAssets);
 
 
@@ -41820,6 +42444,7 @@ function setupDOMUI() {
       // recreated.  Apply the same conversion used by the visible toggle now
       // that those blocks are actually on the board.
       if (isPastureLayerMode) setPastureLayerMode(true);
+      if (isJewelryBoxMode) setJewelryBoxMode(true);
 
 
 
@@ -44596,6 +45221,7 @@ applyPendingCustomPropStyle();
 setTimeout(() => {
   initPropStylePanel();
   initPastureLayerPanel();
+  initJewelryBoxPanel();
   void hydratePastureLayerAssets();
 }, 600);
 (window as any).importPropImage      = (role: 'machine'|'candy') => importPropImage(role);
@@ -44909,9 +45535,8 @@ interface SimBlock {
 
 
   pastureStage?: PastureLayerStage;
-
-
-
+  isJewelryBox?: boolean;
+  jewelryBoxState?: 'closed' | 'open';
 }
 
 
@@ -45363,6 +45988,14 @@ function checkSimEliminations(simBlocks: SimBlock[]): number[] {
     });
   }
 
+  if (isJewelryBoxMode) {
+    simBlocks.forEach(b => {
+      if (!fullRowSet.has(b.row) || !isJewelryBoxCandidate(b) || b.jewelryBoxState === 'open') return;
+      b.isJewelryBox = true;
+      b.jewelryBoxState = 'open';
+    });
+  }
+
   return fullRows;
 
 
@@ -45462,6 +46095,7 @@ function simulateSimMove(
 
 
     const pastureStagesBeforeClear = new Map(simBlocks.map(b => [b.id, b.pastureStage]));
+    const jewelryBoxStatesBeforeClear = new Map(simBlocks.map(b => [b.id, b.jewelryBoxState]));
     const fullRows = checkSimEliminations(simBlocks);
 
 
@@ -45487,7 +46121,11 @@ function simulateSimMove(
         && isPastureLayerCandidate(b)
         && fullRows.includes(b.row)
         && pastureStagesBeforeClear.get(b.id) !== 'sheep';
-      if (!b.isProp && fullRows.includes(b.row) && !retainedPastureLayer) {
+      const retainedJewelryBox = (isJewelryBoxMode || b.isJewelryBox)
+        && isJewelryBoxCandidate(b)
+        && fullRows.includes(b.row)
+        && jewelryBoxStatesBeforeClear.get(b.id) !== 'open';
+      if (!b.isProp && fullRows.includes(b.row) && !retainedPastureLayer && !retainedJewelryBox) {
 
 
 
