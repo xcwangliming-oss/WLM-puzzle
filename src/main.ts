@@ -1264,29 +1264,33 @@ function isPastureLayerCandidate(block: Pick<Block, 'color' | 'isProp' | 'isColl
   return block.color === 'green' && !block.isProp && !block.isCollectible;
 }
 
-type JewelryBoxAssetKey = '1-closed' | '1-open' | '2-closed' | '2-open' | 'gem';
+type JewelryBoxAssetKey = '1-closed' | '1-open' | '2-closed' | '2-open' | 'gem' | 'gem-1' | 'gem-2';
 
-const JEWELRY_BOX_ASSET_KEYS: JewelryBoxAssetKey[] = ['1-closed', '1-open', '2-closed', '2-open', 'gem'];
+const JEWELRY_BOX_ASSET_KEYS: JewelryBoxAssetKey[] = ['1-closed', '1-open', 'gem-1', '2-closed', '2-open', 'gem-2'];
 
 const JEWELRY_BOX_LABELS: Record<JewelryBoxAssetKey, string> = {
   '1-closed': '1x1 关盒',
   '1-open': '1x1 开盒',
+  'gem-1': '宝物1 (珍珠)',
   '2-closed': '1x2 关盒',
   '2-open': '1x2 开盒',
+  'gem-2': '宝物2 (钻石)',
   'gem': '飞行宝物'
 };
 
 const jewelryCustomAssets: Record<JewelryBoxAssetKey, string> = {
   '1-closed': '',
   '1-open': '',
+  'gem-1': '',
   '2-closed': '',
   '2-open': '',
+  'gem-2': '',
   'gem': ''
 };
 
 function initJewelryCustomAssetsFromStorage(): void {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
-  JEWELRY_BOX_ASSET_KEYS.forEach(key => {
+  (['1-closed', '1-open', 'gem-1', '2-closed', '2-open', 'gem-2', 'gem'] as JewelryBoxAssetKey[]).forEach(key => {
     try {
       const saved = localStorage.getItem(`puzzle_jewelry_custom_${key}`);
       if (saved) jewelryCustomAssets[key] = saved;
@@ -1326,6 +1330,52 @@ function drawJewelryClasp(ctx: CanvasRenderingContext2D, cx: number, cy: number)
   ctx.arc(cx, cy - 1, 3.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillRect(cx - 2, cy - 1, 4, 6);
+  ctx.restore();
+}
+
+function drawJewelryPearl(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
+  ctx.save();
+  const aura = ctx.createRadialGradient(cx, cy, r * 0.4, cx, cy, r * 1.4);
+  aura.addColorStop(0, 'rgba(255, 240, 245, 0.7)');
+  aura.addColorStop(0.5, 'rgba(230, 215, 255, 0.35)');
+  aura.addColorStop(1, 'rgba(230, 215, 255, 0)');
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  const pearlGrad = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.35, r * 0.08, cx, cy, r);
+  pearlGrad.addColorStop(0, '#ffffff');
+  pearlGrad.addColorStop(0.35, '#fff0f5');
+  pearlGrad.addColorStop(0.7, '#e8dff5');
+  pearlGrad.addColorStop(0.92, '#cbb4d4');
+  pearlGrad.addColorStop(1, '#9b80b0');
+  ctx.fillStyle = pearlGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 1.5, 0, Math.PI * 2);
+  ctx.clip();
+  const luster = ctx.createLinearGradient(cx - r, cy + r, cx + r, cy - r);
+  luster.addColorStop(0, 'rgba(168, 230, 207, 0.3)');
+  luster.addColorStop(0.5, 'rgba(255, 211, 218, 0.38)');
+  luster.addColorStop(1, 'rgba(255, 255, 255, 0.55)');
+  ctx.fillStyle = luster;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.32, cy - r * 0.32, r * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.12, cy - r * 0.46, r * 0.09, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -1392,7 +1442,17 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
-  if (key === 'gem') {
+  if (key === 'gem' || key === 'gem-1') {
+    canvas.width = 128;
+    canvas.height = 128;
+    const cx = 64, cy = 64;
+    drawJewelryPearl(ctx, cx, cy, 38);
+    drawJewelrySparkle(ctx, cx + 28, cy - 24);
+    drawJewelrySparkle(ctx, cx - 28, cy + 22);
+    return canvas.toDataURL('image/png');
+  }
+
+  if (key === 'gem-2') {
     canvas.width = 128;
     canvas.height = 128;
     const cx = 64, cy = 64;
@@ -1463,6 +1523,7 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
     ctx.beginPath();
     ctx.arc(cx - 16, midY - 10, 4, 0, Math.PI * 2);
     ctx.fill();
+    drawJewelrySparkle(ctx, cx + 24, topY + 6);
 
     ctx.restore();
     return canvas.toDataURL('image/png');
@@ -1543,9 +1604,9 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
       drawJewelrySparkle(ctx, w * 0.32 - 12, h / 2 - 14);
       drawJewelrySparkle(ctx, w * 0.68 + 12, h / 2 - 14);
     } else {
-      drawJewelryGemInside(ctx, w / 2, h / 2, 34, '#00e5ff', '#ffffff');
-      drawJewelrySparkle(ctx, w / 2 + 15, h / 2 - 15);
-      drawJewelrySparkle(ctx, w / 2 - 14, h / 2 + 10);
+      drawJewelryPearl(ctx, w / 2, h / 2, 30);
+      drawJewelrySparkle(ctx, w / 2 + 18, h / 2 - 18);
+      drawJewelrySparkle(ctx, w / 2 - 16, h / 2 + 12);
     }
     ctx.restore();
   }
@@ -1611,20 +1672,27 @@ function advanceJewelryBox(block: Block): number {
 }
 
 function playJewelryBoxFlyAnimation(block: Block): void {
-  const gemSrc = jewelryCustomAssets['gem'] || generateProceduralJewelryDataUrl('gem');
-  const count = block.length;
+  const is1x1 = block.length === 1;
+  const assetKey: JewelryBoxAssetKey = is1x1 ? 'gem-1' : 'gem-2';
+  const gemSrc = jewelryCustomAssets[assetKey] || (is1x1 && jewelryCustomAssets['gem']) || generateProceduralJewelryDataUrl(assetKey);
+  const targetId = is1x1 ? 'jewelry-target-1' : 'jewelry-target-2';
 
-  jewelryCollectedCount += count;
+  if (is1x1) {
+    jewelryCollectedCount1 += 1;
+  } else {
+    jewelryCollectedCount2 += 1;
+  }
+  jewelryCollectedCount = jewelryCollectedCount1 + jewelryCollectedCount2;
   syncJewelryBoxUI();
 
   if (typeof document === 'undefined') return;
 
-  const hud = document.getElementById('jewelry-score-hud');
-  const hudRect = hud ? hud.getBoundingClientRect() : null;
+  const targetEl = document.getElementById(targetId) || document.getElementById('jewelry-score-hud');
+  const targetRect = targetEl ? targetEl.getBoundingClientRect() : null;
   const canvas = (typeof app !== 'undefined' && app?.view) ? (app.view as HTMLCanvasElement) : null;
   const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
 
-  if (!hudRect || !canvasRect) return;
+  if (!targetRect || !canvasRect) return;
 
   const cell = PARAMS.cellSize;
   const startCanvasX = block.col * cell + (block.length * cell) / 2;
@@ -1637,58 +1705,56 @@ function playJewelryBoxFlyAnimation(block: Block): void {
   const startScreenX = canvasRect.left + startCanvasX * scaleX;
   const startScreenY = canvasRect.top + (startCanvasY + worldY) * scaleY;
 
-  const targetScreenX = hudRect.left + hudRect.width / 2;
-  const targetScreenY = hudRect.top + hudRect.height / 2;
+  const targetScreenX = targetRect.left + targetRect.width / 2;
+  const targetScreenY = targetRect.top + targetRect.height / 2;
 
-  for (let i = 0; i < count; i++) {
-    setTimeout(() => {
-      const flyImg = document.createElement('img');
-      flyImg.src = gemSrc;
-      flyImg.className = 'jewelry-fly-img';
-      flyImg.style.width = '36px';
-      flyImg.style.height = '36px';
-      flyImg.style.left = `${startScreenX - 18 + (i - (count - 1) / 2) * 20}px`;
-      flyImg.style.top = `${startScreenY - 18}px`;
-      document.body.appendChild(flyImg);
+  const flyImg = document.createElement('img');
+  flyImg.src = gemSrc;
+  flyImg.className = 'jewelry-fly-img';
+  flyImg.style.width = '36px';
+  flyImg.style.height = '36px';
+  flyImg.style.left = `${startScreenX - 18}px`;
+  flyImg.style.top = `${startScreenY - 18}px`;
+  document.body.appendChild(flyImg);
 
-      const midX = (startScreenX + targetScreenX) / 2 + (Math.random() - 0.5) * 80;
-      const midY = Math.min(startScreenY, targetScreenY) - 50 - Math.random() * 40;
+  const midX = (startScreenX + targetScreenX) / 2 + (Math.random() - 0.5) * 80;
+  const midY = Math.min(startScreenY, targetScreenY) - 50 - Math.random() * 40;
 
-      const startTime = performance.now();
-      const duration = 650;
+  const startTime = performance.now();
+  const duration = 650;
 
-      const animateFly = (now: number) => {
-        const p = Math.min(1, (now - startTime) / duration);
-        const inv = 1 - p;
-        const curX = inv * inv * startScreenX + 2 * inv * p * midX + p * p * targetScreenX;
-        const curY = inv * inv * startScreenY + 2 * inv * p * midY + p * p * targetScreenY;
-        const scale = 1 + Math.sin(p * Math.PI) * 0.4;
+  const animateFly = (now: number) => {
+    const p = Math.min(1, (now - startTime) / duration);
+    const inv = 1 - p;
+    const curX = inv * inv * startScreenX + 2 * inv * p * midX + p * p * targetScreenX;
+    const curY = inv * inv * startScreenY + 2 * inv * p * midY + p * p * targetScreenY;
+    const scale = 1 + Math.sin(p * Math.PI) * 0.4;
 
-        flyImg.style.left = `${curX - 18}px`;
-        flyImg.style.top = `${curY - 18}px`;
-        flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
-        flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
+    flyImg.style.left = `${curX - 18}px`;
+    flyImg.style.top = `${curY - 18}px`;
+    flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
+    flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
 
-        if (p < 1) {
-          requestAnimationFrame(animateFly);
-        } else {
-          flyImg.remove();
-          if (hud) {
-            hud.style.transform = 'scale(1.25)';
-            hud.style.transition = 'transform 0.15s ease-out';
-            setTimeout(() => {
-              hud.style.transform = 'scale(1)';
-            }, 150);
-          }
-        }
-      };
+    if (p < 1) {
       requestAnimationFrame(animateFly);
-    }, i * 120);
-  }
+    } else {
+      flyImg.remove();
+      if (targetEl) {
+        targetEl.style.transform = 'scale(1.25)';
+        targetEl.style.transition = 'transform 0.15s ease-out';
+        setTimeout(() => {
+          targetEl.style.transform = 'scale(1)';
+        }, 150);
+      }
+    }
+  };
+  requestAnimationFrame(animateFly);
 }
 
 let isJewelryBoxMode = false;
 let jewelryCollectedCount = 0;
+let jewelryCollectedCount1 = 0;
+let jewelryCollectedCount2 = 0;
 
 function isJewelryBoxCandidate(block: Pick<Block, 'length' | 'isProp' | 'isCollectible'>): boolean {
   return (block.length === 1 || block.length === 2) && !block.isProp && !block.isCollectible;
@@ -1711,6 +1777,8 @@ function setJewelryBoxMode(enabled: boolean): void {
     isCollectMode = false;
     isNoGravityMode = false;
     jewelryCollectedCount = 0;
+    jewelryCollectedCount1 = 0;
+    jewelryCollectedCount2 = 0;
     blocks.forEach(block => {
       block.noGravity = false;
       if (block.isJewelryBox) {
@@ -1750,13 +1818,59 @@ function syncJewelryBoxUI(): void {
   }
 
   const hud = document.getElementById('jewelry-score-hud');
-  if (hud) {
-    hud.style.display = (isJewelryBoxMode || blocks.some(b => b.isJewelryBox)) ? 'flex' : 'none';
-    const val = document.getElementById('jewelry-collect-val');
-    if (val) val.innerText = String(jewelryCollectedCount);
-    const icon = document.getElementById('jewelry-header-icon') as HTMLImageElement | null;
-    if (icon) {
-      icon.src = jewelryCustomAssets['gem'] || generateProceduralJewelryDataUrl('gem');
+  const gameHeaderEl = document.getElementById('game-header');
+  const headerItemEl = gameHeaderEl?.children[0] as HTMLElement | null;
+  const scoreHeaderItemEl = gameHeaderEl?.children[2] as HTMLElement | null;
+  const wrapper = document.getElementById('board-wrapper');
+
+  const scoreInput = document.getElementById('input-score') as HTMLInputElement | null;
+  const currentScore = scoreInput ? parseInt(scoreInput.value) || 854682 : 854682;
+  const levelInput = document.getElementById('input-level') as HTMLInputElement | null;
+  const currentLevel = levelInput ? levelInput.value || '284' : '284';
+
+  const isActive = isJewelryBoxMode || blocks.some(b => b.isJewelryBox);
+
+  if (isActive) {
+    if (wrapper) wrapper.classList.add('multi-collectible-live');
+
+    if (headerItemEl) {
+      headerItemEl.innerHTML = `<span class="collect-score-hud"><span class="collect-score-label">SCORE</span><span id="score-val" class="collect-score-value">${currentScore.toLocaleString()}</span></span><span id="level-val" style="display:none;">${currentLevel}</span>`;
+    }
+    if (scoreHeaderItemEl) {
+      scoreHeaderItemEl.style.display = 'none';
+    }
+
+    if (hud) {
+      hud.style.display = 'flex';
+      const val1 = document.getElementById('jewelry-collect-val');
+      if (val1) val1.innerText = String(jewelryCollectedCount1);
+      const icon1 = document.getElementById('jewelry-header-icon') as HTMLImageElement | null;
+      if (icon1) {
+        icon1.src = jewelryCustomAssets['gem-1'] || jewelryCustomAssets['gem'] || generateProceduralJewelryDataUrl('gem-1');
+      }
+
+      const val2 = document.getElementById('jewelry-collect-val-2');
+      if (val2) val2.innerText = String(jewelryCollectedCount2);
+      const icon2 = document.getElementById('jewelry-header-icon-2') as HTMLImageElement | null;
+      if (icon2) {
+        icon2.src = jewelryCustomAssets['gem-2'] || generateProceduralJewelryDataUrl('gem-2');
+      }
+    }
+  } else {
+    if (!isCollectMode) {
+      if (wrapper) {
+        wrapper.classList.toggle('multi-collectible-live', !!(multiCollectibleModeEnabled && multiCollectibleItems.length > 0));
+      }
+      if (headerItemEl) {
+        headerItemEl.innerHTML = `LEVEL: <span id="level-val">${currentLevel}</span>`;
+      }
+      if (scoreHeaderItemEl) {
+        scoreHeaderItemEl.style.display = '';
+        scoreHeaderItemEl.innerHTML = `SCORE: <span id="score-val">${currentScore.toLocaleString()}</span>`;
+      }
+    }
+    if (hud) {
+      hud.style.display = 'none';
     }
   }
 
@@ -12564,6 +12678,10 @@ function updateHeaderUI() {
 
 
   } else {
+    if (isJewelryBoxMode) {
+      syncJewelryBoxUI();
+      return;
+    }
 
 
 
@@ -23097,7 +23215,7 @@ function initJewelryBoxPanel(): void {
   sec.innerHTML = `<h3 style="margin:2px 0 0;display:flex;align-items:center;gap:6px;font-size:14px;">💎 首饰盒双层收集 <span style="font-size:9px;background:#926815;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;">独立模式</span></h3>
     <label style="display:flex;align-items:center;gap:5px;padding:5px 6px;background:#2d2411;border:1px solid #7c5e1c;border-radius:5px;cursor:pointer;font-size:10px;color:#ffeeb8;"><input id="toggle-jewelry-box-mode" type="checkbox" style="margin:0;accent-color:#d4af37;"/><span>启用首饰盒双层收集模式</span></label>
     <div style="font-size:9px;color:#aaa;line-height:1.3;">1x1 与 1x2 方块变为首饰盒：第1次消行开盒露出珍珠/钻石，第2次消行消除并飞入顶部HUD计数。点击下方可上传自定义 PNG/WebP。</div>
-    <div id="jewelry-box-asset-grid" style="display:grid;grid-template-columns:repeat(5, 1fr);gap:4px;"></div>
+    <div id="jewelry-box-asset-grid" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;"></div>
     <button id="btn-clear-jewelry-assets" type="button" style="padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;">恢复默认程序化素材</button>`;
 
   if (pastureSection && pastureSection.parentElement === panel) {

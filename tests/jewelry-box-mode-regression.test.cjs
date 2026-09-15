@@ -10,8 +10,8 @@ const cssSource = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 // 1. DOM and CSS UI verification
 assert.match(
   htmlSource,
-  /id="jewelry-score-hud"[\s\S]*?id="jewelry-header-icon"[\s\S]*?id="jewelry-collect-val"/,
-  'top header must include jewelry collection HUD with icon and count display'
+  /id="jewelry-score-hud"[\s\S]*?id="jewelry-target-1"[\s\S]*?id="jewelry-header-icon"[\s\S]*?id="jewelry-collect-val"[\s\S]*?id="jewelry-target-2"[\s\S]*?id="jewelry-header-icon-2"[\s\S]*?id="jewelry-collect-val-2"/,
+  'top header must include dual collectible targets for pearl and diamond'
 );
 
 assert.match(
@@ -30,8 +30,26 @@ assert.match(
 // 3. Asset keys and procedural generation
 assert.match(
   mainSource,
-  /type JewelryBoxAssetKey = '1-closed' \| '1-open' \| '2-closed' \| '2-open' \| 'gem'/,
-  'jewelry box assets must support 1x1 closed/open, 1x2 closed/open, and flight gem'
+  /type JewelryBoxAssetKey = '1-closed' \| '1-open' \| '2-closed' \| '2-open' \| 'gem' \| 'gem-1' \| 'gem-2'/,
+  'jewelry box assets must support 1x1 closed/open, 1x2 closed/open, gem-1 pearl, and gem-2 diamond'
+);
+
+assert.match(
+  mainSource,
+  /const JEWELRY_BOX_ASSET_KEYS: JewelryBoxAssetKey\[\] = \['1-closed', '1-open', 'gem-1', '2-closed', '2-open', 'gem-2'\];/,
+  'jewelry box upload panel must register 6 asset keys in order'
+);
+
+assert.match(
+  mainSource,
+  /headerItemEl\.innerHTML = `<span class="collect-score-hud"><span class="collect-score-label">SCORE<\/span><span id="score-val" class="collect-score-value">\$\{currentScore\.toLocaleString\(\)\}<\/span><\/span><span id="level-val" style="display:none;">\$\{currentLevel\}<\/span>`;/,
+  'jewelry box mode must position SCORE on the left and hide LEVEL in header'
+);
+
+assert.match(
+  mainSource,
+  /const targetId = is1x1 \? 'jewelry-target-1' : 'jewelry-target-2';/,
+  'flight animation must route 1x1 pearls to target 1 and 1x2 diamonds to target 2'
 );
 
 assert.match(
