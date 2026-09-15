@@ -2288,11 +2288,14 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 .jewelry-score-val {
-  color: #fff;
+  color: #ffffff;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   font-size: 28px;
   font-weight: 900;
   line-height: 1;
-  text-shadow: 0 2px 5px rgba(0,0,0,0.5), 0 0 10px rgba(46,252,255,0.45);
+  letter-spacing: 0;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 2px 6px rgba(255, 255, 255, 0.24);
   min-width: 16px;
 }
 
