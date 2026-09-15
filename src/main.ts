@@ -1714,16 +1714,33 @@ function getNormalBlockTexture(color: string, length: number): PIXI.Texture | nu
   return texture;
 }
 
+function getAnyCustomJewelryAsset(normLength: number, state: 'closed' | 'open'): string | undefined {
+  const genericKey: JewelryBoxAssetKey = `${normLength}-${state}` as JewelryBoxAssetKey;
+  if (jewelryCustomAssets[genericKey]) {
+    return jewelryCustomAssets[genericKey];
+  }
+  for (const col of JEWELRY_BOX_COLORS) {
+    const key = `${col}-${normLength}-${state}`;
+    if (jewelryColorCustomAssets[key]) {
+      return jewelryColorCustomAssets[key];
+    }
+  }
+  return undefined;
+}
+
 function getJewelryBoxTexture(length: number, state: 'closed' | 'open', color: string = 'red'): PIXI.Texture {
   const normLength = length === 2 ? 2 : 1;
   const normColor = JEWELRY_BOX_COLORS.includes(color as any) ? color : 'red';
   const specificKey = `${normColor}-${normLength}-${state}`;
   const genericKey: JewelryBoxAssetKey = `${normLength}-${state}`;
 
-  // 1. If custom asset is uploaded specifically for this color or globally:
-  const customDataUrl = jewelryColorCustomAssets[specificKey] || jewelryCustomAssets[genericKey];
+  // 1. If custom asset is uploaded specifically for this color, globally, or for any color:
+  const customDataUrl = jewelryColorCustomAssets[specificKey] 
+    || jewelryCustomAssets[genericKey] 
+    || (state === 'open' ? getAnyCustomJewelryAsset(normLength, 'open') : undefined);
+
   if (customDataUrl) {
-    const cacheKey = `custom_${specificKey}_${customDataUrl.slice(-16)}`;
+    const cacheKey = `custom_${specificKey}_${customDataUrl.length}_${customDataUrl.slice(-16)}`;
     if (proceduralJewelryTextureCache.has(cacheKey)) {
       return proceduralJewelryTextureCache.get(cacheKey)!;
     }
@@ -1744,7 +1761,7 @@ function getJewelryBoxTexture(length: number, state: 'closed' | 'open', color: s
     }
   }
 
-  // 3. Open state (second form): fallback to procedural open box with glittering gems
+  // 3. Open state (second form): procedural open box with glittering gems
   const cacheKey = `proc_${specificKey}`;
   if (proceduralJewelryTextureCache.has(cacheKey)) {
     return proceduralJewelryTextureCache.get(cacheKey)!;
@@ -1757,8 +1774,10 @@ function getJewelryBoxTexture(length: number, state: 'closed' | 'open', color: s
       tex = PIXI.Texture.from(src);
     } catch (_) {}
   }
-  const resultTex = tex || (typeof PIXI !== 'undefined' ? PIXI.Texture.WHITE : (null as any));
-  if (resultTex) proceduralJewelryTextureCache.set(cacheKey, resultTex);
+  const resultTex = tex || (typeof PIXI !== 'undefined' ? PIXI.Texture.EMPTY : (null as any));
+  if (resultTex && typeof PIXI !== 'undefined') {
+    proceduralJewelryTextureCache.set(cacheKey, resultTex);
+  }
   return resultTex;
 }
 
@@ -1769,6 +1788,13 @@ function refreshJewelryBoxSprite(block: Block): void {
   if (texture && block.sprite) {
     block.sprite.texture = texture;
     block.sprite.alpha = 1;
+    if (texture.width <= 0 || texture.height <= 0) {
+      texture.once('update', () => {
+        if (block.sprite && block.sprite.texture === texture) {
+          fitBlockSpriteToGrid(block);
+        }
+      });
+    }
     fitBlockSpriteToGrid(block);
   }
 }
@@ -1787,12 +1813,16 @@ function advanceJewelryBox(block: Block): number {
   if (typeof gsap !== 'undefined' && block.sprite) {
     const baseW = block.length * PARAMS.cellSize;
     const baseH = PARAMS.cellSize;
-    const texW = block.sprite.texture?.width || baseW;
-    const texH = block.sprite.texture?.height || baseH;
-    gsap.fromTo(block.sprite.scale,
-      { x: (baseW / texW) * 0.8, y: (baseH / texH) * 0.8 },
-      { x: baseW / texW, y: baseH / texH, duration: 0.35, ease: 'back.out(2)' }
-    );
+    const texW = (block.sprite.texture?.width && block.sprite.texture.width > 0) ? block.sprite.texture.width : baseW;
+    const texH = (block.sprite.texture?.height && block.sprite.texture.height > 0) ? block.sprite.texture.height : baseH;
+    const targetScaleX = baseW / texW;
+    const targetScaleY = baseH / texH;
+    if (Number.isFinite(targetScaleX) && Number.isFinite(targetScaleY) && targetScaleX > 0 && targetScaleY > 0) {
+      gsap.fromTo(block.sprite.scale,
+        { x: targetScaleX * 0.8, y: targetScaleY * 0.8 },
+        { x: targetScaleX, y: targetScaleY, duration: 0.35, ease: 'back.out(2)' }
+      );
+    }
   }
   return 1;
 }
@@ -1888,7 +1918,17 @@ function isJewelryBoxCandidate(block: Pick<Block, 'length' | 'isProp' | 'isColle
 }
 
 function getJewelryBoxBlocksForConfirmedClear(candidates: Block[]): Block[] {
-  return candidates.filter(b => b.isJewelryBox && b.jewelryBoxState !== 'open');
+  if (!isJewelryBoxMode) return candidates.filter(b => b.isJewelryBox && b.jewelryBoxState !== 'open');
+  return candidates.filter(b => {
+    if (!isJewelryBoxCandidate(b)) {
+      return b.isJewelryBox && b.jewelryBoxState !== 'open';
+    }
+    if (!b.isJewelryBox) {
+      b.isJewelryBox = true;
+      if (!b.jewelryBoxState) b.jewelryBoxState = 'closed';
+    }
+    return b.jewelryBoxState !== 'open';
+  });
 }
 
 function setJewelryBoxMode(enabled: boolean): void {
@@ -23396,7 +23436,6 @@ function initJewelryBoxPanel(): void {
   const collectGrid = sec.querySelector('#jewelry-box-collectibles-grid') as HTMLElement;
   (['gem-1', 'gem-2'] as JewelryBoxAssetKey[]).forEach(key => {
     const label = document.createElement('label');
-    label.htmlFor = `input-jewelry-${key}`;
     label.style.cssText = 'min-height:36px;border:1px dashed #7c5e1c;border-radius:4px;background:#241a0d;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:3px;';
 
     const img = document.createElement('img');
@@ -23414,7 +23453,8 @@ function initJewelryBoxPanel(): void {
     input.type = 'file';
     input.accept = 'image/png,image/webp';
     input.hidden = true;
-    input.addEventListener('change', () => {
+
+    const onCollectibleFile = () => {
       const file = input.files?.[0];
       if (!file) return;
       input.value = '';
@@ -23431,6 +23471,15 @@ function initJewelryBoxPanel(): void {
         syncJewelryBoxUI();
       };
       reader.readAsDataURL(file);
+    };
+
+    input.addEventListener('change', onCollectibleFile);
+    input.addEventListener('input', onCollectibleFile);
+    label.addEventListener('click', (e) => {
+      if (e.target !== input) {
+        e.preventDefault();
+        input.click();
+      }
     });
 
     label.append(img, title, input);
@@ -23472,7 +23521,6 @@ function initJewelryBoxPanel(): void {
     variants.forEach(({ key: variant, label: shortLabel }) => {
       const fullKey = `${col}-${variant}`;
       const label = document.createElement('label');
-      label.htmlFor = `input-jewelry-${fullKey}`;
       label.style.cssText = `min-height:36px;border:1px dashed ${info.border};border-radius:4px;background:rgba(0,0,0,0.3);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:3px;`;
 
       const img = document.createElement('img');
@@ -23489,26 +23537,51 @@ function initJewelryBoxPanel(): void {
       input.type = 'file';
       input.accept = 'image/png,image/webp';
       input.hidden = true;
-      input.addEventListener('change', () => {
+
+      const onFileSelected = () => {
         const file = input.files?.[0];
         if (!file) return;
-        input.value = '';
         const reader = new FileReader();
         reader.onload = (e) => {
+          input.value = '';
           const dataUrl = e.target?.result as string;
           if (!dataUrl) return;
           jewelryColorCustomAssets[fullKey] = dataUrl;
+          if (!jewelryCustomAssets[variant]) {
+            jewelryCustomAssets[variant] = dataUrl;
+            try {
+              localStorage.setItem(`puzzle_jewelry_custom_${variant}`, dataUrl);
+            } catch (_) {}
+          }
           try {
             localStorage.setItem(`puzzle_jewelry_custom_${fullKey}`, dataUrl);
           } catch (_) {}
           img.src = dataUrl;
           proceduralJewelryTextureCache.clear();
+          const preTex = PIXI.Texture.from(dataUrl);
+          if (preTex.width <= 0 || preTex.height <= 0) {
+            preTex.once('update', () => {
+              blocks.forEach(b => {
+                if (b.isJewelryBox && b.jewelryBoxState === 'open') refreshJewelryBoxSprite(b);
+              });
+            });
+          }
           blocks.forEach(b => {
-            if (b.isJewelryBox && b.color === col && b.jewelryBoxState === 'open') refreshJewelryBoxSprite(b);
+            if (b.isJewelryBox && b.jewelryBoxState === 'open') refreshJewelryBoxSprite(b);
           });
           syncJewelryBoxUI();
         };
+        reader.onerror = () => { input.value = ''; };
         reader.readAsDataURL(file);
+      };
+
+      input.addEventListener('change', onFileSelected);
+      input.addEventListener('input', onFileSelected);
+      label.addEventListener('click', (e) => {
+        if (e.target !== input) {
+          e.preventDefault();
+          input.click();
+        }
       });
 
       label.append(img, title, input);
@@ -24612,9 +24685,27 @@ function isPastureLayerGravityLocked(block: Pick<Block, 'pastureStage'>): boolea
 }
 
 function fitBlockSpriteToGrid(block: Pick<Block, 'sprite' | 'length'>): void {
-  block.sprite.scale.set(1);
-  block.sprite.width = block.length * PARAMS.cellSize;
-  block.sprite.height = PARAMS.cellSize;
+  if (!block || !block.sprite) return;
+  const tex = block.sprite.texture;
+  const texW = tex?.orig?.width || tex?.width || 0;
+  const texH = tex?.orig?.height || tex?.height || 0;
+  if (tex && (texW <= 0 || texH <= 0)) {
+    tex.once('update', () => {
+      if (block.sprite && block.sprite.texture === tex) {
+        fitBlockSpriteToGrid(block);
+      }
+    });
+    return;
+  }
+  const targetW = block.length * PARAMS.cellSize;
+  const targetH = PARAMS.cellSize;
+  if (texW > 0 && texH > 0 && Number.isFinite(texW) && Number.isFinite(texH)) {
+    block.sprite.scale.set(targetW / texW, targetH / texH);
+  } else {
+    block.sprite.scale.set(1);
+    block.sprite.width = block.length * PARAMS.cellSize;
+    block.sprite.height = PARAMS.cellSize;
+  }
 }
 
 function getPastureLayerTextures(stage: PastureLayerStage, length: number): PIXI.Texture[] | null {
@@ -24822,7 +24913,8 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
   if (resolvedIsJewelryBox) {
     const jTex = getJewelryBoxTexture(length, resolvedJewelryBoxState || 'closed', color);
-    sprite = new PIXI.Sprite(jTex || PIXI.Texture.WHITE);
+    const safeTex = (jTex && jTex !== PIXI.Texture.WHITE) ? jTex : (getNormalBlockTexture(color, length) || PIXI.Texture.WHITE);
+    sprite = new PIXI.Sprite(safeTex);
   } else if (isProp) {
     const propTextures = getPropAnimationTextures(length, propDir, 'idle');
     if (customPropMachineFrameImages.length > 0) {
