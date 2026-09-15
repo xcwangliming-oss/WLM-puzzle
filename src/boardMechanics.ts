@@ -99,7 +99,7 @@ export function hasContinuousScrollTopCollision(
 
   return blocks.some(block => (
     block.row < safeTotalRows
-    && block.row * safeCellSize - safeScrollOffset <= 0
+    && block.row * safeCellSize - safeScrollOffset < -0.5
   ));
 }
 

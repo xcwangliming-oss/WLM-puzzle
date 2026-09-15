@@ -44,7 +44,7 @@ body:not(.is-playable) #tab-level {
   position: relative;
   flex: 1;
   height: calc(100vh - 8px);
-  max-width: 800px;
+  max-width: 850px;
   background-color: #2b2b40;
   border-radius: 16px;
   overflow: hidden;
@@ -75,10 +75,10 @@ body:not(.is-playable) #tab-level {
 #board-wrapper {
   position: relative;
   width: auto;
-  height: 95%;
-  aspect-ratio: 720 / 1280;
-  max-width: 95%;
-  max-height: none;
+  height: 98%;
+  aspect-ratio: 9 / 16;
+  max-width: 98%;
+  max-height: 98%;
   flex: 0 0 auto;
   background-position: center;
   background-repeat: no-repeat;
@@ -835,8 +835,6 @@ body:not(.is-playable) #tab-level {
 
 #material-panel {
   width: 280px;
-  max-height: none;
-  overflow-y: visible;
 }
 
 #style-assets-panel {
@@ -844,55 +842,67 @@ body:not(.is-playable) #tab-level {
 }
 
 #script-panel {
-  width: 232px;
+  width: 240px;
 }
 
 #script-steps-panel {
-  width: 158px;
+  width: 290px;
 }
 
 body:not(.is-playable) #tab-level {
   min-width: 0;
   justify-content: flex-start !important;
   align-items: flex-start !important;
-  gap: 12px !important;
-  padding: 0 8px 8px;
+  gap: 6px !important;
+  padding: 0 6px 6px;
   box-sizing: border-box;
 }
 
 body:not(.is-playable) #game-ui {
-  flex: 0 0 700px;
+  flex: 0 0 780px;
   height: var(--editor-game-ui-height, 987px);
 }
 
 body:not(.is-playable) #material-panel,
 body:not(.is-playable) #style-assets-panel,
 body:not(.is-playable) #editor-panel {
-  flex: 0 0 250px;
-  max-height: none;
+  flex: 0 0 205px;
 }
 
 body:not(.is-playable) #material-panel {
-  width: 250px;
-  padding: 6px;
+  width: 205px;
+  max-height: calc(var(--editor-stage-height, 1180px) - 8px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 6px 24px;
   gap: 8px !important;
+  box-sizing: border-box;
 }
 
 body:not(.is-playable) #style-assets-panel {
-  width: 250px;
+  width: 205px;
   max-height: calc(var(--editor-stage-height, 1180px) - 8px);
   overflow-y: auto;
-  padding: 6px;
+  overflow-x: hidden;
+  padding: 6px 6px 24px;
   gap: 5px;
+  box-sizing: border-box;
+}
+
+body:not(.is-playable) #editor-panel {
+  flex: 0 0 250px;
+  max-height: calc(var(--editor-stage-height, 1180px) - 8px);
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 body:not(.is-playable) #script-panel {
-  flex: 0 0 232px;
+  flex: 0 0 240px;
   max-height: calc(var(--editor-stage-height, 1180px) - 8px);
 }
 
 body:not(.is-playable) #script-steps-panel {
-  flex: 0 0 158px;
+  flex: 0 0 290px;
   max-height: calc(var(--editor-stage-height, 1180px) - 8px);
 }
 
@@ -930,18 +940,18 @@ body:not(.is-playable) #script-steps-panel {
   background: rgba(255,255,255,0.4);
 }
 
-#editor-panel::-webkit-scrollbar, #material-panel::-webkit-scrollbar, #script-panel::-webkit-scrollbar, #script-steps-panel::-webkit-scrollbar {
+#editor-panel::-webkit-scrollbar, #material-panel::-webkit-scrollbar, #style-assets-panel::-webkit-scrollbar, #script-panel::-webkit-scrollbar, #script-steps-panel::-webkit-scrollbar {
   width: 6px;
 }
-#editor-panel::-webkit-scrollbar-track, #material-panel::-webkit-scrollbar-track, #script-panel::-webkit-scrollbar-track, #script-steps-panel::-webkit-scrollbar-track {
+#editor-panel::-webkit-scrollbar-track, #material-panel::-webkit-scrollbar-track, #style-assets-panel::-webkit-scrollbar-track, #script-panel::-webkit-scrollbar-track, #script-steps-panel::-webkit-scrollbar-track {
   background: rgba(0,0,0,0.1);
   border-radius: 4px;
 }
-#editor-panel::-webkit-scrollbar-thumb, #material-panel::-webkit-scrollbar-thumb, #script-panel::-webkit-scrollbar-thumb, #script-steps-panel::-webkit-scrollbar-thumb {
+#editor-panel::-webkit-scrollbar-thumb, #material-panel::-webkit-scrollbar-thumb, #style-assets-panel::-webkit-scrollbar-thumb, #script-panel::-webkit-scrollbar-thumb, #script-steps-panel::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.2);
   border-radius: 4px;
 }
-#editor-panel::-webkit-scrollbar-thumb:hover, #material-panel::-webkit-scrollbar-thumb:hover, #script-panel::-webkit-scrollbar-thumb:hover, #script-steps-panel::-webkit-scrollbar-thumb:hover {
+#editor-panel::-webkit-scrollbar-thumb:hover, #material-panel::-webkit-scrollbar-thumb:hover, #style-assets-panel::-webkit-scrollbar-thumb:hover, #script-panel::-webkit-scrollbar-thumb:hover, #script-steps-panel::-webkit-scrollbar-thumb:hover {
   background: rgba(255,255,255,0.4);
 }
 
@@ -1639,14 +1649,11 @@ body:not(.is-playable) #script-steps-panel {
   filter: brightness(1.25);
 }
 
-/* Hide scrollbar for the left sidebar panel */
-#material-panel {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
-#material-panel::-webkit-scrollbar,
-#style-assets-panel::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Opera */
+/* Scrollbar styling for sidebar panels */
+#material-panel,
+#style-assets-panel {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) rgba(0, 0, 0, 0.1);
 }
 
 /* Two-color Mode Selectors Panel Styling */

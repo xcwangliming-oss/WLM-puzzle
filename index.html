@@ -6,6 +6,48 @@
     <title>Block Puzzle Editor 2.0</title>
     <script type="module" src="/src/main.ts"></script>
     <script>
+      (() => {
+        window.alert = (msg) => {
+          console.log('[App Notification]', msg);
+          let toast = document.getElementById('app-global-toast');
+          if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'app-global-toast';
+            toast.style.cssText = [
+              'position: fixed',
+              'top: 24px',
+              'left: 50%',
+              'transform: translateX(-50%) translateY(-20px)',
+              'background: rgba(26, 27, 46, 0.96)',
+              'color: #ffffff',
+              'border: 1.5px solid #6366f1',
+              'padding: 10px 22px',
+              'border-radius: 8px',
+              'font-size: 13px',
+              'font-weight: 700',
+              'z-index: 999999',
+              'box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 12px rgba(99, 102, 241, 0.35)',
+              'transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+              'pointer-events: none',
+              'text-align: center',
+              'max-width: 85vw',
+              'white-space: pre-wrap',
+              'opacity: 0'
+            ].join(';');
+            (document.body || document.documentElement).appendChild(toast);
+          }
+          toast.textContent = String(msg || '');
+          requestAnimationFrame(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateX(-50%) translateY(0)';
+          });
+          clearTimeout(toast._timer);
+          toast._timer = setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(-50%) translateY(-20px)';
+          }, 2400);
+        };
+      })();
       document.addEventListener('DOMContentLoaded', () => {
         if (window.PLAYABLE_CONFIG) {
           document.documentElement.classList.add('is-playable-root');
@@ -140,49 +182,51 @@
       }
       body:not(.is-playable) #tab-level {
         display: grid !important;
-        grid-template-columns: 250px 250px 755px 280px 232px 158px !important;
-        gap: 12px !important;
-        justify-content: center !important;
+        grid-template-columns: 205px 205px 780px 250px 240px 290px !important;
+        gap: 6px !important;
+        justify-content: flex-start !important;
         align-items: start !important;
-        padding-top: 0 !important;
+        padding: 0 6px 6px !important;
         box-sizing: border-box !important;
         overflow-y: auto !important;
         overflow-x: hidden !important;
       }
       body:not(.is-playable) #material-panel {
         grid-column: 1 !important;
-        width: 250px !important;
+        width: 205px !important;
         height: auto !important;
-        min-height: 100% !important;
-        max-height: none !important;
-        overflow: visible !important;
+        min-height: 0 !important;
+        max-height: calc(var(--editor-stage-height, 1180px) - 8px) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
         align-self: start !important;
       }
       body:not(.is-playable) #style-assets-panel {
         grid-column: 2 !important;
-        width: 250px !important;
+        width: 205px !important;
         height: auto !important;
-        min-height: 100% !important;
-        max-height: none !important;
-        overflow: visible !important;
+        min-height: 0 !important;
+        max-height: calc(var(--editor-stage-height, 1180px) - 8px) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
         align-self: start !important;
       }
       body:not(.is-playable) #game-ui {
         grid-column: 3 !important;
-        width: 755px !important;
-        max-width: 755px !important;
+        width: 780px !important;
+        max-width: 780px !important;
       }
       body:not(.is-playable) #editor-panel {
         grid-column: 4 !important;
-        width: 280px !important;
+        width: 250px !important;
       }
       body:not(.is-playable) #script-panel {
         grid-column: 5 !important;
-        width: 232px !important;
+        width: 240px !important;
       }
       body:not(.is-playable) #script-steps-panel {
         grid-column: 6 !important;
-        width: 158px !important;
+        width: 290px !important;
       }
       #heart-score-hud {
         position: absolute;
@@ -588,7 +632,7 @@
     <!-- Tab 1: 牌面 -->
     <div id="tab-level" style="display: flex; flex: 1; flex-direction: row; justify-content: center; align-items: center; gap: 20px; overflow: hidden; width: 100%; height: 100%;">
       <!-- Editor Settings Panel (Left Side of Browser) -->
-    <div id="material-panel" style="display: flex; flex-direction: column; gap: 12px; height: 100%; overflow-y: auto; padding-top: 0; padding-left: 5px; box-sizing: border-box;">
+    <div id="material-panel" style="display: flex; flex-direction: column; gap: 8px; max-height: calc(var(--editor-stage-height, 1180px) - 8px); overflow-y: auto; overflow-x: hidden; padding-top: 0; padding-left: 5px; padding-bottom: 24px; box-sizing: border-box;">
       <div style="display: flex; flex-direction: column;">
         <h3 style="margin-top: 5px; margin-bottom: 8px;">🎨 材质包管理</h3>
         <div id="material-list" class="material-slots-container">
@@ -759,6 +803,9 @@
           </button>
           <button id="btn-nogravity-mode" class="menu-btn gray">
             <span class="icon">🎈</span>无重力模式
+          </button>
+          <button id="btn-obstacle-mode" class="menu-btn gray">
+            <span class="icon">🍬</span>障碍物模式
           </button>
           <div class="custom-two-color-row">
           <button id="btn-custom-twocolor-mode" class="menu-btn gray">
@@ -1537,6 +1584,9 @@
 
         const scriptStepsPanel = document.createElement('div');
         scriptStepsPanel.id = 'script-steps-panel';
+        scriptStepsPanel.style.width = '290px';
+        scriptStepsPanel.style.minWidth = '290px';
+        scriptStepsPanel.style.boxSizing = 'border-box';
         const scriptSaveSection = section('💾 演示剧本存档');
         const scriptName = take('input-script-save-name');
         const scriptSave = take('btn-script-save');
@@ -1547,6 +1597,9 @@
         const scriptImport = take('btn-script-import');
         applyInputStyle(scriptName, '输入名称...');
         applyButton(scriptSave, '保存', '#00d25b');
+        scriptSave.style.whiteSpace = 'nowrap';
+        scriptSave.style.flexShrink = '0';
+        scriptSave.style.padding = '8px 12px';
         applySelectStyle(scriptSlot);
         addOption(scriptSlot, '-- 选择已有剧本 --');
         applyButton(scriptLoad, '读取', '#9d2cb3');
@@ -1559,11 +1612,28 @@
         scriptSaveSection.append(buttonRow(scriptExport, scriptImport));
         scriptStepsPanel.appendChild(scriptSaveSection);
         const stepSection = section('步骤列表 (点击跳转/拖拽修改)');
+        const stepHeading = stepSection.querySelector('h4');
+        if (stepHeading) {
+          stepHeading.style.whiteSpace = 'nowrap';
+          stepHeading.style.fontSize = '11px';
+        }
         const stepList = take('script-step-list');
         stepList.className = 'material-slots-container';
         stepSection.appendChild(stepList);
         scriptStepsPanel.appendChild(stepSection);
         scriptPanel.insertAdjacentElement('afterend', scriptStepsPanel);
+
+        document.addEventListener('change', (e) => {
+          if (e.target && e.target.tagName === 'SELECT') {
+            setTimeout(() => {
+              try {
+                if (document.activeElement === e.target) {
+                  e.target.blur();
+                }
+              } catch (_) {}
+            }, 100);
+          }
+        }, true);
       })();
     </script>
   </body>

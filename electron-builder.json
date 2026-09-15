@@ -1,0 +1,24 @@
+﻿{
+  "appId": "com.puzzle.editor",
+  "productName": "Jewel-Sliding",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "icon.ico",
+    "app-icon.png",
+    "app-icon-square.png",
+    "package.json"
+  ],
+  "win": {
+    "icon": "icon.ico",
+    "target": [
+      {
+        "target": "dir",
+        "arch": ["x64"]
+      }
+    ]
+  }
+}

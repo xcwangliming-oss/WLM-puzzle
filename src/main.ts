@@ -54,7 +54,8 @@ function syncEditorStageScale(): void {
   const scale = Math.min(1, availableWidth / EDITOR_STAGE_BASE_WIDTH, availableHeight / EDITOR_STAGE_BASE_HEIGHT);
   root.style.setProperty('--editor-stage-width', `${EDITOR_STAGE_BASE_WIDTH}px`);
   root.style.setProperty('--editor-stage-height', `${EDITOR_STAGE_BASE_HEIGHT}px`);
-  root.style.setProperty('--editor-game-ui-height', `${EDITOR_GAME_UI_HEIGHT}px`);
+  const actualGameUiHeight = EDITOR_STAGE_BASE_HEIGHT - EDITOR_STAGE_MARGIN * 2;
+  root.style.setProperty('--editor-game-ui-height', `${actualGameUiHeight}px`);
   root.style.setProperty('--editor-stage-scale', scale.toFixed(4));
 }
 
@@ -5971,7 +5972,10 @@ function getEliminationVisibleRowRangeForWorldY(worldY: number): { minRow: numbe
     const clipRect = boardClip.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
     const rendererHeight = app.renderer.height;
-    const scaleY = rendererHeight > 0 ? canvasRect.height / rendererHeight : 0;
+    const stageScaleY = app.stage?.scale?.y || 1;
+    const scaleY = (rendererHeight > 0 && stageScaleY > 0)
+      ? (canvasRect.height / rendererHeight) * stageScaleY
+      : 0;
     const visibleTop = Math.max(clipRect.top, canvasRect.top);
     const visibleBottom = Math.min(clipRect.bottom, canvasRect.bottom);
 
@@ -5989,12 +5993,18 @@ function getEliminationVisibleRowRangeForWorldY(worldY: number): { minRow: numbe
   }
 
   const viewportTop = -worldY + visibleGameTop;
-  const viewportBottom = -worldY + visibleGameBottom;
-  const minRow = Math.max(0, Math.ceil(viewportTop / PARAMS.cellSize));
-  const maxRow = Math.min(
+  const viewportBottom = -worldY + visibleGameBottom + 0.5;
+  let minRow = Math.max(0, Math.ceil(viewportTop / PARAMS.cellSize));
+  let maxRow = Math.min(
     PARAMS.totalRows - 1,
     Math.floor(viewportBottom / PARAMS.cellSize) - 1
   );
+  if (worldY >= -2) {
+    minRow = 0;
+  }
+  if (worldY <= getBottomWorldY() + 2) {
+    maxRow = PARAMS.totalRows - 1;
+  }
   return { minRow, maxRow: Math.max(minRow - 1, maxRow) };
 }
 
@@ -6463,9 +6473,11 @@ function runPhysicsInstant() {
 
 
 
-      const triggeredFullRows = getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
-      fullRows.length = 0;
-      fullRows.push(...triggeredFullRows);
+      if (isRepairingScript) {
+        const triggeredFullRows = getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
+        fullRows.length = 0;
+        fullRows.push(...triggeredFullRows);
+      }
 
       if (isRepairingScript && activeRepairEliminationBudget !== null) {
 
@@ -9469,86 +9481,166 @@ function triggerGameplayGameOver() {
 
 
 
-async function addNewMaterial() {
+function showPromptDialog(title: string, defaultValue: string = '', placeholder: string = ''): Promise<string | null> {
+  return new Promise((resolve) => {
+    const existing = document.getElementById('custom-prompt-modal-overlay');
+    if (existing) existing.remove();
 
+    const overlay = document.createElement('div');
+    overlay.id = 'custom-prompt-modal-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 100000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    `;
 
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: #1e1e2e;
+      border: 1px solid #4f46e5;
+      border-radius: 12px;
+      width: 380px;
+      max-width: 90vw;
+      padding: 22px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      color: #fff;
+      box-sizing: border-box;
+    `;
 
-  const name = prompt('请输入新建材质包的名称：');
+    const titleEl = document.createElement('h3');
+    titleEl.textContent = title;
+    titleEl.style.cssText = `
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #e2e8f0;
+    `;
 
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = defaultValue;
+    input.placeholder = placeholder || title;
+    input.style.cssText = `
+      padding: 10px 12px;
+      background: #2a2b42;
+      border: 1px solid #4b5563;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+      box-sizing: border-box;
+      width: 100%;
+      transition: border-color 0.2s;
+    `;
+    input.onfocus = () => { input.style.borderColor = '#7c3aed'; };
+    input.onblur = () => { input.style.borderColor = '#4b5563'; };
 
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = `
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 4px;
+    `;
 
-  if (name === null) return; // User cancelled
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '取消';
+    cancelBtn.style.cssText = `
+      padding: 7px 16px;
+      background: #374151;
+      border: none;
+      border-radius: 6px;
+      color: #d1d5db;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.15s;
+    `;
+    cancelBtn.onmouseenter = () => { cancelBtn.style.background = '#4b5563'; };
+    cancelBtn.onmouseleave = () => { cancelBtn.style.background = '#374151'; };
 
+    const confirmBtn = document.createElement('button');
+    confirmBtn.textContent = '确定';
+    confirmBtn.style.cssText = `
+      padding: 7px 18px;
+      background: #7c3aed;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 0.15s;
+    `;
+    confirmBtn.onmouseenter = () => { confirmBtn.style.background = '#6d28d9'; };
+    confirmBtn.onmouseleave = () => { confirmBtn.style.background = '#7c3aed'; };
 
+    const cleanup = (val: string | null) => {
+      window.removeEventListener('keydown', onKeyDown);
+      overlay.remove();
+      resolve(val);
+    };
 
-  const cleanName = name.trim() || `材质包_${new Date().toLocaleTimeString()}`;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        cleanup(input.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cleanup(null);
+      }
+    };
 
+    cancelBtn.onclick = () => cleanup(null);
+    confirmBtn.onclick = () => cleanup(input.value);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) cleanup(null);
+    };
 
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(confirmBtn);
 
-  try {
+    dialog.appendChild(titleEl);
+    dialog.appendChild(input);
+    dialog.appendChild(btnRow);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
 
-
-
-    await materialDB.addMaterial(cleanName);
-
-
-
-    await renderMaterialList();
-
-
-
-  } catch (err) {
-
-
-
-    console.error(err);
-
-
-
-    alert('新建材质包失败！');
-
-
-
-  }
-
-
-
+    window.addEventListener('keydown', onKeyDown);
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 50);
+  });
 }
 
-
-
-
-
-
+async function addNewMaterial() {
+  const name = await showPromptDialog('请输入新建材质包的名称：');
+  if (name === null) return; // User cancelled
+  const cleanName = name.trim() || `材质包_${new Date().toLocaleTimeString()}`;
+  try {
+    await materialDB.addMaterial(cleanName);
+    await renderMaterialList();
+  } catch (err) {
+    console.error(err);
+    alert('新建材质包失败！');
+  }
+}
 
 async function addNewSound() {
-
-
-
-  const name = prompt('请输入新建音效包的名称：');
-
-
-
+  const name = await showPromptDialog('请输入新建音效包的名称：');
   if (name === null) return; // User cancelled
-
-
-
   const cleanName = name.trim() || `音效包_${new Date().toLocaleTimeString()}`;
-
-
-
   try {
-
-
-
     await soundDB.addSound(cleanName);
-
-
-
     await renderSoundList();
-
-
-
   } catch (err) {
 
 
@@ -10203,6 +10295,65 @@ async function collectMaterialFiles(dirHandle: FileSystemDirectoryHandle): Promi
 
 }
 
+function pickDirectoryOrFilesUniversal(options: { accept?: string } = {}): Promise<File[]> {
+  return new Promise<File[]>((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    (input as any).webkitdirectory = true;
+    (input as any).directory = true;
+    if (options.accept) input.accept = options.accept;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    let settled = false;
+    const cleanup = () => {
+      if (input.parentNode) input.parentNode.removeChild(input);
+    };
+
+    input.onchange = () => {
+      if (settled) return;
+      settled = true;
+      const files = Array.from(input.files || []);
+      cleanup();
+      resolve(files);
+    };
+
+    input.oncancel = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve([]);
+    };
+
+    window.addEventListener('focus', () => {
+      setTimeout(() => {
+        if (!settled && (!input.files || input.files.length === 0)) {
+          settled = true;
+          cleanup();
+          resolve([]);
+        }
+      }, 800);
+    }, { once: true });
+
+    input.click();
+  });
+}
+
+async function pickDirectoryFilesWithFallback(): Promise<File[]> {
+  if (typeof (window as any).showDirectoryPicker === 'function') {
+    try {
+      const dirHandle = await (window as any).showDirectoryPicker();
+      return await collectMaterialFiles(dirHandle);
+    } catch (err: any) {
+      if (err.name === 'AbortError') return [];
+      console.warn('showDirectoryPicker unavailable or failed, falling back to input:', err);
+    }
+  }
+  return await pickDirectoryOrFilesUniversal();
+}
+
+
 
 
 
@@ -10282,17 +10433,11 @@ async function renderMaterialList() {
 
 
   const img = document.createElement('img');
-
-
-
   img.className = 'material-card-thumb';
-
-
-
-  img.src = `assets/playable-blocks/red-1.webp`;
-
-
-
+  img.src = `assets/blocks/red-1.png`;
+  img.onerror = () => {
+    img.src = `assets/playable-blocks/red-1.webp`;
+  };
   defaultPreview.appendChild(img);
 
 
@@ -10539,25 +10684,12 @@ async function renderMaterialList() {
 
           try {
 
-
-
-            const dirHandle = await (window as any).showDirectoryPicker();
-
-
+            const selectedFiles = await pickDirectoryFilesWithFallback();
+            if (!selectedFiles || selectedFiles.length === 0) return;
 
             const textures: Record<string, string> = {};
 
-
-
             let matchCount = 0;
-
-
-
-
-
-
-
-            const selectedFiles = await collectMaterialFiles(dirHandle);
 
 
 
@@ -12765,14 +12897,8 @@ async function renderCollectibleList() {
 
 
 
-        const name = prompt("Enter collectible name:");
-
-
-
+        const name = await showPromptDialog("请输入收集物名称：");
         if (name === null) return;
-
-
-
         const cleanName = name.trim() || `自定义收集物_${new Date().toLocaleTimeString()}`;
 
 
@@ -14559,33 +14685,14 @@ async function renderSoundList() {
 
           try {
 
-
-
-            const dirHandle = await (window as any).showDirectoryPicker();
-
-
+            const selectedFiles = await pickDirectoryFilesWithFallback();
+            if (!selectedFiles || selectedFiles.length === 0) return;
 
             const soundsData: Record<string, string> = {};
 
-
-
             let matchCount = 0;
 
-
-
-
-
-
-
-            for await (const entry of dirHandle.values()) {
-
-
-
-              if (entry.kind === 'file') {
-
-
-
-                const file = await entry.getFile();
+            for (const file of selectedFiles) {
 
 
 
@@ -14650,10 +14757,6 @@ async function renderSoundList() {
 
 
                 }
-
-
-
-              }
 
 
 
@@ -15018,13 +15121,7 @@ async function renderSoundList() {
 
 
 async function addNewEffect() {
-
-
-
-  const name = prompt('请输入新特效包的名称');
-
-
-
+  const name = await showPromptDialog('请输入新特效包的名称：');
   if (!name) return;
 
 
@@ -15407,33 +15504,14 @@ async function renderEffectList() {
 
           try {
 
-
-
-            const dirHandle = await (window as any).showDirectoryPicker();
-
-
+            const selectedFiles = await pickDirectoryFilesWithFallback();
+            if (!selectedFiles || selectedFiles.length === 0) return;
 
             const effectsData: Record<string, string> = {};
 
-
-
             let matchCount = 0;
 
-
-
-
-
-
-
-            for await (const entry of dirHandle.values()) {
-
-
-
-              if (entry.kind === 'file') {
-
-
-
-                const file = await entry.getFile();
+            for (const file of selectedFiles) {
 
 
 
@@ -15474,10 +15552,6 @@ async function renderEffectList() {
 
 
                 }
-
-
-
-              }
 
 
 
@@ -22241,7 +22315,7 @@ function initPropStylePanel(): void {
       <input id='input-prop-machine' type='file' accept='image/*' multiple hidden/>
       <input id='input-prop-machine-attack' type='file' accept='image/*' multiple hidden/>
       <input id='input-prop-eat' type='file' accept='image/*' multiple hidden/>
-      <label style='display:flex;align-items:center;gap:5px;padding:5px 6px;background:#1e1e2e;border:1px solid #555;border-radius:5px;cursor:pointer;font-size:10px;color:#ddd;'><input id='toggle-obstacle-eater' type='checkbox' style='margin:0;accent-color:#7c3aed;'/><span>启用吃障碍角色（消除时间×2）</span></label>
+      <label style='display:flex;align-items:center;gap:5px;padding:5px 6px;background:#1e1e2e;border:1px solid #555;border-radius:5px;cursor:pointer;font-size:10px;color:#ddd;'><input id='toggle-obstacle-eater' type='checkbox' style='margin:0;accent-color:#7c3aed;'/><span>启用障碍物模式（吃障碍角色，消除时间×2）</span></label>
       <button id='btn-clear-prop-style' onclick='clearCustomPropImages()' style='display:none;width:100%;padding:5px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;'>恢复默认样式</button>
       <div style='font-size:9px;color:#666;line-height:1.2;'>障碍体会保持整图缩放；障碍头固定在末端。待机和收集均可上传单张或多张序列帧。</div>
     </div>`;
@@ -22677,7 +22751,7 @@ function playObstacleEatAnimation(
       const growEased = 1 - Math.pow(1 - growT, 3);
       const scale = startScale + (normalScale - startScale) * growEased;
       const moveT = Math.min(1, Math.max(0, (elapsed - growDuration) / movementDuration));
-      const moveEased = 1 - Math.pow(1 - moveT, 3);
+      const moveEased = moveT; // 匀速运动往机器头走
       anim.x = startX + (targetX - startX) * moveEased;
       anim.y = baseY;
       anim.scale.set(approachSign * scale, scale);
@@ -25194,29 +25268,10 @@ function riseOneRow() {
 
 
 function afterGravityComplete(checkElim: boolean) {
-
-
-
+  isAnimating = false;
   if (checkElim) {
-
-
-
     checkEliminations();
-
-
-
-  } else {
-
-
-
-    isAnimating = false;
-
-
-
   }
-
-
-
 }
 
 
@@ -26108,7 +26163,15 @@ function playRowShatterEffect(
 
 
       if (isSingleCellEffect) {
-        delay = 0;
+        if (!onlyCols || onlyCols.size === 1) {
+          delay = 0;
+        } else if (mode === 3) {
+          delay = col * staggerPerCell * 1000;
+        } else if (mode === 4) {
+          delay = (PARAMS.gridCols - 1 - col) * staggerPerCell * 1000;
+        } else if (mode === 1) {
+          delay = Math.abs(refCol - centerCol) * staggerPerCell * 1000;
+        }
       } else if (mode === 3) {
 
 
@@ -26713,11 +26776,39 @@ function playRowShatterEffect(
 
 
       if (isSingleCellEffect) {
-        textures = isCustomCell
-          ? activeEffectTextures
-          : (refCol < centerCol ? shatterLeftTextures.slice(3) : shatterRightTextures.slice(3));
-        isLeftTex = refCol < centerCol;
-        delay = 0;
+        if (!onlyCols || onlyCols.size === 1) {
+          textures = isCustomCell
+            ? activeEffectTextures
+            : (refCol < centerCol ? shatterLeftTextures.slice(3) : shatterRightTextures.slice(3));
+          isLeftTex = refCol < centerCol;
+          delay = 0;
+        } else if (isCustomCell) {
+          textures = activeEffectTextures;
+          isLeftTex = refCol < centerCol;
+          if (mode === 3) {
+            delay = col * staggerPerCell * 1000;
+          } else if (mode === 4) {
+            delay = (PARAMS.gridCols - 1 - col) * staggerPerCell * 1000;
+          } else {
+            const dist = isLeftTex ? (centerCol - refCol) : (refCol - centerCol);
+            delay = Math.max(0, dist) * staggerPerCell * 1000;
+          }
+        } else {
+          if (mode === 3) {
+            textures = shatterRightTextures.slice(3);
+            isLeftTex = false;
+            delay = col * staggerPerCell * 1000;
+          } else if (mode === 4) {
+            textures = shatterLeftTextures.slice(3);
+            isLeftTex = true;
+            delay = (PARAMS.gridCols - 1 - col) * staggerPerCell * 1000;
+          } else {
+            isLeftTex = refCol < centerCol;
+            textures = isLeftTex ? shatterLeftTextures.slice(3) : shatterRightTextures.slice(3);
+            const dist = isLeftTex ? (centerCol - refCol) : (refCol - centerCol);
+            delay = (mode === 2) ? 0 : Math.max(0, dist) * staggerPerCell * 1000;
+          }
+        }
       } else if (isCustomCell) {
 
 
@@ -27406,10 +27497,6 @@ function checkEliminations() {
 
     }
 
-    const triggeredFullRows = getTriggeredFullRowsFromOccupancy(occ, minRow, maxRow);
-    fullRows.length = 0;
-    fullRows.push(...triggeredFullRows);
-
   }
 
 
@@ -27821,9 +27908,10 @@ function checkEliminations() {
 
 
 
+          const propWaitTime = typeof anyPropDamaged !== "undefined" && anyPropDamaged ? (obstacleEaterEnabled ? 800 : 500) : 0;
           setTimeout(() => {
             continueGravityAfterElimination();
-          }, Math.max(customElimDelay * 1000, typeof anyPropDamaged !== "undefined" && anyPropDamaged ? 400 : 0));
+          }, Math.max(customElimDelay * 1000, propWaitTime));
 
 
 
@@ -27875,9 +27963,10 @@ function checkEliminations() {
 
 
 
+          const propWaitTime = typeof anyPropDamaged !== "undefined" && anyPropDamaged ? (obstacleEaterEnabled ? 800 : 500) : 0;
           setTimeout(() => {
             continueGravityAfterElimination();
-          }, Math.max(customElimDelay * 1000, typeof anyPropDamaged !== "undefined" && anyPropDamaged ? 400 : 0));
+          }, Math.max(customElimDelay * 1000, propWaitTime));
 
 
 
@@ -33642,12 +33731,15 @@ function setupDOMUI() {
       totalRows = clamp(totalRows, rows, 200);
     } else if (sourceId === 'input-vprows' || sourceId === 'slider-vprows') {
       rows = clamp(rows, 6, 60);
-      cols = clamp(Math.round(rows / boardAspect), 4, 30);
-      rows = clamp(Math.round(cols * boardAspect), 6, 60);
+      cols = clamp(cols, 4, 30);
+      totalRows = Math.max(totalRows, rows);
+    } else if (sourceId === 'input-cols' || sourceId === 'slider-cols') {
+      cols = clamp(cols, 4, 30);
+      rows = clamp(rows, 6, 60);
       totalRows = Math.max(totalRows, rows);
     } else {
       cols = clamp(cols, 4, 30);
-      rows = clamp(Math.round(cols * boardAspect), 6, 60);
+      rows = clamp(rows, 6, 60);
       totalRows = Math.max(totalRows, rows);
     }
 
@@ -37073,6 +37165,7 @@ function setupDOMUI() {
 
 
   const btnNoGravityMode = document.getElementById('btn-nogravity-mode')!;
+  const btnObstacleMode = document.getElementById('btn-obstacle-mode');
 
   const disablePastureLayerMode = () => setPastureLayerMode(false);
 
@@ -37382,6 +37475,7 @@ function setupDOMUI() {
 
 
     setBtnActive(btnNoGravityMode, isNoGravityMode);
+    setBtnActive(btnObstacleMode, obstacleEaterEnabled);
 
     setBtnActive(btnDrawCollect, isCollectMode);
 
@@ -37931,7 +38025,7 @@ function setupDOMUI() {
 
 
 
-    applyBoardAdvanceMode('scroll');
+    applyBoardAdvanceMode('scroll', true);
 
 
 
@@ -39119,13 +39213,18 @@ function setupDOMUI() {
 
   btnNoGravityMode.onclick = () => {
 
-
-
     setGravityMode(!isNoGravityMode);
 
-
-
   };
+
+  if (btnObstacleMode) {
+    btnObstacleMode.onclick = () => {
+      obstacleEaterEnabled = !obstacleEaterEnabled;
+      try { localStorage.setItem(PROP_STORAGE_OBSTACLE_EATER_ENABLED, String(obstacleEaterEnabled)); } catch {}
+      refreshObstacleEaterToggle();
+      syncModeButtonsUI();
+    };
+  }
 
 
   btnCollectMode.onclick = async () => {
@@ -39684,8 +39783,6 @@ function setupDOMUI() {
 
 
   refreshSaveList();
-
-
 
 
 
@@ -40408,8 +40505,6 @@ function setupDOMUI() {
 
 
   refreshFixedSaveList();
-
-
 
 
 
@@ -41184,8 +41279,6 @@ function setupDOMUI() {
 
 
   refreshScriptSaveList();
-
-
 
 
 
