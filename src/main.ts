@@ -1330,12 +1330,12 @@ const JEWELRY_BOX_PALETTES: Record<string, {
 };
 
 const JEWELRY_BOX_LABELS: Record<JewelryBoxAssetKey, string> = {
-  '1-closed': '1x1 关盒',
-  '1-open': '1x1 开盒',
-  'gem-1': '宝物1 (珍珠)',
-  '2-closed': '1x2 关盒',
-  '2-open': '1x2 开盒',
-  'gem-2': '宝物2 (钻石)',
+  '1-closed': '1x1 合上态',
+  '1-open': '1x1 通用第二形态',
+  'gem-1': '珍珠 (1x1飞行)',
+  '2-closed': '1x2 合上态',
+  '2-open': '1x2 通用第二形态',
+  'gem-2': '钻石 (1x2飞行)',
   'gem': '飞行宝物'
 };
 
@@ -1696,20 +1696,61 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey, color: string
   return canvas.toDataURL('image/png');
 }
 
+function getNormalBlockTexture(color: string, length: number): PIXI.Texture | null {
+  if (typeof PIXI === 'undefined') return null;
+  let texture: PIXI.Texture | null = null;
+  if (PIXI.Assets) {
+    try {
+      texture = PIXI.Assets.get(`${color}-${length}`);
+    } catch (_) {}
+  }
+  if (!texture) {
+    const assetKey = `../assets/playable-blocks/${color}-${length}.webp`;
+    const source = playableBlockAssetsMap[assetKey] || `assets/playable-blocks/${color}-${length}.webp`;
+    try {
+      texture = PIXI.Texture.from(source);
+    } catch (_) {}
+  }
+  return texture;
+}
+
 function getJewelryBoxTexture(length: number, state: 'closed' | 'open', color: string = 'red'): PIXI.Texture {
   const normLength = length === 2 ? 2 : 1;
   const normColor = JEWELRY_BOX_COLORS.includes(color as any) ? color : 'red';
   const specificKey = `${normColor}-${normLength}-${state}`;
   const genericKey: JewelryBoxAssetKey = `${normLength}-${state}`;
 
+  // 1. If custom asset is uploaded specifically for this color or globally:
   const customDataUrl = jewelryColorCustomAssets[specificKey] || jewelryCustomAssets[genericKey];
-  const cacheKey = customDataUrl ? `custom_${specificKey}_${customDataUrl.slice(-16)}` : `proc_${specificKey}`;
+  if (customDataUrl) {
+    const cacheKey = `custom_${specificKey}_${customDataUrl.slice(-16)}`;
+    if (proceduralJewelryTextureCache.has(cacheKey)) {
+      return proceduralJewelryTextureCache.get(cacheKey)!;
+    }
+    try {
+      const tex = PIXI.Texture.from(customDataUrl);
+      if (tex) {
+        proceduralJewelryTextureCache.set(cacheKey, tex);
+        return tex;
+      }
+    } catch (_) {}
+  }
 
+  // 2. Closed state: defaults directly to the normal block texture from active material pack
+  if (state === 'closed') {
+    const normalTex = getNormalBlockTexture(normColor, normLength);
+    if (normalTex) {
+      return normalTex;
+    }
+  }
+
+  // 3. Open state (second form): fallback to procedural open box with glittering gems
+  const cacheKey = `proc_${specificKey}`;
   if (proceduralJewelryTextureCache.has(cacheKey)) {
     return proceduralJewelryTextureCache.get(cacheKey)!;
   }
 
-  const src = customDataUrl || generateProceduralJewelryDataUrl(genericKey, normColor);
+  const src = generateProceduralJewelryDataUrl(genericKey, normColor);
   let tex: PIXI.Texture | null = null;
   if (typeof PIXI !== 'undefined' && PIXI.Texture) {
     try {
@@ -4826,6 +4867,7 @@ async function restoreDefaultTextures() {
 
 
       blocks.forEach(b => { if (b.isCollectible || b.isProp || b.pastureStage) return;
+        if (b.isJewelryBox && b.jewelryBoxState === 'open') return;
 
 
 
@@ -5116,6 +5158,7 @@ function applyCachedMaterialPack(cachedTextures: Record<string, PIXI.Texture>) {
 
 
       blocks.forEach(b => { if (b.isCollectible || b.isProp || b.pastureStage) return;
+        if (b.isJewelryBox && b.jewelryBoxState === 'open') return;
 
 
 
@@ -23330,13 +23373,18 @@ function initJewelryBoxPanel(): void {
       <h3 style="margin:2px 0 0;display:flex;align-items:center;gap:6px;font-size:14px;">💎 首饰盒双层收集 <span style="font-size:9px;background:#926815;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;">独立模式</span></h3>
       <label style="display:flex;align-items:center;gap:5px;padding:3px 6px;background:#2d2411;border:1px solid #7c5e1c;border-radius:5px;cursor:pointer;font-size:10px;color:#ffeeb8;"><input id="toggle-jewelry-box-mode" type="checkbox" style="margin:0;accent-color:#d4af37;"/><span>启用首饰盒双层收集模式</span></label>
     </div>
-    <div style="font-size:9px;color:#aaa;line-height:1.3;">5 种颜色方块的 1x1 与 1x2 均为独立宝石盒：消第1次开盒露宝，消第2次消除并飞入顶栏计数。各颜色均支持上传自定义 PNG/WebP。</div>
+    <div style="font-size:9px;color:#cbd5e1;line-height:1.4;background:rgba(0,0,0,0.25);padding:5px;border-radius:4px;border:1px solid rgba(255,255,255,0.08);">
+      ✨ <b>默认上传的方块即为宝盒</b>：1x1 与 1x2 宝盒的第一形态（合上）默认使用材质包对应方块，无需重复上传！<br>
+      📦 <b>只需上传第二形态（开盒）</b>：消除第1次打开展示第二形态（开盒露宝），第2次消除收集并飞入顶栏。若上传通用第二形态，所有颜色方块自动共用。
+    </div>
     <div style="display:flex;flex-direction:column;gap:3px;padding:4px;border:1px solid #7c5e1c;border-radius:5px;background:#1a140b;">
-      <div style="font-size:10px;color:#ffe494;font-weight:600;">👑 顶部飞行宝物（珍珠与钻石）</div>
-      <div id="jewelry-box-collectibles-grid" style="display:grid;grid-template-columns:repeat(2, 1fr);gap:4px;"></div>
+      <div style="font-size:10px;color:#ffe494;font-weight:600;display:flex;align-items:center;justify-content:space-between;">
+        <span>👑 顶部飞行宝物与通用第二形态（开盒）</span>
+      </div>
+      <div id="jewelry-box-collectibles-grid" style="display:grid;grid-template-columns:repeat(4, 1fr);gap:4px;"></div>
     </div>
     <div id="jewelry-box-asset-grid" style="display:flex;flex-direction:column;gap:5px;"></div>
-    <button id="btn-clear-jewelry-assets" type="button" style="padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;">恢复默认程序化素材</button>`;
+    <button id="btn-clear-jewelry-assets" type="button" style="padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;">恢复默认素材</button>`;
 
   if (pastureSection && pastureSection.parentElement === panel) {
     panel.insertBefore(sec, pastureSection.nextSibling);
@@ -23344,9 +23392,9 @@ function initJewelryBoxPanel(): void {
     panel.appendChild(sec);
   }
 
-  // 1. Flight collectibles
+  // 1. Flight collectibles & universal second form (gem-1, gem-2, 1-open, 2-open)
   const collectGrid = sec.querySelector('#jewelry-box-collectibles-grid') as HTMLElement;
-  (['gem-1', 'gem-2'] as JewelryBoxAssetKey[]).forEach(key => {
+  (['gem-1', 'gem-2', '1-open', '2-open'] as JewelryBoxAssetKey[]).forEach(key => {
     const label = document.createElement('label');
     label.htmlFor = `input-jewelry-${key}`;
     label.style.cssText = 'min-height:36px;border:1px dashed #7c5e1c;border-radius:4px;background:#241a0d;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:3px;';
@@ -23380,6 +23428,11 @@ function initJewelryBoxPanel(): void {
         } catch (_) {}
         img.src = dataUrl;
         proceduralJewelryTextureCache.clear();
+        if (key === '1-open' || key === '2-open') {
+          blocks.forEach(b => {
+            if (b.isJewelryBox && b.jewelryBoxState === 'open') refreshJewelryBoxSprite(b);
+          });
+        }
         syncJewelryBoxUI();
       };
       reader.readAsDataURL(file);
@@ -23389,7 +23442,7 @@ function initJewelryBoxPanel(): void {
     collectGrid.appendChild(label);
   });
 
-  // 2. 5 Colors Jewelry Box Grid
+  // 2. 5 Colors Jewelry Box Grid (2 slots per color: 1x1 第二形态 & 1x2 第二形态)
   const grid = sec.querySelector('#jewelry-box-asset-grid') as HTMLElement;
   JEWELRY_BOX_COLORS.forEach(col => {
     const info = JEWELRY_BOX_COLOR_INFO[col];
@@ -23397,34 +23450,40 @@ function initJewelryBoxPanel(): void {
     group.style.cssText = `display:flex;flex-direction:column;gap:3px;padding:4px;border:1px solid ${info.border};border-radius:5px;background:${info.bg};`;
 
     const grpHeader = document.createElement('div');
-    grpHeader.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#fff;';
+    grpHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:10px;font-weight:600;color:#fff;';
+    const grpLeft = document.createElement('div');
+    grpLeft.style.cssText = 'display:flex;align-items:center;gap:4px;';
     const dot = document.createElement('span');
     dot.style.cssText = `display:inline-block;width:7px;height:7px;border-radius:50%;background:${info.dot};`;
     const grpTitle = document.createElement('span');
-    grpTitle.textContent = `${info.name}色方块宝石盒 (1x1 & 1x2)`;
-    grpHeader.append(dot, grpTitle);
+    grpTitle.textContent = `${info.name}色方块 (1x1 & 1x2)`;
+    grpLeft.append(dot, grpTitle);
+
+    const grpSub = document.createElement('span');
+    grpSub.style.cssText = 'font-size:8px;color:#94a3b8;font-weight:normal;';
+    grpSub.textContent = '默认合上态使用材质包方块';
+
+    grpHeader.append(grpLeft, grpSub);
     group.appendChild(grpHeader);
 
     const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:repeat(4, 1fr);gap:3px;';
+    row.style.cssText = 'display:grid;grid-template-columns:repeat(2, 1fr);gap:4px;';
 
-    const variants: { key: '1-closed' | '1-open' | '2-closed' | '2-open'; label: string }[] = [
-      { key: '1-closed', label: '1x1 关' },
-      { key: '1-open',   label: '1x1 开' },
-      { key: '2-closed', label: '1x2 关' },
-      { key: '2-open',   label: '1x2 开' }
+    const variants: { key: '1-open' | '2-open'; label: string }[] = [
+      { key: '1-open', label: '1x1 第二形态 (开盒)' },
+      { key: '2-open', label: '1x2 第二形态 (开盒)' }
     ];
 
     variants.forEach(({ key: variant, label: shortLabel }) => {
       const fullKey = `${col}-${variant}`;
       const label = document.createElement('label');
       label.htmlFor = `input-jewelry-${fullKey}`;
-      label.style.cssText = `min-height:34px;border:1px dashed ${info.border};border-radius:4px;background:rgba(0,0,0,0.3);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:2px;`;
+      label.style.cssText = `min-height:36px;border:1px dashed ${info.border};border-radius:4px;background:rgba(0,0,0,0.3);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:3px;`;
 
       const img = document.createElement('img');
       img.id = `jewelry-thumb-${fullKey}`;
       img.src = jewelryColorCustomAssets[fullKey] || jewelryCustomAssets[variant] || generateProceduralJewelryDataUrl(variant, col);
-      img.style.cssText = 'max-width:100%;max-height:22px;object-fit:contain;';
+      img.style.cssText = 'max-width:100%;max-height:24px;object-fit:contain;';
 
       const title = document.createElement('span');
       title.textContent = shortLabel;
@@ -23450,7 +23509,7 @@ function initJewelryBoxPanel(): void {
           img.src = dataUrl;
           proceduralJewelryTextureCache.clear();
           blocks.forEach(b => {
-            if (b.isJewelryBox && b.color === col) refreshJewelryBoxSprite(b);
+            if (b.isJewelryBox && b.color === col && b.jewelryBoxState === 'open') refreshJewelryBoxSprite(b);
           });
           syncJewelryBoxUI();
         };
