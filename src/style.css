@@ -2259,12 +2259,15 @@ body:not(.is-playable) #script-steps-panel {
 .jewelry-score-hud {
   display: none;
   align-items: center;
-  justify-content: flex-end;
-  gap: 32px;
-  margin-left: auto;
+  justify-content: center;
+  gap: 24px;
+  position: absolute;
+  left: 58%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
   pointer-events: none;
   z-index: 5;
-  transform: translateY(-2px);
 }
 
 .jewelry-score-hud .multi-collectible-target {
@@ -2274,15 +2277,15 @@ body:not(.is-playable) #script-steps-panel {
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   border-radius: 8px;
   background: transparent;
   box-shadow: none;
 }
 
 .jewelry-header-icon {
-  width: 46px;
-  height: 46px;
+  width: 92px;
+  height: 92px;
   object-fit: contain;
   filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
 }
@@ -2290,7 +2293,7 @@ body:not(.is-playable) #script-steps-panel {
 .jewelry-score-val {
   color: #ffffff;
   font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
