@@ -1775,6 +1775,11 @@ function setJewelryBoxMode(enabled: boolean): void {
     isRainbowFixedMode = false;
     isMaterialChangingMode = false;
     isCollectMode = false;
+    if (multiCollectibleModeEnabled) {
+      multiCollectibleModeEnabled = false;
+      const multiToggle = document.getElementById('input-multi-collectible-mode') as HTMLInputElement | null;
+      if (multiToggle) multiToggle.checked = false;
+    }
     isNoGravityMode = false;
     jewelryCollectedCount = 0;
     jewelryCollectedCount1 = 0;
@@ -1819,9 +1824,11 @@ function syncJewelryBoxUI(): void {
 
   const hud = document.getElementById('jewelry-score-hud');
   const gameHeaderEl = document.getElementById('game-header');
-  const headerItemEl = gameHeaderEl?.children[0] as HTMLElement | null;
-  const scoreHeaderItemEl = gameHeaderEl?.children[2] as HTMLElement | null;
+  const headerItems = gameHeaderEl ? gameHeaderEl.querySelectorAll<HTMLElement>('.header-item') : [];
+  const headerItemEl = headerItems[0] || null;
+  const scoreHeaderItemEl = headerItems[1] || null;
   const wrapper = document.getElementById('board-wrapper');
+  const multiHud = document.getElementById('multi-collectible-hud');
 
   const scoreInput = document.getElementById('input-score') as HTMLInputElement | null;
   const currentScore = scoreInput ? parseInt(scoreInput.value) || 854682 : 854682;
@@ -1831,7 +1838,11 @@ function syncJewelryBoxUI(): void {
   const isActive = isJewelryBoxMode || blocks.some(b => b.isJewelryBox);
 
   if (isActive) {
-    if (wrapper) wrapper.classList.add('multi-collectible-live');
+    if (wrapper) {
+      wrapper.classList.add('jewelry-box-live');
+      wrapper.classList.remove('multi-collectible-live');
+    }
+    if (multiHud) multiHud.style.display = 'none';
 
     if (headerItemEl) {
       headerItemEl.innerHTML = `<span class="collect-score-hud"><span class="collect-score-label">SCORE</span><span id="score-val" class="collect-score-value">${currentScore.toLocaleString()}</span></span><span id="level-val" style="display:none;">${currentLevel}</span>`;
@@ -1857,6 +1868,9 @@ function syncJewelryBoxUI(): void {
       }
     }
   } else {
+    if (wrapper) wrapper.classList.remove('jewelry-box-live');
+    if (multiHud) multiHud.style.display = '';
+
     if (!isCollectMode) {
       if (wrapper) {
         wrapper.classList.toggle('multi-collectible-live', !!(multiCollectibleModeEnabled && multiCollectibleItems.length > 0));
@@ -12028,6 +12042,10 @@ function renderMultiCollectibleHud() {
   const wrapper = document.getElementById('board-wrapper');
   const header = document.getElementById('game-header');
   if (!hud || !wrapper) return;
+  if (isJewelryBoxMode) {
+    hud.style.display = 'none';
+    return;
+  }
   if (header && hud.parentElement !== header) {
     header.appendChild(hud);
   }

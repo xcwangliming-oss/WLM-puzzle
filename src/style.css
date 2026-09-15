@@ -177,6 +177,26 @@ body:not(.is-playable) #tab-level {
   line-height: 0.92;
 }
 
+#board-wrapper.jewelry-box-live .collect-score-hud {
+  justify-content: flex-start;
+  padding-top: 2px;
+}
+
+#board-wrapper.jewelry-box-live .collect-score-label {
+  margin-bottom: 9px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+#board-wrapper.jewelry-box-live .collect-score-value {
+  font-size: 36px;
+  line-height: 0.92;
+}
+
+#board-wrapper.jewelry-box-live #multi-collectible-hud {
+  display: none !important;
+}
+
 #collectible-header-icon {
   transform: none;
   transform-origin: center;
