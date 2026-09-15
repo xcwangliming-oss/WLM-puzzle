@@ -1268,6 +1268,67 @@ type JewelryBoxAssetKey = '1-closed' | '1-open' | '2-closed' | '2-open' | 'gem' 
 
 const JEWELRY_BOX_ASSET_KEYS: JewelryBoxAssetKey[] = ['1-closed', '1-open', 'gem-1', '2-closed', '2-open', 'gem-2'];
 
+const JEWELRY_BOX_COLORS = ['red', 'blue', 'green', 'yellow', 'pink'] as const;
+type JewelryBoxColor = typeof JEWELRY_BOX_COLORS[number];
+
+const JEWELRY_BOX_COLOR_INFO: Record<JewelryBoxColor, { name: string; dot: string; border: string; bg: string }> = {
+  red:    { name: '红', dot: '#e05050', border: '#7f1d1d', bg: '#23070b' },
+  blue:   { name: '蓝', dot: '#5080e0', border: '#1e3a8a', bg: '#081427' },
+  green:  { name: '绿', dot: '#50c050', border: '#065f46', bg: '#061c14' },
+  yellow: { name: '黄', dot: '#e0c040', border: '#854d0e', bg: '#221404' },
+  pink:   { name: '粉', dot: '#e060a0', border: '#831843', bg: '#240614' }
+};
+
+const JEWELRY_BOX_PALETTES: Record<string, {
+  closedVelvet: [string, string, string];
+  openVelvet: [string, string, string];
+  goldTrim: [string, string, string, string];
+  claspColor: string;
+  claspDot: string;
+  gemColors: [string, string];
+}> = {
+  red: {
+    closedVelvet: ['#991b1b', '#5c0b1e', '#2e030e'],
+    openVelvet: ['#3b0712', '#210209', '#0d0104'],
+    goldTrim: ['#ffd700', '#fff4b8', '#d4af37', '#aa7c11'],
+    claspColor: '#ffd700',
+    claspDot: '#4c0519',
+    gemColors: ['#ff2a55', '#ffffff']
+  },
+  blue: {
+    closedVelvet: ['#1d4ed8', '#172554', '#08112e'],
+    openVelvet: ['#111c3d', '#080e21', '#02050f'],
+    goldTrim: ['#ffd700', '#fff4b8', '#d4af37', '#aa7c11'],
+    claspColor: '#ffd700',
+    claspDot: '#0f172a',
+    gemColors: ['#00d4ff', '#ffffff']
+  },
+  green: {
+    closedVelvet: ['#047857', '#064e3b', '#02241b'],
+    openVelvet: ['#043327', '#021f17', '#010f0b'],
+    goldTrim: ['#ffd700', '#fff4b8', '#d4af37', '#aa7c11'],
+    claspColor: '#ffd700',
+    claspDot: '#022c22',
+    gemColors: ['#10b981', '#ffffff']
+  },
+  yellow: {
+    closedVelvet: ['#a16207', '#713f12', '#361d05'],
+    openVelvet: ['#492809', '#2b1603', '#140a01'],
+    goldTrim: ['#ffe066', '#fff9d6', '#cca300', '#8f7200'],
+    claspColor: '#ffe066',
+    claspDot: '#451a03',
+    gemColors: ['#fbbf24', '#ffffff']
+  },
+  pink: {
+    closedVelvet: ['#9d174d', '#700c35', '#380419'],
+    openVelvet: ['#470621', '#280212', '#120108'],
+    goldTrim: ['#ffd700', '#fff4b8', '#d4af37', '#aa7c11'],
+    claspColor: '#ffd700',
+    claspDot: '#500724',
+    gemColors: ['#f472b6', '#ffffff']
+  }
+};
+
 const JEWELRY_BOX_LABELS: Record<JewelryBoxAssetKey, string> = {
   '1-closed': '1x1 关盒',
   '1-open': '1x1 开盒',
@@ -1288,6 +1349,8 @@ const jewelryCustomAssets: Record<JewelryBoxAssetKey, string> = {
   'gem': ''
 };
 
+const jewelryColorCustomAssets: Record<string, string> = {};
+
 function initJewelryCustomAssetsFromStorage(): void {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   (['1-closed', '1-open', 'gem-1', '2-closed', '2-open', 'gem-2', 'gem'] as JewelryBoxAssetKey[]).forEach(key => {
@@ -1295,6 +1358,16 @@ function initJewelryCustomAssetsFromStorage(): void {
       const saved = localStorage.getItem(`puzzle_jewelry_custom_${key}`);
       if (saved) jewelryCustomAssets[key] = saved;
     } catch (_) {}
+  });
+
+  JEWELRY_BOX_COLORS.forEach(col => {
+    (['1-closed', '1-open', '2-closed', '2-open'] as const).forEach(variant => {
+      const key = `${col}-${variant}`;
+      try {
+        const saved = localStorage.getItem(`puzzle_jewelry_custom_${key}`);
+        if (saved) jewelryColorCustomAssets[key] = saved;
+      } catch (_) {}
+    });
   });
 }
 initJewelryCustomAssetsFromStorage();
@@ -1315,9 +1388,9 @@ function drawJewelryRoundRect(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.closePath();
 }
 
-function drawJewelryClasp(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+function drawJewelryClasp(ctx: CanvasRenderingContext2D, cx: number, cy: number, claspColor: string = '#ffd700', dotColor: string = '#3b0764'): void {
   ctx.save();
-  ctx.fillStyle = '#ffd700';
+  ctx.fillStyle = claspColor;
   ctx.beginPath();
   ctx.arc(cx, cy, 12, 0, Math.PI * 2);
   ctx.fill();
@@ -1325,7 +1398,7 @@ function drawJewelryClasp(ctx: CanvasRenderingContext2D, cx: number, cy: number)
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  ctx.fillStyle = '#3b0764';
+  ctx.fillStyle = dotColor;
   ctx.beginPath();
   ctx.arc(cx, cy - 1, 3.5, 0, Math.PI * 2);
   ctx.fill();
@@ -1434,7 +1507,7 @@ function drawJewelrySparkle(ctx: CanvasRenderingContext2D, cx: number, cy: numbe
   ctx.restore();
 }
 
-function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
+function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey, color: string = 'red'): string {
   if (typeof document === 'undefined') {
     return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   }
@@ -1541,13 +1614,22 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
   const bh = h - pad * 2;
   const r = 16;
 
+  const palette = JEWELRY_BOX_PALETTES[color] || {
+    closedVelvet: ['#581c87', '#3b0764', '#240046'],
+    openVelvet: ['#1e1b4b', '#0f172a', '#020617'],
+    goldTrim: ['#ffd700', '#fff4b8', '#d4af37', '#aa7c11'],
+    claspColor: '#ffd700',
+    claspDot: '#3b0764',
+    gemColors: ['#00f0ff', '#ffffff']
+  };
+
   ctx.save();
   drawJewelryRoundRect(ctx, pad, pad, bw, bh, r);
   const goldGrad = ctx.createLinearGradient(0, pad, w, pad + bh);
-  goldGrad.addColorStop(0, '#ffd700');
-  goldGrad.addColorStop(0.3, '#fff4b8');
-  goldGrad.addColorStop(0.6, '#d4af37');
-  goldGrad.addColorStop(1, '#aa7c11');
+  goldGrad.addColorStop(0, palette.goldTrim[0]);
+  goldGrad.addColorStop(0.3, palette.goldTrim[1]);
+  goldGrad.addColorStop(0.6, palette.goldTrim[2]);
+  goldGrad.addColorStop(1, palette.goldTrim[3]);
   ctx.fillStyle = goldGrad;
   ctx.fill();
 
@@ -1555,13 +1637,13 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
   drawJewelryRoundRect(ctx, pad + innerPad, pad + innerPad, bw - innerPad * 2, bh - innerPad * 2, r - 3);
   const velvetGrad = ctx.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w / 1.5);
   if (!isOpen) {
-    velvetGrad.addColorStop(0, '#581c87');
-    velvetGrad.addColorStop(0.6, '#3b0764');
-    velvetGrad.addColorStop(1, '#240046');
+    velvetGrad.addColorStop(0, palette.closedVelvet[0]);
+    velvetGrad.addColorStop(0.6, palette.closedVelvet[1]);
+    velvetGrad.addColorStop(1, palette.closedVelvet[2]);
   } else {
-    velvetGrad.addColorStop(0, '#1e1b4b');
-    velvetGrad.addColorStop(0.7, '#0f172a');
-    velvetGrad.addColorStop(1, '#020617');
+    velvetGrad.addColorStop(0, palette.openVelvet[0]);
+    velvetGrad.addColorStop(0.7, palette.openVelvet[1]);
+    velvetGrad.addColorStop(1, palette.openVelvet[2]);
   }
   ctx.fillStyle = velvetGrad;
   ctx.fill();
@@ -1578,7 +1660,7 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
     ctx.save();
     if (isWide) {
       [w * 0.35, w * 0.65].forEach(claspX => {
-        drawJewelryClasp(ctx, claspX, h / 2);
+        drawJewelryClasp(ctx, claspX, h / 2, palette.claspColor, palette.claspDot);
       });
       ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
       ctx.lineWidth = 3;
@@ -1593,14 +1675,14 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
       ctx.moveTo(pad + 8, h / 2);
       ctx.lineTo(w - pad - 8, h / 2);
       ctx.stroke();
-      drawJewelryClasp(ctx, w / 2, h / 2);
+      drawJewelryClasp(ctx, w / 2, h / 2, palette.claspColor, palette.claspDot);
     }
     ctx.restore();
   } else {
     ctx.save();
     if (isWide) {
-      drawJewelryGemInside(ctx, w * 0.32, h / 2, 28, '#00f0ff', '#ffffff');
-      drawJewelryGemInside(ctx, w * 0.68, h / 2, 28, '#ff3366', '#ffffff');
+      drawJewelryGemInside(ctx, w * 0.32, h / 2, 28, palette.gemColors[0], '#ffffff');
+      drawJewelryGemInside(ctx, w * 0.68, h / 2, 28, palette.gemColors[0], '#ffffff');
       drawJewelrySparkle(ctx, w * 0.32 - 12, h / 2 - 14);
       drawJewelrySparkle(ctx, w * 0.68 + 12, h / 2 - 14);
     } else {
@@ -1614,17 +1696,20 @@ function generateProceduralJewelryDataUrl(key: JewelryBoxAssetKey): string {
   return canvas.toDataURL('image/png');
 }
 
-function getJewelryBoxTexture(length: number, state: 'closed' | 'open'): PIXI.Texture {
+function getJewelryBoxTexture(length: number, state: 'closed' | 'open', color: string = 'red'): PIXI.Texture {
   const normLength = length === 2 ? 2 : 1;
-  const assetKey: JewelryBoxAssetKey = `${normLength}-${state}`;
-  const customDataUrl = jewelryCustomAssets[assetKey];
-  const cacheKey = customDataUrl ? `custom_${assetKey}_${customDataUrl.slice(-16)}` : `proc_${assetKey}`;
+  const normColor = JEWELRY_BOX_COLORS.includes(color as any) ? color : 'red';
+  const specificKey = `${normColor}-${normLength}-${state}`;
+  const genericKey: JewelryBoxAssetKey = `${normLength}-${state}`;
+
+  const customDataUrl = jewelryColorCustomAssets[specificKey] || jewelryCustomAssets[genericKey];
+  const cacheKey = customDataUrl ? `custom_${specificKey}_${customDataUrl.slice(-16)}` : `proc_${specificKey}`;
 
   if (proceduralJewelryTextureCache.has(cacheKey)) {
     return proceduralJewelryTextureCache.get(cacheKey)!;
   }
 
-  const src = customDataUrl || generateProceduralJewelryDataUrl(assetKey);
+  const src = customDataUrl || generateProceduralJewelryDataUrl(genericKey, normColor);
   let tex: PIXI.Texture | null = null;
   if (typeof PIXI !== 'undefined' && PIXI.Texture) {
     try {
@@ -1639,7 +1724,7 @@ function getJewelryBoxTexture(length: number, state: 'closed' | 'open'): PIXI.Te
 function refreshJewelryBoxSprite(block: Block): void {
   if (!block.isJewelryBox) return;
   const state = block.jewelryBoxState || 'closed';
-  const texture = getJewelryBoxTexture(block.length, state);
+  const texture = getJewelryBoxTexture(block.length, state, block.color);
   if (texture && block.sprite) {
     block.sprite.texture = texture;
     block.sprite.alpha = 1;
@@ -1893,6 +1978,16 @@ function syncJewelryBoxUI(): void {
     if (thumb) {
       thumb.src = jewelryCustomAssets[key] || generateProceduralJewelryDataUrl(key);
     }
+  });
+
+  JEWELRY_BOX_COLORS.forEach(col => {
+    (['1-closed', '1-open', '2-closed', '2-open'] as const).forEach(variant => {
+      const fullKey = `${col}-${variant}`;
+      const thumb = document.getElementById(`jewelry-thumb-${fullKey}`) as HTMLImageElement | null;
+      if (thumb) {
+        thumb.src = jewelryColorCustomAssets[fullKey] || jewelryCustomAssets[variant] || generateProceduralJewelryDataUrl(variant, col);
+      }
+    });
   });
 }
 
@@ -23230,10 +23325,16 @@ function initJewelryBoxPanel(): void {
   const sec = document.createElement('section');
   sec.id = 'jewelry-box-section';
   sec.style.cssText = 'display:flex;flex-direction:column;border-top:1px solid #444;padding-top:8px;margin-top:8px;gap:6px;';
-  sec.innerHTML = `<h3 style="margin:2px 0 0;display:flex;align-items:center;gap:6px;font-size:14px;">💎 首饰盒双层收集 <span style="font-size:9px;background:#926815;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;">独立模式</span></h3>
-    <label style="display:flex;align-items:center;gap:5px;padding:5px 6px;background:#2d2411;border:1px solid #7c5e1c;border-radius:5px;cursor:pointer;font-size:10px;color:#ffeeb8;"><input id="toggle-jewelry-box-mode" type="checkbox" style="margin:0;accent-color:#d4af37;"/><span>启用首饰盒双层收集模式</span></label>
-    <div style="font-size:9px;color:#aaa;line-height:1.3;">1x1 与 1x2 方块变为首饰盒：第1次消行开盒露出珍珠/钻石，第2次消行消除并飞入顶部HUD计数。点击下方可上传自定义 PNG/WebP。</div>
-    <div id="jewelry-box-asset-grid" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;"></div>
+  sec.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="margin:2px 0 0;display:flex;align-items:center;gap:6px;font-size:14px;">💎 首饰盒双层收集 <span style="font-size:9px;background:#926815;color:#fff;padding:1px 4px;border-radius:8px;font-weight:600;">独立模式</span></h3>
+      <label style="display:flex;align-items:center;gap:5px;padding:3px 6px;background:#2d2411;border:1px solid #7c5e1c;border-radius:5px;cursor:pointer;font-size:10px;color:#ffeeb8;"><input id="toggle-jewelry-box-mode" type="checkbox" style="margin:0;accent-color:#d4af37;"/><span>启用首饰盒双层收集模式</span></label>
+    </div>
+    <div style="font-size:9px;color:#aaa;line-height:1.3;">5 种颜色方块的 1x1 与 1x2 均为独立宝石盒：消第1次开盒露宝，消第2次消除并飞入顶栏计数。各颜色均支持上传自定义 PNG/WebP。</div>
+    <div style="display:flex;flex-direction:column;gap:3px;padding:4px;border:1px solid #7c5e1c;border-radius:5px;background:#1a140b;">
+      <div style="font-size:10px;color:#ffe494;font-weight:600;">👑 顶部飞行宝物（珍珠与钻石）</div>
+      <div id="jewelry-box-collectibles-grid" style="display:grid;grid-template-columns:repeat(2, 1fr);gap:4px;"></div>
+    </div>
+    <div id="jewelry-box-asset-grid" style="display:flex;flex-direction:column;gap:5px;"></div>
     <button id="btn-clear-jewelry-assets" type="button" style="padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;">恢复默认程序化素材</button>`;
 
   if (pastureSection && pastureSection.parentElement === panel) {
@@ -23242,16 +23343,17 @@ function initJewelryBoxPanel(): void {
     panel.appendChild(sec);
   }
 
-  const grid = sec.querySelector('#jewelry-box-asset-grid') as HTMLElement;
-  JEWELRY_BOX_ASSET_KEYS.forEach(key => {
+  // 1. Flight collectibles
+  const collectGrid = sec.querySelector('#jewelry-box-collectibles-grid') as HTMLElement;
+  (['gem-1', 'gem-2'] as JewelryBoxAssetKey[]).forEach(key => {
     const label = document.createElement('label');
     label.htmlFor = `input-jewelry-${key}`;
-    label.style.cssText = 'min-height:38px;border:1px dashed #7c5e1c;border-radius:4px;background:#1e180d;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:3px;';
+    label.style.cssText = 'min-height:36px;border:1px dashed #7c5e1c;border-radius:4px;background:#241a0d;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:3px;';
 
     const img = document.createElement('img');
     img.id = `jewelry-thumb-${key}`;
     img.src = jewelryCustomAssets[key] || generateProceduralJewelryDataUrl(key);
-    img.style.cssText = 'max-width:100%;max-height:26px;object-fit:contain;';
+    img.style.cssText = 'max-width:100%;max-height:24px;object-fit:contain;';
 
     const title = document.createElement('span');
     title.id = `jewelry-title-${key}`;
@@ -23277,16 +23379,89 @@ function initJewelryBoxPanel(): void {
         } catch (_) {}
         img.src = dataUrl;
         proceduralJewelryTextureCache.clear();
-        blocks.forEach(b => {
-          if (b.isJewelryBox) refreshJewelryBoxSprite(b);
-        });
         syncJewelryBoxUI();
       };
       reader.readAsDataURL(file);
     });
 
     label.append(img, title, input);
-    grid.appendChild(label);
+    collectGrid.appendChild(label);
+  });
+
+  // 2. 5 Colors Jewelry Box Grid
+  const grid = sec.querySelector('#jewelry-box-asset-grid') as HTMLElement;
+  JEWELRY_BOX_COLORS.forEach(col => {
+    const info = JEWELRY_BOX_COLOR_INFO[col];
+    const group = document.createElement('div');
+    group.style.cssText = `display:flex;flex-direction:column;gap:3px;padding:4px;border:1px solid ${info.border};border-radius:5px;background:${info.bg};`;
+
+    const grpHeader = document.createElement('div');
+    grpHeader.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#fff;';
+    const dot = document.createElement('span');
+    dot.style.cssText = `display:inline-block;width:7px;height:7px;border-radius:50%;background:${info.dot};`;
+    const grpTitle = document.createElement('span');
+    grpTitle.textContent = `${info.name}色方块宝石盒 (1x1 & 1x2)`;
+    grpHeader.append(dot, grpTitle);
+    group.appendChild(grpHeader);
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:repeat(4, 1fr);gap:3px;';
+
+    const variants: { key: '1-closed' | '1-open' | '2-closed' | '2-open'; label: string }[] = [
+      { key: '1-closed', label: '1x1 关' },
+      { key: '1-open',   label: '1x1 开' },
+      { key: '2-closed', label: '1x2 关' },
+      { key: '2-open',   label: '1x2 开' }
+    ];
+
+    variants.forEach(({ key: variant, label: shortLabel }) => {
+      const fullKey = `${col}-${variant}`;
+      const label = document.createElement('label');
+      label.htmlFor = `input-jewelry-${fullKey}`;
+      label.style.cssText = `min-height:34px;border:1px dashed ${info.border};border-radius:4px;background:rgba(0,0,0,0.3);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:2px;`;
+
+      const img = document.createElement('img');
+      img.id = `jewelry-thumb-${fullKey}`;
+      img.src = jewelryColorCustomAssets[fullKey] || jewelryCustomAssets[variant] || generateProceduralJewelryDataUrl(variant, col);
+      img.style.cssText = 'max-width:100%;max-height:22px;object-fit:contain;';
+
+      const title = document.createElement('span');
+      title.textContent = shortLabel;
+      title.style.cssText = 'font-size:8px;color:#ccc;text-align:center;line-height:1;margin-top:2px;';
+
+      const input = document.createElement('input');
+      input.id = `input-jewelry-${fullKey}`;
+      input.type = 'file';
+      input.accept = 'image/png,image/webp';
+      input.hidden = true;
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        input.value = '';
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target?.result as string;
+          if (!dataUrl) return;
+          jewelryColorCustomAssets[fullKey] = dataUrl;
+          try {
+            localStorage.setItem(`puzzle_jewelry_custom_${fullKey}`, dataUrl);
+          } catch (_) {}
+          img.src = dataUrl;
+          proceduralJewelryTextureCache.clear();
+          blocks.forEach(b => {
+            if (b.isJewelryBox && b.color === col) refreshJewelryBoxSprite(b);
+          });
+          syncJewelryBoxUI();
+        };
+        reader.readAsDataURL(file);
+      });
+
+      label.append(img, title, input);
+      row.appendChild(label);
+    });
+
+    group.appendChild(row);
+    grid.appendChild(group);
   });
 
   const toggle = sec.querySelector('#toggle-jewelry-box-mode') as HTMLInputElement;
@@ -23302,6 +23477,19 @@ function initJewelryBoxPanel(): void {
       const thumb = document.getElementById(`jewelry-thumb-${key}`) as HTMLImageElement | null;
       if (thumb) thumb.src = generateProceduralJewelryDataUrl(key);
     });
+
+    JEWELRY_BOX_COLORS.forEach(col => {
+      (['1-closed', '1-open', '2-closed', '2-open'] as const).forEach(variant => {
+        const fullKey = `${col}-${variant}`;
+        delete jewelryColorCustomAssets[fullKey];
+        try {
+          localStorage.removeItem(`puzzle_jewelry_custom_${fullKey}`);
+        } catch (_) {}
+        const thumb = document.getElementById(`jewelry-thumb-${fullKey}`) as HTMLImageElement | null;
+        if (thumb) thumb.src = generateProceduralJewelryDataUrl(variant, col);
+      });
+    });
+
     proceduralJewelryTextureCache.clear();
     blocks.forEach(b => {
       if (b.isJewelryBox) refreshJewelryBoxSprite(b);
@@ -24578,7 +24766,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
   let sprite: PIXI.Sprite;
 
   if (resolvedIsJewelryBox) {
-    const jTex = getJewelryBoxTexture(length, resolvedJewelryBoxState || 'closed');
+    const jTex = getJewelryBoxTexture(length, resolvedJewelryBoxState || 'closed', color);
     sprite = new PIXI.Sprite(jTex || PIXI.Texture.WHITE);
   } else if (isProp) {
     const propTextures = getPropAnimationTextures(length, propDir, 'idle');
