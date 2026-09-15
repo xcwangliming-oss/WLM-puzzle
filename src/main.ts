@@ -23374,14 +23374,14 @@ function initJewelryBoxPanel(): void {
       <label style="display:flex;align-items:center;gap:5px;padding:3px 6px;background:#2d2411;border:1px solid #7c5e1c;border-radius:5px;cursor:pointer;font-size:10px;color:#ffeeb8;"><input id="toggle-jewelry-box-mode" type="checkbox" style="margin:0;accent-color:#d4af37;"/><span>启用首饰盒双层收集模式</span></label>
     </div>
     <div style="font-size:9px;color:#cbd5e1;line-height:1.4;background:rgba(0,0,0,0.25);padding:5px;border-radius:4px;border:1px solid rgba(255,255,255,0.08);">
-      ✨ <b>默认上传的方块即为宝盒</b>：1x1 与 1x2 宝盒的第一形态（合上）默认使用材质包对应方块，无需重复上传！<br>
-      📦 <b>只需上传第二形态（开盒）</b>：消除第1次打开展示第二形态（开盒露宝），第2次消除收集并飞入顶栏。若上传通用第二形态，所有颜色方块自动共用。
+      ✨ <b>默认使用一套材质</b>：方块合上态默认直接使用材质包那一套方块，无需重复上传。<br>
+      📦 <b>只需上传两类素材</b>：① 顶部的 2 个珠宝收集物；② 每个颜色打开后的 1x1 与 1x2（消第1次打开，消第2次收集飞入顶栏）。
     </div>
     <div style="display:flex;flex-direction:column;gap:3px;padding:4px;border:1px solid #7c5e1c;border-radius:5px;background:#1a140b;">
       <div style="font-size:10px;color:#ffe494;font-weight:600;display:flex;align-items:center;justify-content:space-between;">
-        <span>👑 顶部飞行宝物与通用第二形态（开盒）</span>
+        <span>👑 两个珠宝收集物（顶栏飞入物）</span>
       </div>
-      <div id="jewelry-box-collectibles-grid" style="display:grid;grid-template-columns:repeat(4, 1fr);gap:4px;"></div>
+      <div id="jewelry-box-collectibles-grid" style="display:grid;grid-template-columns:repeat(2, 1fr);gap:4px;"></div>
     </div>
     <div id="jewelry-box-asset-grid" style="display:flex;flex-direction:column;gap:5px;"></div>
     <button id="btn-clear-jewelry-assets" type="button" style="padding:4px;background:#3d1a1a;border:1px solid #7c2d2d;color:#fca5a5;border-radius:4px;cursor:pointer;font-size:10px;">恢复默认素材</button>`;
@@ -23392,9 +23392,9 @@ function initJewelryBoxPanel(): void {
     panel.appendChild(sec);
   }
 
-  // 1. Flight collectibles & universal second form (gem-1, gem-2, 1-open, 2-open)
+  // 1. Two jewelry collectibles (gem-1 pearl for 1x1, gem-2 diamond for 1x2)
   const collectGrid = sec.querySelector('#jewelry-box-collectibles-grid') as HTMLElement;
-  (['gem-1', 'gem-2', '1-open', '2-open'] as JewelryBoxAssetKey[]).forEach(key => {
+  (['gem-1', 'gem-2'] as JewelryBoxAssetKey[]).forEach(key => {
     const label = document.createElement('label');
     label.htmlFor = `input-jewelry-${key}`;
     label.style.cssText = 'min-height:36px;border:1px dashed #7c5e1c;border-radius:4px;background:#241a0d;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:3px;';
@@ -23406,7 +23406,7 @@ function initJewelryBoxPanel(): void {
 
     const title = document.createElement('span');
     title.id = `jewelry-title-${key}`;
-    title.textContent = JEWELRY_BOX_LABELS[key];
+    title.textContent = key === 'gem-1' ? '珠宝 1 (珍珠 - 1x1收集物)' : '珠宝 2 (钻石 - 1x2收集物)';
     title.style.cssText = 'font-size:8px;color:#d4af37;text-align:center;line-height:1;margin-top:2px;';
 
     const input = document.createElement('input');
@@ -23428,11 +23428,6 @@ function initJewelryBoxPanel(): void {
         } catch (_) {}
         img.src = dataUrl;
         proceduralJewelryTextureCache.clear();
-        if (key === '1-open' || key === '2-open') {
-          blocks.forEach(b => {
-            if (b.isJewelryBox && b.jewelryBoxState === 'open') refreshJewelryBoxSprite(b);
-          });
-        }
         syncJewelryBoxUI();
       };
       reader.readAsDataURL(file);
@@ -23470,8 +23465,8 @@ function initJewelryBoxPanel(): void {
     row.style.cssText = 'display:grid;grid-template-columns:repeat(2, 1fr);gap:4px;';
 
     const variants: { key: '1-open' | '2-open'; label: string }[] = [
-      { key: '1-open', label: '1x1 第二形态 (开盒)' },
-      { key: '2-open', label: '1x2 第二形态 (开盒)' }
+      { key: '1-open', label: '1x1 打开' },
+      { key: '2-open', label: '1x2 打开' }
     ];
 
     variants.forEach(({ key: variant, label: shortLabel }) => {
