@@ -34349,7 +34349,151 @@ function drawRecordingMultiCollectibleHud(
   return true;
 }
 
+function drawRecordingJewelryBoxHud(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  boardWrapper: HTMLElement | null,
+  useRecordingBackground: boolean,
+  dpr: number
+): boolean {
+  const isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
+  if (!isJewelryBoxRecording) return false;
 
+  const hud = document.getElementById('jewelry-score-hud');
+  const boardRect = boardWrapper?.getBoundingClientRect();
+
+  const target1 = document.getElementById('jewelry-target-1');
+  const icon1 = document.getElementById('jewelry-header-icon') as HTMLImageElement | null;
+  const count1 = document.getElementById('jewelry-collect-val') as HTMLElement | null;
+
+  const target2 = document.getElementById('jewelry-target-2');
+  const icon2 = document.getElementById('jewelry-header-icon-2') as HTMLImageElement | null;
+  const count2 = document.getElementById('jewelry-collect-val-2') as HTMLElement | null;
+
+  const items = [
+    {
+      target: target1,
+      icon: icon1,
+      countEl: count1,
+      fallbackSrc: jewelryCustomAssets['gem-1'] || jewelryCustomAssets['gem'] || 'assets/jewelry_box/gem-1.webp' || generateProceduralJewelryDataUrl('gem-1'),
+      countVal: jewelryCollectedCount1
+    },
+    {
+      target: target2,
+      icon: icon2,
+      countEl: count2,
+      fallbackSrc: jewelryCustomAssets['gem-2'] || 'assets/jewelry_box/gem-2.webp' || generateProceduralJewelryDataUrl('gem-2'),
+      countVal: jewelryCollectedCount2
+    }
+  ];
+
+  if (boardRect && hud && hud.style.display !== 'none') {
+    items.forEach(item => {
+      const img = (item.icon && item.icon.complete && (item.icon.naturalWidth || item.icon.width) > 0)
+        ? item.icon
+        : getClearTextImage(item.fallbackSrc);
+
+      const targetRect = item.target?.getBoundingClientRect();
+      const imageRect = item.icon?.getBoundingClientRect();
+      const countRect = item.countEl?.getBoundingClientRect();
+
+      const scaleX = useRecordingBackground ? width / Math.max(1, boardRect.width) : dpr;
+      const mappedImage = imageRect && imageRect.width > 0
+        ? (useRecordingBackground
+            ? mapBoardWrapperRectToRecordingRect(imageRect, boardRect, { x: 0, y: 0, w: width, h: height })
+            : {
+                x: (imageRect.left - boardRect.left) * dpr,
+                y: (imageRect.top - boardRect.top) * dpr,
+                w: imageRect.width * dpr,
+                h: imageRect.height * dpr
+              })
+        : (targetRect && targetRect.width > 0
+            ? (useRecordingBackground
+                ? mapBoardWrapperRectToRecordingRect(targetRect, boardRect, { x: 0, y: 0, w: width, h: height })
+                : {
+                    x: (targetRect.left - boardRect.left) * dpr,
+                    y: (targetRect.top - boardRect.top) * dpr,
+                    w: targetRect.width * dpr,
+                    h: targetRect.height * dpr
+                  })
+            : null);
+
+      if (!mappedImage) return;
+
+      drawRecordingImageContained(context, img, mappedImage);
+
+      const countText = item.countEl?.innerText || String(item.countVal || 0);
+      const cssFontSize = item.countEl ? parseFloat(getComputedStyle(item.countEl).fontSize) : 32;
+      const fontSize = Math.max(20, Math.round((cssFontSize || 32) * scaleX));
+
+      let countX = mappedImage.x + mappedImage.w + 10 * scaleX;
+      let countY = mappedImage.y + mappedImage.h / 2;
+
+      if (countRect && countRect.width > 0) {
+        const mappedCount = useRecordingBackground
+          ? mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height })
+          : {
+              x: (countRect.left - boardRect.left) * dpr,
+              y: (countRect.top - boardRect.top) * dpr,
+              w: countRect.width * dpr,
+              h: countRect.height * dpr
+            };
+        countX = mappedCount.x;
+        countY = mappedCount.y + mappedCount.h / 2;
+      }
+
+      context.save();
+      context.font = `900 ${fontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+      context.textAlign = 'left';
+      context.textBaseline = 'middle';
+      context.fillStyle = '#ffffff';
+      context.shadowColor = 'rgba(255, 255, 255, 0.24)';
+      context.shadowBlur = 6 * scaleX;
+      context.fillText(countText, countX, countY);
+      context.restore();
+    });
+    return true;
+  }
+
+  // Fallback when DOM layout is unavailable
+  const headerBox = {
+    x: MASTER_UI.header.x * width,
+    y: MASTER_UI.header.y * height,
+    w: MASTER_UI.header.w * width,
+    h: MASTER_UI.header.h * height
+  };
+  const iconSize = Math.min(76 * dpr, headerBox.h * 0.55);
+  const gap = 24 * (width / 720);
+  const hudStartX = headerBox.x + headerBox.w * 0.52;
+  const centerY = headerBox.y + headerBox.h / 2;
+  const fontSize = Math.max(20, Math.round(32 * (width / 720)));
+
+  items.forEach((item, idx) => {
+    const img = getClearTextImage(item.fallbackSrc);
+    const targetX = hudStartX + idx * (iconSize + 50 * (width / 720) + gap);
+    const imgBox = {
+      x: targetX,
+      y: centerY - iconSize / 2,
+      w: iconSize,
+      h: iconSize
+    };
+    drawRecordingImageContained(context, img, imgBox);
+
+    const countText = String(item.countVal || 0);
+    context.save();
+    context.font = `900 ${fontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+    context.textAlign = 'left';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#ffffff';
+    context.shadowColor = 'rgba(255, 255, 255, 0.24)';
+    context.shadowBlur = 6 * (width / 720);
+    context.fillText(countText, imgBox.x + imgBox.w + 10 * (width / 720), centerY);
+    context.restore();
+  });
+
+  return true;
+}
 
 function mapRecordingRectToBoardWrapperRect(
 
@@ -44777,98 +44921,72 @@ function startRecording(): Promise<boolean> {
 
 
 
+      const isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
+
       if (topUiMode === 'heart') {
         recordingCtx!.restore();
         drawRecordingHeartHud(recordingCtx!, width, height, headerBox, boardWrapper || null);
         recordingCtx!.save();
       } else {
-      const leftText = `LEVEL: ${document.getElementById('level-val')?.innerText || '284'}`;
+        const leftText = `LEVEL: ${document.getElementById('level-val')?.innerText || '284'}`;
 
+        recordingCtx!.textAlign = 'left';
 
+        const leftRect = headerItems[0]?.getBoundingClientRect();
 
-      recordingCtx!.textAlign = 'left';
+        const leftX = useRecordingBackground && leftRect && boardRectForHeader
+          ? (leftRect.left - boardRectForHeader.left) * (width / boardRectForHeader.width)
+          : headerBox.x + headerBox.w * 0.05;
 
+        if (isJewelryBoxRecording) {
+          const scoreText = document.getElementById('score-val')?.innerText || '854,682';
+          const labelFontSize = headerFontSize * 0.58;
+          const valueFontSize = headerFontSize * 1.04;
+          const labelY = textY - headerFontSize * 0.28;
+          const valueY = textY + headerFontSize * 0.48;
 
+          recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+          recordingCtx!.fillText('SCORE', leftX, labelY);
+          if (!useRecordingBackground) recordingCtx!.strokeText('SCORE', leftX, labelY);
 
-      const leftRect = headerItems[0]?.getBoundingClientRect();
+          recordingCtx!.font = `900 ${valueFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+          recordingCtx!.fillText(scoreText, leftX, valueY);
+          if (!useRecordingBackground) recordingCtx!.strokeText(scoreText, leftX, valueY);
+        } else if (isCollectMode) {
+          const scoreText = document.getElementById('score-val')?.innerText || '0';
+          const isMultiCollectRecording = multiCollectibleModeEnabled && multiCollectibleItems.length > 0;
+          const labelFontSize = headerFontSize * (isMultiCollectRecording ? 0.52 : 0.58);
+          const valueFontSize = headerFontSize * (isMultiCollectRecording ? 1.34 : 1.04);
+          const labelY = textY - headerFontSize * (isMultiCollectRecording ? 0.42 : 0.28);
+          const valueY = textY + headerFontSize * 0.58;
 
+          recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+          recordingCtx!.fillText('SCORE', leftX, labelY);
+          if (!useRecordingBackground) recordingCtx!.strokeText('SCORE', leftX, labelY);
 
+          recordingCtx!.font = `900 ${valueFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+          recordingCtx!.fillText(scoreText, leftX, valueY);
+          if (!useRecordingBackground) recordingCtx!.strokeText(scoreText, leftX, valueY);
+        } else {
+          recordingCtx!.fillText(leftText, leftX, textY);
+          if (!useRecordingBackground) recordingCtx!.strokeText(leftText, leftX, textY);
+        }
 
-      const leftX = useRecordingBackground && leftRect && boardRectForHeader
+        if (!isCollectMode && !isJewelryBoxRecording) {
+          recordingCtx!.textAlign = 'right';
 
+          const rightText = `SCORE: ${document.getElementById('score-val')!.innerText}`;
 
+          const rightRect = headerItems[1]?.getBoundingClientRect();
 
-        ? (leftRect.left - boardRectForHeader.left) * (width / boardRectForHeader.width)
+          const rightX = useRecordingBackground && rightRect && boardRectForHeader
+            ? (rightRect.right - boardRectForHeader.left) * (width / boardRectForHeader.width)
+            : headerBox.x + headerBox.w * 0.95;
 
+          recordingCtx!.fillText(rightText, rightX, textY);
 
-
-        : headerBox.x + headerBox.w * 0.05;
-
-
-
-      if (isCollectMode) {
-        const scoreText = document.getElementById('score-val')?.innerText || '0';
-        const isMultiCollectRecording = multiCollectibleModeEnabled && multiCollectibleItems.length > 0;
-        const labelFontSize = headerFontSize * (isMultiCollectRecording ? 0.52 : 0.58);
-        const valueFontSize = headerFontSize * (isMultiCollectRecording ? 1.34 : 1.04);
-        const labelY = textY - headerFontSize * (isMultiCollectRecording ? 0.42 : 0.28);
-        const valueY = textY + headerFontSize * (isMultiCollectRecording ? 0.58 : 0.48);
-
-        recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-        recordingCtx!.fillText('SCORE', leftX, labelY);
-        if (!useRecordingBackground) recordingCtx!.strokeText('SCORE', leftX, labelY);
-
-        recordingCtx!.font = `900 ${valueFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-        recordingCtx!.fillText(scoreText, leftX, valueY);
-        if (!useRecordingBackground) recordingCtx!.strokeText(scoreText, leftX, valueY);
-      } else {
-        recordingCtx!.fillText(leftText, leftX, textY);
-        if (!useRecordingBackground) recordingCtx!.strokeText(leftText, leftX, textY);
-      }
-
-
-
-      
-
-
-
-      if (!isCollectMode) {
-
-
-
-        recordingCtx!.textAlign = 'right';
-
-
-
-        const rightText = `SCORE: ${document.getElementById('score-val')!.innerText}`;
-
-
-
-        const rightRect = headerItems[1]?.getBoundingClientRect();
-
-
-
-        const rightX = useRecordingBackground && rightRect && boardRectForHeader
-
-
-
-          ? (rightRect.right - boardRectForHeader.left) * (width / boardRectForHeader.width)
-
-
-
-          : headerBox.x + headerBox.w * 0.95;
-
-
-
-        recordingCtx!.fillText(rightText, rightX, textY);
-
-
-
-        if (!useRecordingBackground) recordingCtx!.strokeText(rightText, rightX, textY);
-
-
-
-      }
+          if (!useRecordingBackground) recordingCtx!.strokeText(rightText, rightX, textY);
+        }
       }
 
 
@@ -44881,11 +44999,20 @@ function startRecording(): Promise<boolean> {
 
 
 
-      // Draw collectible icon and "x count" text in collect mode
+      // Draw collectible icon and "x count" text in collect mode or jewelry box mode
 
 
 
-      if (isCollectMode && topUiMode !== 'heart') {
+      if (isJewelryBoxRecording) {
+        drawRecordingJewelryBoxHud(
+          recordingCtx!,
+          width,
+          height,
+          boardWrapper || null,
+          useRecordingBackground,
+          dpr
+        );
+      } else if (isCollectMode && topUiMode !== 'heart') {
 
         const didDrawMultiCollectibleHud = drawRecordingMultiCollectibleHud(
           recordingCtx!,
@@ -45267,123 +45394,55 @@ function startRecording(): Promise<boolean> {
 
 
 
-    const flyImgs = document.querySelectorAll('.collectible-fly-img');
-
-
+    const flyImgs = document.querySelectorAll('.collectible-fly-img, .jewelry-fly-img');
 
     if (flyImgs.length > 0 && boardWrapper) {
-
-
-
       const boardRect = boardWrapper.getBoundingClientRect();
-
       const recordingBoardBox = useRecordingBackground ? { x: 0, y: 0, w: width, h: height } : null;
 
+      flyImgs.forEach(imgEl => {
+        const img = imgEl as HTMLImageElement;
+        const flyRect = img.getBoundingClientRect();
 
+        const mapped = useRecordingBackground && recordingBoardBox
+          ? mapBoardWrapperRectToRecordingRect(flyRect, boardRect, recordingBoardBox)
+          : {
+              x: (flyRect.left - boardRect.left) * dpr,
+              y: (flyRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr,
+              w: flyRect.width * dpr,
+              h: flyRect.height * dpr
+            };
 
-        flyImgs.forEach(imgEl => {
+        const rx = mapped.x;
+        const ry = mapped.y;
+        const rw = mapped.w;
+        const rh = mapped.h;
 
+        recordingCtx!.save();
+        recordingCtx!.translate(rx + rw / 2, ry + rh / 2);
 
-
-          const img = imgEl as HTMLImageElement;
-
-
-
-          const flyRect = img.getBoundingClientRect();
-
-
-
-          const mapped = useRecordingBackground && recordingBoardBox
-
-            ? mapBoardWrapperRectToRecordingRect(flyRect, boardRect, recordingBoardBox)
-
-            : {
-
-                x: (flyRect.left - boardRect.left) * dpr,
-
-                y: (flyRect.top - (boardRect.top + (!useRecordingBackground && isHideText ? headerHeight : 0))) * dpr,
-
-                w: flyRect.width * dpr,
-
-                h: flyRect.height * dpr
-
-              };
-
-          const rx = mapped.x;
-
-          const ry = mapped.y;
-
-          const rw = mapped.w;
-
-          const rh = mapped.h;
-
-
-
-          
-
-
-
-          recordingCtx!.save();
-
-
-
-          recordingCtx!.translate(rx + rw / 2, ry + rh / 2);
-
-
-
-          let angle = 0;
-
-
-
-          const transform = img.style.transform;
-
-
-
-          if (transform && transform.includes('rotate')) {
-
-
-
-            const match = transform.match(/rotate\(([-\d.]+)deg\)/);
-
-
-
-            if (match) {
-
-
-
-              angle = parseFloat(match[1]) * Math.PI / 180;
-
-
-
-            }
-
-
-
+        let angle = 0;
+        let scaleVal = 1;
+        const transform = img.style.transform;
+        if (transform) {
+          const matchRot = transform.match(/rotate\(([-\d.]+)deg\)/);
+          if (matchRot) {
+            angle = parseFloat(matchRot[1]) * Math.PI / 180;
           }
+          const matchScale = transform.match(/scale\(([-\d.]+)\)/);
+          if (matchScale) {
+            scaleVal = parseFloat(matchScale[1]);
+          }
+        }
 
-
-
-          recordingCtx!.rotate(angle);
-
-
-
-          recordingCtx!.drawImage(img, -rw / 2, -rh / 2, rw, rh);
-
-
-
-          recordingCtx!.restore();
-
-
-
-        });
-
-
-
-      }
-
-
-
-    
+        const opacityVal = img.style.opacity !== '' ? parseFloat(img.style.opacity) : 1;
+        recordingCtx!.globalAlpha = isNaN(opacityVal) ? 1 : Math.max(0, Math.min(1, opacityVal));
+        recordingCtx!.rotate(angle);
+        recordingCtx!.scale(scaleVal, scaleVal);
+        recordingCtx!.drawImage(img, -rw / 2, -rh / 2, rw, rh);
+        recordingCtx!.restore();
+      });
+    }
 
 
 

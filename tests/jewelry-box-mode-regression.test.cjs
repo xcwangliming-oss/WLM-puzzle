@@ -167,4 +167,30 @@ expectedSequences.forEach(seqFile => {
   assert.ok(fs.existsSync(pubPath), `public asset ${seqFile} must exist`);
 });
 
+// 11. Recording Video Export Support (HUD and flying gems)
+assert.match(
+  mainSource,
+  /function drawRecordingJewelryBoxHud\([\s\S]*?jewelry-target-1[\s\S]*?jewelry-target-2/,
+  'recording must define drawRecordingJewelryBoxHud supporting both jewelry targets'
+);
+
+assert.match(
+  mainSource,
+  /const isJewelryBoxRecording = isJewelryBoxMode \|\| blocks\.some\(b => b\.isJewelryBox\) \|\| \(document\.getElementById\('jewelry-score-hud'\)\?\.style\.display === 'flex'\);[\s\S]*?drawRecordingJewelryBoxHud\(/,
+  'drawFrame must invoke drawRecordingJewelryBoxHud during jewelry box recording'
+);
+
+assert.match(
+  mainSource,
+  /const flyImgs = document\.querySelectorAll\('\.collectible-fly-img, \.jewelry-fly-img'\);/,
+  'recording canvas must capture both collectible-fly-img and jewelry-fly-img elements'
+);
+
+assert.match(
+  mainSource,
+  /flyImgs\.forEach\(imgEl => \{[\s\S]*?matchScale[\s\S]*?recordingCtx!\.globalAlpha[\s\S]*?recordingCtx!\.scale\(scaleVal, scaleVal\);/,
+  'flying elements on recording canvas must support scale and opacity transforms'
+);
+
 console.log('jewelry box mode regression checks passed');
+
