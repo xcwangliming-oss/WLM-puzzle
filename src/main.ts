@@ -1812,6 +1812,160 @@ function refreshJewelryBoxSprite(block: Block): void {
   }
 }
 
+const jewelryBoxSequenceTextureCache = new Map<string, PIXI.Texture[]>();
+const jewelryBoxSequenceLoadingPromises = new Map<string, Promise<PIXI.Texture[]>>();
+
+function getJewelryBoxSequenceKey(color: string = 'blue', length: number = 1): string {
+  const normColor = JEWELRY_BOX_COLORS.includes(color as any) ? color : 'blue';
+  const sizeKey = length === 2 ? '1x2' : '1x1';
+  return `${normColor}_${sizeKey}`;
+}
+
+function loadJewelryBoxSequenceTextures(key: string): Promise<PIXI.Texture[]> {
+  if (jewelryBoxSequenceTextureCache.has(key)) {
+    return Promise.resolve(jewelryBoxSequenceTextureCache.get(key)!);
+  }
+  if (jewelryBoxSequenceLoadingPromises.has(key)) {
+    return jewelryBoxSequenceLoadingPromises.get(key)!;
+  }
+  if (typeof window === 'undefined' || typeof PIXI === 'undefined') {
+    return Promise.resolve([]);
+  }
+
+  const promise = new Promise<PIXI.Texture[]>((resolve) => {
+    const is1x2 = key.endsWith('1x2');
+    const frameW = is1x2 ? 240 : 120;
+    const frameH = 224;
+    const img = new Image();
+    img.src = `assets/jewelry_box_sequences/${key}.webp`;
+
+    const slice = () => {
+      try {
+        const baseTex = PIXI.Texture.from(img);
+        const textures: PIXI.Texture[] = [];
+        for (let i = 0; i < 24; i++) {
+          const rect = new PIXI.Rectangle(i * frameW, 0, frameW, frameH);
+          textures.push(new PIXI.Texture({
+            source: baseTex.source,
+            frame: rect
+          }));
+        }
+        jewelryBoxSequenceTextureCache.set(key, textures);
+        resolve(textures);
+      } catch (e) {
+        console.warn('Failed to slice sequence for ' + key, e);
+        resolve([]);
+      }
+    };
+
+    if (img.complete && img.naturalWidth > 0) {
+      slice();
+    } else {
+      let resolved = false;
+      const onDone = () => {
+        if (resolved) return;
+        resolved = true;
+        slice();
+      };
+      img.onload = onDone;
+      img.onerror = () => {
+        if (resolved) return;
+        resolved = true;
+        resolve([]);
+      };
+      if (typeof img.decode === 'function') {
+        img.decode().then(onDone).catch(() => {});
+      }
+    }
+  });
+
+  jewelryBoxSequenceLoadingPromises.set(key, promise);
+  return promise;
+}
+
+function preloadAllJewelryBoxSequences(): void {
+  if (typeof window === 'undefined') return;
+  JEWELRY_BOX_COLORS.forEach(col => {
+    [1, 2].forEach(len => {
+      loadJewelryBoxSequenceTextures(getJewelryBoxSequenceKey(col, len));
+    });
+  });
+}
+
+function playJewelryBoxOpenAnimation(block: Block): void {
+  if (typeof PIXI === 'undefined' || !block || !block.sprite) return;
+  const key = getJewelryBoxSequenceKey(block.color, block.length);
+
+  const startAnim = (textures: PIXI.Texture[]) => {
+    if (!textures || textures.length === 0 || !block.sprite) return;
+    const parent = block.sprite.parent || (typeof blocksContainer !== 'undefined' ? blocksContainer : null);
+    if (!parent) return;
+
+    const anim = new PIXI.AnimatedSprite(textures);
+    anim.loop = false;
+    anim.animationSpeed = 0.8;
+
+    const cellSize = (typeof PARAMS !== 'undefined' && PARAMS.cellSize) ? PARAMS.cellSize : 70;
+    const scale = cellSize / 120;
+    const targetW = block.length * cellSize;
+    const targetH = 224 * scale;
+
+    anim.width = targetW;
+    anim.height = targetH;
+
+    const syncPos = () => {
+      if (!block.sprite || !anim.parent) return;
+      anim.x = block.sprite.x;
+      anim.y = block.sprite.y + cellSize - targetH;
+    };
+    syncPos();
+
+    anim.zIndex = (block.sprite.zIndex || 0) + 100;
+
+    if ('sortableChildren' in parent) {
+      (parent as any).sortableChildren = true;
+    }
+
+    parent.addChild(anim);
+    anim.gotoAndPlay(0);
+
+    let tickerActive = true;
+    const tickerFn = () => {
+      if (!tickerActive) return;
+      syncPos();
+    };
+    if (typeof PIXI.Ticker !== 'undefined' && PIXI.Ticker.shared) {
+      PIXI.Ticker.shared.add(tickerFn);
+    }
+
+    const cleanup = () => {
+      tickerActive = false;
+      try {
+        if (typeof PIXI.Ticker !== 'undefined' && PIXI.Ticker.shared) {
+          PIXI.Ticker.shared.remove(tickerFn);
+        }
+      } catch (_) {}
+      try {
+        if (anim.parent) {
+          anim.parent.removeChild(anim);
+        }
+        anim.destroy();
+      } catch (_) {}
+    };
+
+    anim.onComplete = cleanup;
+  };
+
+  const cached = jewelryBoxSequenceTextureCache.get(key);
+  if (cached && cached.length > 0) {
+    startAnim(cached);
+  } else {
+    loadJewelryBoxSequenceTextures(key).then(textures => {
+      startAnim(textures);
+    });
+  }
+}
+
 function advanceJewelryBox(block: Block): number {
   if (!block.isJewelryBox || block.jewelryBoxState === 'open') return 0;
   block.jewelryBoxState = 'open';
@@ -1822,6 +1976,8 @@ function advanceJewelryBox(block: Block): number {
       playSound(sounds.obtain);
     }
   } catch (_) {}
+
+  playJewelryBoxOpenAnimation(block);
 
   return 1;
 }
@@ -1933,6 +2089,7 @@ function getJewelryBoxBlocksForConfirmedClear(candidates: Block[]): Block[] {
 function setJewelryBoxMode(enabled: boolean): void {
   isJewelryBoxMode = enabled;
   if (enabled) {
+    preloadAllJewelryBoxSequences();
     if (isPastureLayerMode) setPastureLayerMode(false);
     isColorChangingMode = false;
     isSingleColorMode = false;

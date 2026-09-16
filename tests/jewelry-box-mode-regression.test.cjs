@@ -143,10 +143,29 @@ assert.match(
   'enabling pasture layer mode must disable jewelry box mode'
 );
 
+// 11. Sequence Overlay VFX on 1st Clear
 assert.match(
   mainSource,
-  /function setJewelryBoxMode\(enabled: boolean\): void \{[\s\S]*?if \(isPastureLayerMode\) setPastureLayerMode\(false\);/,
-  'enabling jewelry box mode must disable pasture layer mode'
+  /function playJewelryBoxOpenAnimation\(block: Block\): void \{[\s\S]*?getJewelryBoxSequenceKey[\s\S]*?new PIXI\.AnimatedSprite[\s\S]*?anim\.gotoAndPlay\(0\)/,
+  'must provide playJewelryBoxOpenAnimation overlay for opening sequence'
 );
+
+assert.match(
+  mainSource,
+  /function advanceJewelryBox\(block: Block\): number \{[\s\S]*?refreshJewelryBoxSprite\(block\);[\s\S]*?playJewelryBoxOpenAnimation\(block\);/,
+  'advanceJewelryBox must trigger playJewelryBoxOpenAnimation on 1st clear'
+);
+
+const expectedSequences = [
+  'blue_1x1.webp', 'blue_1x2.webp',
+  'green_1x1.webp', 'green_1x2.webp',
+  'pink_1x1.webp', 'pink_1x2.webp',
+  'red_1x1.webp', 'red_1x2.webp',
+  'yellow_1x1.webp', 'yellow_1x2.webp',
+];
+expectedSequences.forEach(seqFile => {
+  const pubPath = path.join(root, 'public', 'assets', 'jewelry_box_sequences', seqFile);
+  assert.ok(fs.existsSync(pubPath), `public asset ${seqFile} must exist`);
+});
 
 console.log('jewelry box mode regression checks passed');
