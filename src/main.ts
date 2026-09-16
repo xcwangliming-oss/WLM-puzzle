@@ -20232,6 +20232,7 @@ async function init() {
 
 
   worldContainer = new PIXI.Container();
+  (window as any).worldContainer = worldContainer;
 
 
 
@@ -45821,8 +45822,6 @@ Object.defineProperty(window, 'isJewelryBoxMode', { get: () => isJewelryBoxMode,
 (window as any).spawnBlock = spawnBlock;
 (window as any).setJewelryBoxMode = setJewelryBoxMode;
 (window as any).playJewelryBoxFlyAnimation = playJewelryBoxFlyAnimation;
-Object.defineProperty(window, 'app', { get: () => (typeof app !== 'undefined' ? app : undefined), configurable: true });
-Object.defineProperty(window, 'worldContainer', { get: () => (typeof worldContainer !== 'undefined' ? worldContainer : undefined), configurable: true });
 (window as any).jewelryColorCustomAssets = jewelryColorCustomAssets;
 (window as any).jewelryCustomAssets = jewelryCustomAssets;
 
