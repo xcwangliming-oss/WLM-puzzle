@@ -1703,6 +1703,23 @@ function generateProceduralJewelryCanvas(key: JewelryBoxAssetKey, color: string 
 
 function getNormalBlockTexture(color: string, length: number): PIXI.Texture | null {
   if (typeof PIXI === 'undefined') return null;
+
+  if (typeof isJewelryBoxMode !== 'undefined' && isJewelryBoxMode) {
+    const jewelryBoxKey = `jbox_norm_${color}_${length}`;
+    if (proceduralJewelryTextureCache.has(jewelryBoxKey)) {
+      return proceduralJewelryTextureCache.get(jewelryBoxKey)!;
+    }
+    try {
+      const img = new Image();
+      img.src = `assets/jewelry_box/${color}-${length}-closed.webp`;
+      const tex = PIXI.Texture.from(img);
+      if (tex) {
+        proceduralJewelryTextureCache.set(jewelryBoxKey, tex);
+        return tex;
+      }
+    } catch (_) {}
+  }
+
   let texture: PIXI.Texture | null = null;
   if (PIXI.Assets) {
     try {
@@ -2142,15 +2159,22 @@ function setJewelryBoxMode(enabled: boolean): void {
         block.isJewelryBox = true;
         block.jewelryBoxState = 'closed';
         refreshJewelryBoxSprite(block);
+      } else {
+        const normTex = getNormalBlockTexture(block.color, block.length);
+        if (normTex && block.sprite) {
+          block.sprite.texture = normTex;
+          fitBlockSpriteToGrid(block);
+        }
       }
     });
   } else {
     blocks.forEach(block => {
-      if (!block.isJewelryBox) return;
-      block.isJewelryBox = false;
-      block.jewelryBoxState = undefined;
+      if (block.isJewelryBox) {
+        block.isJewelryBox = false;
+        block.jewelryBoxState = undefined;
+      }
       const texture = PIXI.Assets.get(`${block.color}-${block.length}`);
-      if (texture) {
+      if (texture && block.sprite) {
         block.sprite.texture = texture;
         block.sprite.scale.set(1);
         block.sprite.width = block.length * PARAMS.cellSize;
