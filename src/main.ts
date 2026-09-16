@@ -2042,69 +2042,102 @@ function playJewelryBoxFlyAnimation(block: Block): void {
 
   if (typeof document === 'undefined') return;
 
+  const boardWrapper = document.getElementById('board-wrapper') || document.body;
   const iconEl = document.getElementById(is1x1 ? 'jewelry-header-icon' : 'jewelry-header-icon-2');
   const targetEl = iconEl || document.getElementById(targetId) || document.getElementById('jewelry-score-hud');
-  const targetRect = targetEl ? targetEl.getBoundingClientRect() : null;
-  const canvas = (typeof app !== 'undefined' && app?.view) ? (app.view as HTMLCanvasElement) : null;
-  const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
+  if (!targetEl) return;
 
-  if (!targetRect || !canvasRect) return;
+  const canvas = (typeof app !== 'undefined' && ((app as any).canvas || (app as any).view)) ? (((app as any).canvas || (app as any).view) as HTMLCanvasElement) : null;
+  if (!canvas) return;
 
-  const cell = PARAMS.cellSize;
-  const startCanvasX = block.col * cell + (block.length * cell) / 2;
-  const startCanvasY = block.row * cell + cell / 2;
+  const canvasRect = canvas.getBoundingClientRect();
+  const targetRect = targetEl.getBoundingClientRect();
+  const boardRect = boardWrapper.getBoundingClientRect();
 
-  const worldY = typeof worldContainer !== 'undefined' ? worldContainer.y : 0;
-  const scaleX = canvasRect.width / (PARAMS.gridCols * cell);
-  const scaleY = canvasRect.height / (PARAMS.viewportRows * cell);
+  const isWrapper = boardWrapper !== document.body;
+  const boardScaleX = (isWrapper && boardWrapper.offsetWidth > 0) ? boardRect.width / boardWrapper.offsetWidth : 1;
+  const boardScaleY = (isWrapper && boardWrapper.offsetHeight > 0) ? boardRect.height / boardWrapper.offsetHeight : 1;
+  const toLocalX = (viewportX: number) => isWrapper ? (viewportX - boardRect.left) / Math.max(boardScaleX, 0.0001) : viewportX;
+  const toLocalY = (viewportY: number) => isWrapper ? (viewportY - boardRect.top) / Math.max(boardScaleY, 0.0001) : viewportY;
 
-  const startScreenX = canvasRect.left + startCanvasX * scaleX;
-  const startScreenY = canvasRect.top + (startCanvasY + worldY) * scaleY;
+  const targetLocalX = toLocalX(targetRect.left + targetRect.width / 2);
+  const targetLocalY = toLocalY(targetRect.top + targetRect.height / 2);
 
-  const targetScreenX = targetRect.left + targetRect.width / 2;
-  const targetScreenY = targetRect.top + targetRect.height / 2;
+  const spawnGem = (cellOffset: number, delayMs: number) => {
+    setTimeout(() => {
+      const cell = PARAMS.cellSize;
+      const cellCanvasX = (block.col + cellOffset) * cell;
+      const worldY = typeof worldContainer !== 'undefined' ? worldContainer.y : 0;
+      const cellCanvasY = (block.row + 0.5) * cell + worldY;
 
-  const flyImg = document.createElement('img');
-  flyImg.src = gemSrc;
-  flyImg.className = 'jewelry-fly-img';
-  flyImg.style.width = '76px';
-  flyImg.style.height = '76px';
-  flyImg.style.left = `${startScreenX - 38}px`;
-  flyImg.style.top = `${startScreenY - 38}px`;
-  document.body.appendChild(flyImg);
+      const screenW = (typeof app !== 'undefined' && app.renderer?.screen?.width) ? app.renderer.screen.width : (PARAMS.gridCols * cell);
+      const screenH = (typeof app !== 'undefined' && app.renderer?.screen?.height) ? app.renderer.screen.height : (PARAMS.viewportRows * cell);
+      const pad = typeof PADDING !== 'undefined' ? PADDING : 0;
 
-  const midX = (startScreenX + targetScreenX) / 2 + (Math.random() - 0.5) * 80;
-  const midY = Math.min(startScreenY, targetScreenY) - 50 - Math.random() * 40;
+      const globalX = canvasRect.left + ((cellCanvasX + pad) * (canvasRect.width / screenW));
+      const globalY = canvasRect.top + ((cellCanvasY + pad) * (canvasRect.height / screenH));
 
-  const startTime = performance.now();
-  const duration = 650;
+      const startLocalX = toLocalX(globalX);
+      const startLocalY = toLocalY(globalY);
 
-  const animateFly = (now: number) => {
-    const p = Math.min(1, (now - startTime) / duration);
-    const inv = 1 - p;
-    const curX = inv * inv * startScreenX + 2 * inv * p * midX + p * p * targetScreenX;
-    const curY = inv * inv * startScreenY + 2 * inv * p * midY + p * p * targetScreenY;
-    const scale = 1 + Math.sin(p * Math.PI) * 0.4;
+      const flyImg = document.createElement('img');
+      flyImg.src = gemSrc;
+      flyImg.className = 'jewelry-fly-img';
+      flyImg.style.position = 'absolute';
+      flyImg.style.pointerEvents = 'none';
+      flyImg.style.zIndex = '99999';
+      flyImg.style.width = '64px';
+      flyImg.style.height = '64px';
+      flyImg.style.left = `${startLocalX - 32}px`;
+      flyImg.style.top = `${startLocalY - 32}px`;
+      boardWrapper.appendChild(flyImg);
 
-    flyImg.style.left = `${curX - 38}px`;
-    flyImg.style.top = `${curY - 38}px`;
-    flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
-    flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
+      const midX = (startLocalX + targetLocalX) / 2 + (Math.random() - 0.5) * 60;
+      const midY = Math.min(startLocalY, targetLocalY) - 50 - Math.random() * 30;
 
-    if (p < 1) {
+      const startTime = performance.now();
+      const duration = 650;
+
+      const animateFly = (now: number) => {
+        const p = Math.min(1, (now - startTime) / duration);
+        const inv = 1 - p;
+        const curX = inv * inv * startLocalX + 2 * inv * p * midX + p * p * targetLocalX;
+        const curY = inv * inv * startLocalY + 2 * inv * p * midY + p * p * targetLocalY;
+        const scale = 1 + Math.sin(p * Math.PI) * 0.35;
+
+        flyImg.style.left = `${curX - 32}px`;
+        flyImg.style.top = `${curY - 32}px`;
+        flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
+        flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
+
+        if (p < 1) {
+          requestAnimationFrame(animateFly);
+        } else {
+          flyImg.remove();
+          if (targetEl) {
+            targetEl.style.transform = 'scale(1.3)';
+            targetEl.style.transition = 'transform 0.15s ease-out';
+            setTimeout(() => {
+              targetEl.style.transform = 'scale(1)';
+            }, 150);
+          }
+          try {
+            if (typeof playSound === 'function' && sounds?.collect) {
+              playSound(sounds.collect);
+            }
+          } catch (_) {}
+        }
+      };
       requestAnimationFrame(animateFly);
-    } else {
-      flyImg.remove();
-      if (targetEl) {
-        targetEl.style.transform = 'scale(1.25)';
-        targetEl.style.transition = 'transform 0.15s ease-out';
-        setTimeout(() => {
-          targetEl.style.transform = 'scale(1)';
-        }, 150);
-      }
-    }
+    }, delayMs);
   };
-  requestAnimationFrame(animateFly);
+
+  if (is1x1) {
+    spawnGem(0.5, 0);
+  } else {
+    spawnGem(0.5, 0);
+    spawnGem(1.5, 80);
+  }
 }
 
 let isJewelryBoxMode = false;
