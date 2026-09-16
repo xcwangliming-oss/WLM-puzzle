@@ -1770,7 +1770,34 @@ function getJewelryBoxTexture(length: number, state: 'closed' | 'open', color: s
     } catch (_) {}
   }
 
-  // 2. Closed state: defaults directly to the normal block texture from active material pack
+  // 2. Builtin jewelry box texture (from RMG-9102: both closed box and open box)
+  const builtinKey = `builtin_${specificKey}`;
+  if (proceduralJewelryTextureCache.has(builtinKey)) {
+    return proceduralJewelryTextureCache.get(builtinKey)!;
+  }
+  if (typeof PIXI !== 'undefined') {
+    try {
+      const img = new Image();
+      img.src = `assets/jewelry_box/${specificKey}.webp`;
+      const tex = PIXI.Texture.from(img);
+      if (tex) {
+        proceduralJewelryTextureCache.set(builtinKey, tex);
+        if (!img.complete || img.naturalWidth <= 0) {
+          img.decode().then(() => {
+            tex.source?.update?.();
+            blocks.forEach(b => {
+              if (b.isJewelryBox && b.jewelryBoxState === state) {
+                fitBlockSpriteToGrid(b);
+              }
+            });
+          }).catch(() => {});
+        }
+        return tex;
+      }
+    } catch (_) {}
+  }
+
+  // 3. Closed state: defaults directly to the normal block texture from active material pack
   if (state === 'closed') {
     const normalTex = getNormalBlockTexture(normColor, normLength);
     if (normalTex) {
@@ -1778,7 +1805,7 @@ function getJewelryBoxTexture(length: number, state: 'closed' | 'open', color: s
     }
   }
 
-  // 3. Open state (second form): procedural open box with glittering gems rendered via Canvas
+  // 4. Open state (second form): procedural open box with glittering gems rendered via Canvas
   const procKey = `proc_${specificKey}`;
   if (proceduralJewelryTextureCache.has(procKey)) {
     return proceduralJewelryTextureCache.get(procKey)!;
@@ -1985,7 +2012,7 @@ function advanceJewelryBox(block: Block): number {
 function playJewelryBoxFlyAnimation(block: Block): void {
   const is1x1 = block.length === 1;
   const assetKey: JewelryBoxAssetKey = is1x1 ? 'gem-1' : 'gem-2';
-  const gemSrc = jewelryCustomAssets[assetKey] || (is1x1 && jewelryCustomAssets['gem']) || generateProceduralJewelryDataUrl(assetKey);
+  const gemSrc = jewelryCustomAssets[assetKey] || (is1x1 && jewelryCustomAssets['gem']) || `assets/jewelry_box/${assetKey}.webp` || generateProceduralJewelryDataUrl(assetKey);
   const targetId = is1x1 ? 'jewelry-target-1' : 'jewelry-target-2';
 
   if (is1x1) {
@@ -2180,14 +2207,14 @@ function syncJewelryBoxUI(): void {
       if (val1) val1.innerText = String(jewelryCollectedCount1);
       const icon1 = document.getElementById('jewelry-header-icon') as HTMLImageElement | null;
       if (icon1) {
-        icon1.src = jewelryCustomAssets['gem-1'] || jewelryCustomAssets['gem'] || generateProceduralJewelryDataUrl('gem-1');
+        icon1.src = jewelryCustomAssets['gem-1'] || jewelryCustomAssets['gem'] || 'assets/jewelry_box/gem-1.webp' || generateProceduralJewelryDataUrl('gem-1');
       }
 
       const val2 = document.getElementById('jewelry-collect-val-2');
       if (val2) val2.innerText = String(jewelryCollectedCount2);
       const icon2 = document.getElementById('jewelry-header-icon-2') as HTMLImageElement | null;
       if (icon2) {
-        icon2.src = jewelryCustomAssets['gem-2'] || generateProceduralJewelryDataUrl('gem-2');
+        icon2.src = jewelryCustomAssets['gem-2'] || 'assets/jewelry_box/gem-2.webp' || generateProceduralJewelryDataUrl('gem-2');
       }
     }
   } else {
@@ -23596,7 +23623,7 @@ function initJewelryBoxPanel(): void {
 
     const img = document.createElement('img');
     img.id = `jewelry-thumb-${key}`;
-    img.src = jewelryCustomAssets[key] || generateProceduralJewelryDataUrl(key);
+    img.src = jewelryCustomAssets[key] || `assets/jewelry_box/${key}.webp` || generateProceduralJewelryDataUrl(key);
     img.style.cssText = 'max-width:100%;max-height:24px;object-fit:contain;';
 
     const title = document.createElement('span');
@@ -23681,7 +23708,7 @@ function initJewelryBoxPanel(): void {
 
       const img = document.createElement('img');
       img.id = `jewelry-thumb-${fullKey}`;
-      img.src = jewelryColorCustomAssets[fullKey] || jewelryCustomAssets[variant] || generateProceduralJewelryDataUrl(variant, col);
+      img.src = jewelryColorCustomAssets[fullKey] || jewelryCustomAssets[variant] || `assets/jewelry_box/${fullKey}.webp` || generateProceduralJewelryDataUrl(variant, col);
       img.style.cssText = 'max-width:100%;max-height:24px;object-fit:contain;';
 
       const title = document.createElement('span');
