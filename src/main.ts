@@ -2063,22 +2063,42 @@ function playJewelryBoxFlyAnimation(block: Block): void {
   const targetLocalX = toLocalX(targetRect.left + targetRect.width / 2);
   const targetLocalY = toLocalY(targetRect.top + targetRect.height / 2);
 
-  const spawnGem = (cellOffset: number, delayMs: number) => {
+  const cell = PARAMS.cellSize;
+  const worldY = typeof worldContainer !== 'undefined' ? worldContainer.y : 0;
+  const pad = typeof PADDING !== 'undefined' ? PADDING : 0;
+  const screenWidth = (typeof app !== 'undefined' && app.screen?.width) ? app.screen.width : (PARAMS.gridCols * cell + pad * 2);
+  const cssScale = canvasRect.width / Math.max(1, screenWidth);
+
+  const getCellLocalPos = (cellIdx: number) => {
+    let screenX: number;
+    let screenY: number;
+
+    if (block.sprite && typeof block.sprite.toGlobal === 'function') {
+      const cellW = block.length > 0 ? (block.sprite.width / block.length) : cell;
+      const cellH = block.sprite.height || cell;
+      const pt = block.sprite.toGlobal({ x: (cellIdx + 0.5) * cellW, y: 0.5 * cellH });
+      screenX = canvasRect.left + pt.x * cssScale;
+      screenY = canvasRect.top + pt.y * cssScale;
+    } else {
+      const cellCanvasX = (block.col + cellIdx + 0.5) * cell + pad;
+      const cellCanvasY = (block.row + 0.5) * cell + worldY + pad;
+      screenX = canvasRect.left + cellCanvasX * cssScale;
+      screenY = canvasRect.top + cellCanvasY * cssScale;
+    }
+
+    return {
+      x: toLocalX(screenX),
+      y: toLocalY(screenY)
+    };
+  };
+
+  const startPos1 = getCellLocalPos(0);
+  const startPos2 = !is1x1 ? getCellLocalPos(1) : null;
+
+  const spawnGem = (startPos: { x: number; y: number }, curveOffset: number, delayMs: number) => {
     setTimeout(() => {
-      const cell = PARAMS.cellSize;
-      const cellCanvasX = (block.col + cellOffset) * cell;
-      const worldY = typeof worldContainer !== 'undefined' ? worldContainer.y : 0;
-      const cellCanvasY = (block.row + 0.5) * cell + worldY;
-
-      const screenW = (typeof app !== 'undefined' && app.renderer?.screen?.width) ? app.renderer.screen.width : (PARAMS.gridCols * cell);
-      const screenH = (typeof app !== 'undefined' && app.renderer?.screen?.height) ? app.renderer.screen.height : (PARAMS.viewportRows * cell);
-      const pad = typeof PADDING !== 'undefined' ? PADDING : 0;
-
-      const globalX = canvasRect.left + ((cellCanvasX + pad) * (canvasRect.width / screenW));
-      const globalY = canvasRect.top + ((cellCanvasY + pad) * (canvasRect.height / screenH));
-
-      const startLocalX = toLocalX(globalX);
-      const startLocalY = toLocalY(globalY);
+      const startLocalX = startPos.x;
+      const startLocalY = startPos.y;
 
       const flyImg = document.createElement('img');
       flyImg.src = gemSrc;
@@ -2086,14 +2106,14 @@ function playJewelryBoxFlyAnimation(block: Block): void {
       flyImg.style.position = 'absolute';
       flyImg.style.pointerEvents = 'none';
       flyImg.style.zIndex = '99999';
-      flyImg.style.width = '64px';
-      flyImg.style.height = '64px';
-      flyImg.style.left = `${startLocalX - 32}px`;
-      flyImg.style.top = `${startLocalY - 32}px`;
+      flyImg.style.width = '56px';
+      flyImg.style.height = '56px';
+      flyImg.style.left = `${startLocalX - 28}px`;
+      flyImg.style.top = `${startLocalY - 28}px`;
       boardWrapper.appendChild(flyImg);
 
-      const midX = (startLocalX + targetLocalX) / 2 + (Math.random() - 0.5) * 60;
-      const midY = Math.min(startLocalY, targetLocalY) - 50 - Math.random() * 30;
+      const midX = (startLocalX + targetLocalX) / 2 + curveOffset;
+      const midY = (startLocalY + targetLocalY) / 2 - 40;
 
       const startTime = performance.now();
       const duration = 650;
@@ -2105,10 +2125,10 @@ function playJewelryBoxFlyAnimation(block: Block): void {
         const curY = inv * inv * startLocalY + 2 * inv * p * midY + p * p * targetLocalY;
         const scale = 1 + Math.sin(p * Math.PI) * 0.35;
 
-        flyImg.style.left = `${curX - 32}px`;
-        flyImg.style.top = `${curY - 32}px`;
+        flyImg.style.left = `${curX - 28}px`;
+        flyImg.style.top = `${curY - 28}px`;
         flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
-        flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
+        flyImg.style.opacity = p > 0.88 ? `${(1 - p) / 0.12}` : '1';
 
         if (p < 1) {
           requestAnimationFrame(animateFly);
@@ -2133,10 +2153,12 @@ function playJewelryBoxFlyAnimation(block: Block): void {
   };
 
   if (is1x1) {
-    spawnGem(0.5, 0);
+    spawnGem(startPos1, (Math.random() - 0.5) * 40, 0);
   } else {
-    spawnGem(0.5, 0);
-    spawnGem(1.5, 80);
+    spawnGem(startPos1, -35, 0);
+    if (startPos2) {
+      spawnGem(startPos2, 35, 75);
+    }
   }
 }
 
