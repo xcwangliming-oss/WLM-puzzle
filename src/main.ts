@@ -1823,16 +1823,6 @@ function advanceJewelryBox(block: Block): number {
     }
   } catch (_) {}
 
-  if (typeof gsap !== 'undefined' && block.sprite) {
-    const curScaleX = block.sprite.scale.x;
-    const curScaleY = block.sprite.scale.y;
-    if (curScaleX > 0 && curScaleY > 0 && Number.isFinite(curScaleX) && Number.isFinite(curScaleY)) {
-      gsap.fromTo(block.sprite.scale,
-        { x: curScaleX * 0.8, y: curScaleY * 0.8 },
-        { x: curScaleX, y: curScaleY, duration: 0.35, ease: 'back.out(2)' }
-      );
-    }
-  }
   return 1;
 }
 
