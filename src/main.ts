@@ -2042,103 +2042,69 @@ function playJewelryBoxFlyAnimation(block: Block): void {
 
   if (typeof document === 'undefined') return;
 
-  const canvas = (typeof app !== 'undefined' && ((app as any).canvas || (app as any).view)) ? (((app as any).canvas || (app as any).view) as HTMLCanvasElement) : null;
+  const iconEl = document.getElementById(is1x1 ? 'jewelry-header-icon' : 'jewelry-header-icon-2');
+  const targetEl = iconEl || document.getElementById(targetId) || document.getElementById('jewelry-score-hud');
+  const targetRect = targetEl ? targetEl.getBoundingClientRect() : null;
+  const canvas = (typeof app !== 'undefined' && app?.view) ? (app.view as HTMLCanvasElement) : null;
   const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
 
-  const cols = PARAMS.gridCols || 9;
-  const rows = PARAMS.viewportRows || 18;
-  const cell = PARAMS.cellSize || 63;
+  if (!targetRect || !canvasRect) return;
+
+  const cell = PARAMS.cellSize;
+  const startCanvasX = block.col * cell + (block.length * cell) / 2;
+  const startCanvasY = block.row * cell + cell / 2;
+
   const worldY = typeof worldContainer !== 'undefined' ? worldContainer.y : 0;
-  const minVisibleRow = Math.max(0, Math.floor(-worldY / cell));
-  const visibleRowIndex = block.row - minVisibleRow;
+  const scaleX = canvasRect.width / (PARAMS.gridCols * cell);
+  const scaleY = canvasRect.height / (PARAMS.viewportRows * cell);
 
-  const cellW = canvasRect ? canvasRect.width / cols : 48;
-  const cellH = canvasRect ? canvasRect.height / rows : 48;
+  const startScreenX = canvasRect.left + startCanvasX * scaleX;
+  const startScreenY = canvasRect.top + (startCanvasY + worldY) * scaleY;
 
-  const baseLeft = canvasRect ? canvasRect.left : (window.innerWidth / 2 - (cols * cellW) / 2);
-  const baseTop = canvasRect ? canvasRect.top : 100;
+  const targetScreenX = targetRect.left + targetRect.width / 2;
+  const targetScreenY = targetRect.top + targetRect.height / 2;
 
-  const getCellScreenPos = (cellIdx: number) => {
-    const x = baseLeft + (block.col + cellIdx + 0.5) * cellW;
-    const y = baseTop + (visibleRowIndex + 0.5) * cellH;
-    return { x, y };
-  };
+  const flyImg = document.createElement('img');
+  flyImg.src = gemSrc;
+  flyImg.className = 'jewelry-fly-img';
+  flyImg.style.width = '76px';
+  flyImg.style.height = '76px';
+  flyImg.style.left = `${startScreenX - 38}px`;
+  flyImg.style.top = `${startScreenY - 38}px`;
+  document.body.appendChild(flyImg);
 
-  const startPos1 = getCellScreenPos(0);
-  const startPos2 = !is1x1 ? getCellScreenPos(1) : null;
+  const midX = (startScreenX + targetScreenX) / 2 + (Math.random() - 0.5) * 80;
+  const midY = Math.min(startScreenY, targetScreenY) - 50 - Math.random() * 40;
 
-  const targetIcon = document.getElementById(is1x1 ? 'jewelry-header-icon' : 'jewelry-header-icon-2');
-  const targetEl = targetIcon || document.getElementById(targetId) || document.getElementById('jewelry-score-hud');
-  const targetRect = targetEl ? targetEl.getBoundingClientRect() : null;
+  const startTime = performance.now();
+  const duration = 650;
 
-  const targetScreenX = targetRect ? (targetRect.left + targetRect.width / 2) : (window.innerWidth / 2);
-  const targetScreenY = targetRect ? (targetRect.top + targetRect.height / 2) : 60;
+  const animateFly = (now: number) => {
+    const p = Math.min(1, (now - startTime) / duration);
+    const inv = 1 - p;
+    const curX = inv * inv * startScreenX + 2 * inv * p * midX + p * p * targetScreenX;
+    const curY = inv * inv * startScreenY + 2 * inv * p * midY + p * p * targetScreenY;
+    const scale = 1 + Math.sin(p * Math.PI) * 0.4;
 
-  const spawnGem = (startPos: { x: number; y: number }, curveOffset: number, delayMs: number) => {
-    setTimeout(() => {
-      const startScreenX = startPos.x;
-      const startScreenY = startPos.y;
+    flyImg.style.left = `${curX - 38}px`;
+    flyImg.style.top = `${curY - 38}px`;
+    flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
+    flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
 
-      const flyImg = document.createElement('img');
-      flyImg.src = gemSrc;
-      flyImg.className = 'jewelry-fly-img';
-      flyImg.style.position = 'fixed';
-      flyImg.style.pointerEvents = 'none';
-      flyImg.style.zIndex = '999999';
-      flyImg.style.width = '56px';
-      flyImg.style.height = '56px';
-      flyImg.style.left = `${startScreenX - 28}px`;
-      flyImg.style.top = `${startScreenY - 28}px`;
-      document.body.appendChild(flyImg);
-
-      const midX = (startScreenX + targetScreenX) / 2 + curveOffset;
-      const midY = (startScreenY + targetScreenY) / 2 - 40;
-
-      const startTime = performance.now();
-      const duration = 650;
-
-      const animateFly = (now: number) => {
-        const p = Math.min(1, (now - startTime) / duration);
-        const inv = 1 - p;
-        const curX = inv * inv * startScreenX + 2 * inv * p * midX + p * p * targetScreenX;
-        const curY = inv * inv * startScreenY + 2 * inv * p * midY + p * p * targetScreenY;
-        const scale = 1 + Math.sin(p * Math.PI) * 0.35;
-
-        flyImg.style.left = `${curX - 28}px`;
-        flyImg.style.top = `${curY - 28}px`;
-        flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
-        flyImg.style.opacity = p > 0.88 ? `${(1 - p) / 0.12}` : '1';
-
-        if (p < 1) {
-          requestAnimationFrame(animateFly);
-        } else {
-          flyImg.remove();
-          if (targetEl) {
-            targetEl.style.transform = 'scale(1.3)';
-            targetEl.style.transition = 'transform 0.15s ease-out';
-            setTimeout(() => {
-              targetEl.style.transform = 'scale(1)';
-            }, 150);
-          }
-          try {
-            if (typeof playSound === 'function' && sounds?.collect) {
-              playSound(sounds.collect);
-            }
-          } catch (_) {}
-        }
-      };
+    if (p < 1) {
       requestAnimationFrame(animateFly);
-    }, delayMs);
-  };
-
-  if (is1x1) {
-    spawnGem(startPos1, (Math.random() - 0.5) * 40, 0);
-  } else {
-    spawnGem(startPos1, -35, 0);
-    if (startPos2) {
-      spawnGem(startPos2, 35, 75);
+    } else {
+      flyImg.remove();
+      if (targetEl) {
+        targetEl.style.transform = 'scale(1.25)';
+        targetEl.style.transition = 'transform 0.15s ease-out';
+        setTimeout(() => {
+          targetEl.style.transform = 'scale(1)';
+        }, 150);
+      }
     }
-  }
+  };
+  requestAnimationFrame(animateFly);
 }
 
 let isJewelryBoxMode = false;
@@ -20177,8 +20143,6 @@ async function init() {
 
   }
 
-  (window as any).app = app;
-
 
 
 
@@ -20226,7 +20190,6 @@ async function init() {
 
 
   worldContainer = new PIXI.Container();
-  (window as any).worldContainer = worldContainer;
 
 
 
@@ -45815,7 +45778,6 @@ Object.defineProperty(window, 'isJewelryBoxMode', { get: () => isJewelryBoxMode,
 (window as any).advanceJewelryBox = advanceJewelryBox;
 (window as any).spawnBlock = spawnBlock;
 (window as any).setJewelryBoxMode = setJewelryBoxMode;
-(window as any).playJewelryBoxFlyAnimation = playJewelryBoxFlyAnimation;
 (window as any).jewelryColorCustomAssets = jewelryColorCustomAssets;
 (window as any).jewelryCustomAssets = jewelryCustomAssets;
 
