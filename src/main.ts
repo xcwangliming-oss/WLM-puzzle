@@ -1877,10 +1877,10 @@ function playJewelryBoxFlyAnimation(block: Block): void {
   const flyImg = document.createElement('img');
   flyImg.src = gemSrc;
   flyImg.className = 'jewelry-fly-img';
-  flyImg.style.width = '88px';
-  flyImg.style.height = '88px';
-  flyImg.style.left = `${startScreenX - 44}px`;
-  flyImg.style.top = `${startScreenY - 44}px`;
+  flyImg.style.width = '76px';
+  flyImg.style.height = '76px';
+  flyImg.style.left = `${startScreenX - 38}px`;
+  flyImg.style.top = `${startScreenY - 38}px`;
   document.body.appendChild(flyImg);
 
   const midX = (startScreenX + targetScreenX) / 2 + (Math.random() - 0.5) * 80;
@@ -1896,8 +1896,8 @@ function playJewelryBoxFlyAnimation(block: Block): void {
     const curY = inv * inv * startScreenY + 2 * inv * p * midY + p * p * targetScreenY;
     const scale = 1 + Math.sin(p * Math.PI) * 0.4;
 
-    flyImg.style.left = `${curX - 44}px`;
-    flyImg.style.top = `${curY - 44}px`;
+    flyImg.style.left = `${curX - 38}px`;
+    flyImg.style.top = `${curY - 38}px`;
     flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
     flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
 

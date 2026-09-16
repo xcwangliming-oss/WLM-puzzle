@@ -2262,7 +2262,7 @@ body:not(.is-playable) #script-steps-panel {
   justify-content: center;
   gap: 24px;
   position: absolute;
-  left: 58%;
+  left: calc(58% + 50px);
   top: 50%;
   transform: translate(-50%, -50%);
   margin: 0;
@@ -2283,9 +2283,11 @@ body:not(.is-playable) #script-steps-panel {
   box-shadow: none;
 }
 
+.jewelry-score-hud .multi-collectible-target img,
+.jewelry-score-hud .jewelry-header-icon,
 .jewelry-header-icon {
-  width: 92px;
-  height: 92px;
+  width: 76px;
+  height: 76px;
   object-fit: contain;
   filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
 }
