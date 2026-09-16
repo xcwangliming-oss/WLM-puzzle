@@ -2125,11 +2125,7 @@ function playJewelryBoxFlyAnimation(block: Block): void {
               targetEl.style.transform = 'scale(1)';
             }, 150);
           }
-          try {
-            if (typeof playSound === 'function' && sounds?.collect) {
-              playSound(sounds.collect);
-            }
-          } catch (_) {}
+
         }
       };
       requestAnimationFrame(animateFly);
