@@ -143,11 +143,10 @@ assert.match(
   'enabling pasture layer mode must disable jewelry box mode'
 );
 
-// 11. Sequence Overlay VFX on 1st Clear
 assert.match(
   mainSource,
-  /function playJewelryBoxOpenAnimation\(block: Block\): void \{[\s\S]*?getJewelryBoxSequenceKey[\s\S]*?new PIXI\.AnimatedSprite[\s\S]*?anim\.gotoAndPlay\(0\)/,
-  'must provide playJewelryBoxOpenAnimation overlay for opening sequence'
+  /function playJewelryBoxOpenAnimation\(block: Block\): void \{[\s\S]*?anim\.x = block\.sprite\.x;[\s\S]*?anim\.y = block\.sprite\.y \+ cellSize - targetH;[\s\S]*?parent\.addChild\(anim\);[\s\S]*?anim\.gotoAndPlay\(0\)/,
+  'must set anim position before parent.addChild to prevent 1-frame flash at (0, 0)'
 );
 
 assert.match(

@@ -1937,12 +1937,14 @@ function preloadAllJewelryBoxSequences(): void {
 }
 
 function playJewelryBoxOpenAnimation(block: Block): void {
-  if (typeof PIXI === 'undefined' || !block || !block.sprite) return;
+  if (typeof PIXI === 'undefined' || !block || !block.sprite || block.sprite.destroyed) return;
+  if (!block.sprite.parent || block.sprite.alpha === 0) return;
   const key = getJewelryBoxSequenceKey(block.color, block.length);
 
   const startAnim = (textures: PIXI.Texture[]) => {
-    if (!textures || textures.length === 0 || !block.sprite) return;
-    const parent = block.sprite.parent || (typeof blocksContainer !== 'undefined' ? blocksContainer : null);
+    if (!textures || textures.length === 0) return;
+    if (!block || !block.sprite || block.sprite.destroyed || !block.sprite.parent || block.sprite.alpha === 0) return;
+    const parent = block.sprite.parent;
     if (!parent) return;
 
     const anim = new PIXI.AnimatedSprite(textures);
@@ -1957,12 +1959,9 @@ function playJewelryBoxOpenAnimation(block: Block): void {
     anim.width = targetW;
     anim.height = targetH;
 
-    const syncPos = () => {
-      if (!block.sprite || !anim.parent) return;
-      anim.x = block.sprite.x;
-      anim.y = block.sprite.y + cellSize - targetH;
-    };
-    syncPos();
+    // Crucial fix: set position BEFORE addChild to avoid flashing at (0, 0) for the initial frame!
+    anim.x = block.sprite.x;
+    anim.y = block.sprite.y + cellSize - targetH;
 
     anim.zIndex = (block.sprite.zIndex || 0) + 100;
 
@@ -1974,8 +1973,17 @@ function playJewelryBoxOpenAnimation(block: Block): void {
     anim.gotoAndPlay(0);
 
     let tickerActive = true;
-    const tickerFn = () => {
+    const syncPos = () => {
       if (!tickerActive) return;
+      if (!block.sprite || block.sprite.destroyed || !block.sprite.parent || !anim.parent || block.sprite.alpha === 0) {
+        cleanup();
+        return;
+      }
+      anim.x = block.sprite.x;
+      anim.y = block.sprite.y + cellSize - targetH;
+    };
+
+    const tickerFn = () => {
       syncPos();
     };
     if (typeof PIXI.Ticker !== 'undefined' && PIXI.Ticker.shared) {
@@ -1983,6 +1991,7 @@ function playJewelryBoxOpenAnimation(block: Block): void {
     }
 
     const cleanup = () => {
+      if (!tickerActive) return;
       tickerActive = false;
       try {
         if (typeof PIXI.Ticker !== 'undefined' && PIXI.Ticker.shared) {
@@ -2005,6 +2014,9 @@ function playJewelryBoxOpenAnimation(block: Block): void {
     startAnim(cached);
   } else {
     loadJewelryBoxSequenceTextures(key).then(textures => {
+      if (!block || !block.sprite || block.sprite.destroyed || !block.sprite.parent || block.sprite.alpha === 0) {
+        return;
+      }
       startAnim(textures);
     });
   }
@@ -45798,6 +45810,9 @@ function stopRecording() {
 
 
 Object.defineProperty(window, 'blocks', { get: () => blocks, configurable: true });
+Object.defineProperty(window, 'app', { get: () => app, configurable: true });
+Object.defineProperty(window, 'blocksContainer', { get: () => blocksContainer, configurable: true });
+Object.defineProperty(window, 'worldContainer', { get: () => worldContainer, configurable: true });
 (window as any).getBlocks = () => blocks;
 (window as any).PIXI = PIXI;
 Object.defineProperty(window, 'isJewelryBoxMode', { get: () => isJewelryBoxMode, set: (v) => setJewelryBoxMode(v), configurable: true });
