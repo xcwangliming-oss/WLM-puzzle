@@ -2043,57 +2043,42 @@ function playJewelryBoxFlyAnimation(block: Block): void {
   if (typeof document === 'undefined') return;
 
   const boardWrapper = document.getElementById('board-wrapper') || document.body;
-  const iconEl = document.getElementById(is1x1 ? 'jewelry-header-icon' : 'jewelry-header-icon-2');
-  const targetEl = iconEl || document.getElementById(targetId) || document.getElementById('jewelry-score-hud');
-  if (!targetEl) return;
+  const boardClip = document.getElementById('board-clip');
+  const clipX = boardClip ? boardClip.offsetLeft : 33;
+  const clipY = boardClip ? boardClip.offsetTop : 143;
+  const clipW = boardClip ? boardClip.offsetWidth : (boardWrapper.offsetWidth ? boardWrapper.offsetWidth * 0.89 : 539);
+  const clipH = boardClip ? boardClip.offsetHeight : (boardWrapper.offsetHeight ? boardWrapper.offsetHeight * 0.85 : 970);
 
-  const canvas = (typeof app !== 'undefined' && ((app as any).canvas || (app as any).view)) ? (((app as any).canvas || (app as any).view) as HTMLCanvasElement) : null;
-  if (!canvas) return;
-
-  const canvasRect = canvas.getBoundingClientRect();
-  const targetRect = targetEl.getBoundingClientRect();
-  const boardRect = boardWrapper.getBoundingClientRect();
-
-  const isWrapper = boardWrapper !== document.body;
-  const boardScaleX = (isWrapper && boardWrapper.offsetWidth > 0) ? boardRect.width / boardWrapper.offsetWidth : 1;
-  const boardScaleY = (isWrapper && boardWrapper.offsetHeight > 0) ? boardRect.height / boardWrapper.offsetHeight : 1;
-  const toLocalX = (viewportX: number) => isWrapper ? (viewportX - boardRect.left) / Math.max(boardScaleX, 0.0001) : viewportX;
-  const toLocalY = (viewportY: number) => isWrapper ? (viewportY - boardRect.top) / Math.max(boardScaleY, 0.0001) : viewportY;
-
-  const targetLocalX = toLocalX(targetRect.left + targetRect.width / 2);
-  const targetLocalY = toLocalY(targetRect.top + targetRect.height / 2);
-
-  const cell = PARAMS.cellSize;
+  const cols = PARAMS.gridCols || 9;
+  const rows = PARAMS.viewportRows || 18;
+  const cell = PARAMS.cellSize || 63;
   const worldY = typeof worldContainer !== 'undefined' ? worldContainer.y : 0;
-  const pad = typeof PADDING !== 'undefined' ? PADDING : 0;
-  const screenWidth = (typeof app !== 'undefined' && app.screen?.width) ? app.screen.width : (PARAMS.gridCols * cell + pad * 2);
-  const cssScale = canvasRect.width / Math.max(1, screenWidth);
 
   const getCellLocalPos = (cellIdx: number) => {
-    let screenX: number;
-    let screenY: number;
-
-    if (block.sprite && typeof block.sprite.toGlobal === 'function') {
-      const cellW = block.length > 0 ? (block.sprite.width / block.length) : cell;
-      const cellH = block.sprite.height || cell;
-      const pt = block.sprite.toGlobal({ x: (cellIdx + 0.5) * cellW, y: 0.5 * cellH });
-      screenX = canvasRect.left + pt.x * cssScale;
-      screenY = canvasRect.top + pt.y * cssScale;
-    } else {
-      const cellCanvasX = (block.col + cellIdx + 0.5) * cell + pad;
-      const cellCanvasY = (block.row + 0.5) * cell + worldY + pad;
-      screenX = canvasRect.left + cellCanvasX * cssScale;
-      screenY = canvasRect.top + cellCanvasY * cssScale;
-    }
-
-    return {
-      x: toLocalX(screenX),
-      y: toLocalY(screenY)
-    };
+    const x = clipX + (block.col + cellIdx + 0.5) * (clipW / cols);
+    const y = clipY + (block.row + 0.5 + worldY / cell) * (clipH / rows);
+    return { x, y };
   };
 
   const startPos1 = getCellLocalPos(0);
   const startPos2 = !is1x1 ? getCellLocalPos(1) : null;
+
+  const targetIcon = document.getElementById(is1x1 ? 'jewelry-header-icon' : 'jewelry-header-icon-2');
+  const targetEl = targetIcon || document.getElementById(targetId) || document.getElementById('jewelry-score-hud');
+
+  let targetLocalX = is1x1 ? (clipX + clipW * 0.52) : (clipX + clipW * 0.76);
+  let targetLocalY = 74;
+
+  if (targetEl && boardWrapper) {
+    const wrapRect = boardWrapper.getBoundingClientRect();
+    const iconRect = targetEl.getBoundingClientRect();
+    if (wrapRect.width > 0 && wrapRect.height > 0) {
+      const scaleX = (boardWrapper.offsetWidth || wrapRect.width) / wrapRect.width;
+      const scaleY = (boardWrapper.offsetHeight || wrapRect.height) / wrapRect.height;
+      targetLocalX = (iconRect.left + iconRect.width / 2 - wrapRect.left) * scaleX;
+      targetLocalY = (iconRect.top + iconRect.height / 2 - wrapRect.top) * scaleY;
+    }
+  }
 
   const spawnGem = (startPos: { x: number; y: number }, curveOffset: number, delayMs: number) => {
     setTimeout(() => {
@@ -20197,6 +20182,8 @@ async function init() {
 
 
   }
+
+  (window as any).app = app;
 
 
 
@@ -45833,6 +45820,9 @@ Object.defineProperty(window, 'isJewelryBoxMode', { get: () => isJewelryBoxMode,
 (window as any).advanceJewelryBox = advanceJewelryBox;
 (window as any).spawnBlock = spawnBlock;
 (window as any).setJewelryBoxMode = setJewelryBoxMode;
+(window as any).playJewelryBoxFlyAnimation = playJewelryBoxFlyAnimation;
+Object.defineProperty(window, 'app', { get: () => (typeof app !== 'undefined' ? app : undefined), configurable: true });
+Object.defineProperty(window, 'worldContainer', { get: () => (typeof worldContainer !== 'undefined' ? worldContainer : undefined), configurable: true });
 (window as any).jewelryColorCustomAssets = jewelryColorCustomAssets;
 (window as any).jewelryCustomAssets = jewelryCustomAssets;
 
