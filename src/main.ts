@@ -1789,27 +1789,40 @@ function getJewelryBoxTexture(length: number, state: 'closed' | 'open', color: s
 
   // 2. Builtin jewelry box texture (from RMG-9102: both closed box and open box)
   const builtinKey = `builtin_${specificKey}`;
-  if (proceduralJewelryTextureCache.has(builtinKey)) {
-    return proceduralJewelryTextureCache.get(builtinKey)!;
+  const cachedBuiltin = proceduralJewelryTextureCache.get(builtinKey);
+  if (cachedBuiltin && cachedBuiltin.width > 0) {
+    return cachedBuiltin;
   }
   if (typeof PIXI !== 'undefined') {
     try {
       const img = new Image();
       img.src = `assets/jewelry_box/${specificKey}.webp`;
-      const tex = PIXI.Texture.from(img);
-      if (tex) {
-        proceduralJewelryTextureCache.set(builtinKey, tex);
-        if (!img.complete || img.naturalWidth <= 0) {
-          img.decode().then(() => {
-            tex.source?.update?.();
+      const onReady = () => {
+        try {
+          const tex = PIXI.Texture.from(img);
+          if (tex && tex.width > 0) {
+            proceduralJewelryTextureCache.set(builtinKey, tex);
             blocks.forEach(b => {
-              if (b.isJewelryBox && b.jewelryBoxState === state) {
-                fitBlockSpriteToGrid(b);
+              if (b.isJewelryBox && b.jewelryBoxState === state && b.color === color && b.length === length) {
+                if (b.sprite) {
+                  b.sprite.texture = tex;
+                  b.sprite.alpha = 1;
+                  fitBlockSpriteToGrid(b);
+                }
               }
             });
-          }).catch(() => {});
+          }
+        } catch (_) {}
+      };
+      if (img.complete && img.naturalWidth > 0) {
+        onReady();
+        const res = proceduralJewelryTextureCache.get(builtinKey);
+        if (res && res.width > 0) return res;
+      } else {
+        img.onload = onReady;
+        if (typeof img.decode === 'function') {
+          img.decode().then(onReady).catch(() => {});
         }
-        return tex;
       }
     } catch (_) {}
   }
@@ -1927,8 +1940,41 @@ function loadJewelryBoxSequenceTextures(key: string): Promise<PIXI.Texture[]> {
   return promise;
 }
 
+function preloadAllJewelryBoxTextures(): void {
+  if (typeof window === 'undefined' || typeof PIXI === 'undefined') return;
+  JEWELRY_BOX_COLORS.forEach(col => {
+    ([1, 2] as const).forEach(len => {
+      (['closed', 'open'] as const).forEach(st => {
+        const specificKey = `${col}-${len}-${st}`;
+        const builtinKey = `builtin_${specificKey}`;
+        const cached = proceduralJewelryTextureCache.get(builtinKey);
+        if (cached && cached.width > 0) return;
+        const img = new Image();
+        img.src = `assets/jewelry_box/${specificKey}.webp`;
+        const onDone = () => {
+          try {
+            const tex = PIXI.Texture.from(img);
+            if (tex && tex.width > 0) {
+              proceduralJewelryTextureCache.set(builtinKey, tex);
+            }
+          } catch (_) {}
+        };
+        if (img.complete && img.naturalWidth > 0) {
+          onDone();
+        } else {
+          img.onload = onDone;
+          if (typeof img.decode === 'function') {
+            img.decode().then(onDone).catch(() => {});
+          }
+        }
+      });
+    });
+  });
+}
+
 function preloadAllJewelryBoxSequences(): void {
   if (typeof window === 'undefined') return;
+  preloadAllJewelryBoxTextures();
   JEWELRY_BOX_COLORS.forEach(col => {
     [1, 2].forEach(len => {
       loadJewelryBoxSequenceTextures(getJewelryBoxSequenceKey(col, len));
@@ -2079,7 +2125,7 @@ function playJewelryBoxFlyAnimation(block: Block): void {
   const targetScreenX = targetRect.left + targetRect.width / 2;
   const targetScreenY = targetRect.top + targetRect.height / 2;
 
-  const spawnGem = (startPos: { x: number; y: number }, curveOffset: number, delayMs: number) => {
+  const spawnGem = (startPos: { x: number; y: number }, curveOffset: number, delayMs: number, gemIndex: number) => {
     setTimeout(() => {
       const startScreenX = startPos.x;
       const startScreenY = startPos.y;
@@ -2096,23 +2142,34 @@ function playJewelryBoxFlyAnimation(block: Block): void {
       flyImg.style.top = `${startScreenY - 38}px`;
       document.body.appendChild(flyImg);
 
-      const midX = (startScreenX + targetScreenX) / 2 + curveOffset;
-      const midY = Math.min(startScreenY, targetScreenY) - 50;
+      // Distinct arc curve and apex height for each gem so they don't overlap or fly stiffly
+      const arcSpread = curveOffset + (Math.random() - 0.5) * 50;
+      const midX = (startScreenX + targetScreenX) / 2 + arcSpread;
+      const apexOffset = 65 + Math.random() * 45;
+      const midY = Math.min(startScreenY, targetScreenY) - apexOffset;
 
+      const rotDir = (gemIndex % 2 === 0 ? -1 : 1) * (Math.random() < 0.2 ? -1 : 1);
+      const rotSpeed = 260 + Math.random() * 160;
+      const initRot = (Math.random() - 0.5) * 45;
+
+      // Slower flight duration (around 920-1040ms) with slight individual speed variance
+      const duration = 940 + gemIndex * 60 + (Math.random() - 0.5) * 100;
       const startTime = performance.now();
-      const duration = 650;
 
       const animateFly = (now: number) => {
-        const p = Math.min(1, (now - startTime) / duration);
-        const inv = 1 - p;
-        const curX = inv * inv * startScreenX + 2 * inv * p * midX + p * p * targetScreenX;
-        const curY = inv * inv * startScreenY + 2 * inv * p * midY + p * p * targetScreenY;
-        const scale = 1 + Math.sin(p * Math.PI) * 0.4;
+        const elapsed = now - startTime;
+        const p = Math.min(1, elapsed / duration);
+        // Smooth ease-in-out quadratic curve for a graceful launch and glide
+        const easeP = p < 0.48 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+        const inv = 1 - easeP;
+        const curX = inv * inv * startScreenX + 2 * inv * easeP * midX + easeP * easeP * targetScreenX;
+        const curY = inv * inv * startScreenY + 2 * inv * easeP * midY + easeP * easeP * targetScreenY;
+        const scale = 1 + Math.sin(p * Math.PI) * 0.35;
 
         flyImg.style.left = `${curX - 38}px`;
         flyImg.style.top = `${curY - 38}px`;
-        flyImg.style.transform = `scale(${scale}) rotate(${p * 360}deg)`;
-        flyImg.style.opacity = p > 0.85 ? `${(1 - p) / 0.15}` : '1';
+        flyImg.style.transform = `scale(${scale}) rotate(${initRot + p * rotSpeed * rotDir}deg)`;
+        flyImg.style.opacity = p > 0.82 ? `${(1 - p) / 0.18}` : '1';
 
         if (p < 1) {
           requestAnimationFrame(animateFly);
@@ -2125,7 +2182,6 @@ function playJewelryBoxFlyAnimation(block: Block): void {
               targetEl.style.transform = 'scale(1)';
             }, 150);
           }
-
         }
       };
       requestAnimationFrame(animateFly);
@@ -2133,11 +2189,18 @@ function playJewelryBoxFlyAnimation(block: Block): void {
   };
 
   if (is1x1) {
-    spawnGem(startPos1, (Math.random() - 0.5) * 80, 0);
+    const delay = Math.random() * 50;
+    const curve = (Math.random() - 0.5) * 90;
+    spawnGem(startPos1, curve, delay, 0);
   } else {
-    spawnGem(startPos1, -40, 0);
+    // 1x2 jewelry box produces 2 gems: distinct takeoff delays and diverging curved paths
+    const delay1 = Math.random() * 40;
+    const delay2 = 130 + Math.random() * 60;
+    const curve1 = -65 - Math.random() * 25;
+    const curve2 = 65 + Math.random() * 25;
+    spawnGem(startPos1, curve1, delay1, 0);
     if (startPos2) {
-      spawnGem(startPos2, 40, 60);
+      spawnGem(startPos2, curve2, delay2, 1);
     }
   }
 }
@@ -24941,6 +25004,9 @@ function fitBlockSpriteToGrid(block: Pick<Block, 'sprite' | 'length'>): void {
   const texW = tex?.orig?.width || tex?.width || 0;
   const texH = tex?.orig?.height || tex?.height || 0;
   if (tex && (texW <= 0 || texH <= 0)) {
+    block.sprite.width = block.length * PARAMS.cellSize;
+    block.sprite.height = PARAMS.cellSize;
+    block.sprite.scale.set(1);
     tex.once('update', () => {
       if (block.sprite && block.sprite.texture === tex) {
         fitBlockSpriteToGrid(block);
