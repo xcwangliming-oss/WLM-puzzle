@@ -45415,11 +45415,6 @@ function startRecording(): Promise<boolean> {
 
         const rx = mapped.x;
         const ry = mapped.y;
-        const rw = mapped.w;
-        const rh = mapped.h;
-
-        recordingCtx!.save();
-        recordingCtx!.translate(rx + rw / 2, ry + rh / 2);
 
         let angle = 0;
         let scaleVal = 1;
@@ -45435,11 +45430,23 @@ function startRecording(): Promise<boolean> {
           }
         }
 
+        // Draw size: compute unrotated DOM base dimensions scaled to recording canvas,
+        // so applying canvas rotate and scale exactly reproduces what is seen in the browser without double-scaling
+        const domW = parseFloat(img.style.width) || img.offsetWidth || (mapped.w / Math.max(0.1, scaleVal));
+        const domH = parseFloat(img.style.height) || img.offsetHeight || (mapped.h / Math.max(0.1, scaleVal));
+        const scaleFactorX = useRecordingBackground ? width / Math.max(1, boardRect.width) : dpr;
+        const scaleFactorY = useRecordingBackground ? height / Math.max(1, boardRect.height) : dpr;
+        const baseW = domW * scaleFactorX;
+        const baseH = domH * scaleFactorY;
+
+        recordingCtx!.save();
+        recordingCtx!.translate(rx + mapped.w / 2, ry + mapped.h / 2);
+
         const opacityVal = img.style.opacity !== '' ? parseFloat(img.style.opacity) : 1;
         recordingCtx!.globalAlpha = isNaN(opacityVal) ? 1 : Math.max(0, Math.min(1, opacityVal));
         recordingCtx!.rotate(angle);
         recordingCtx!.scale(scaleVal, scaleVal);
-        recordingCtx!.drawImage(img, -rw / 2, -rh / 2, rw, rh);
+        recordingCtx!.drawImage(img, -baseW / 2, -baseH / 2, baseW, baseH);
         recordingCtx!.restore();
       });
     }
