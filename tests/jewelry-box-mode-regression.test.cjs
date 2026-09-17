@@ -10,7 +10,7 @@ const cssSource = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 // 1. DOM and CSS UI verification
 assert.match(
   htmlSource,
-  /id="jewelry-score-hud"[\s\S]*?id="jewelry-target-1"[\s\S]*?id="jewelry-header-icon"[\s\S]*?class="jewelry-score-x">X<\/span>[\s\S]*?id="jewelry-collect-val"[\s\S]*?id="jewelry-target-2"[\s\S]*?id="jewelry-header-icon-2"[\s\S]*?class="jewelry-score-x">X<\/span>[\s\S]*?id="jewelry-collect-val-2"/,
+  /id="jewelry-score-hud"[\s\S]*?id="jewelry-target-1"[\s\S]*?id="jewelry-header-icon"[\s\S]*?class="jewelry-score-x">[Xx]<\/span>[\s\S]*?id="jewelry-collect-val"[\s\S]*?id="jewelry-target-2"[\s\S]*?id="jewelry-header-icon-2"[\s\S]*?class="jewelry-score-x">[Xx]<\/span>[\s\S]*?id="jewelry-collect-val-2"/,
   'top header must include dual collectible targets with X separator for pearl and diamond'
 );
 

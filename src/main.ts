@@ -34381,74 +34381,58 @@ function drawRecordingJewelryBoxHud(
   height: number,
   boardWrapper: HTMLElement | null,
   useRecordingBackground: boolean,
-  dpr: number
+  dpr: number,
+  passedHeaderBox?: { x: number; y: number; w: number; h: number }
 ): boolean {
   const isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
   if (!isJewelryBoxRecording) return false;
 
-  const hud = document.getElementById('jewelry-score-hud');
-  const boardRect = boardWrapper?.getBoundingClientRect();
-
   const target1 = document.getElementById('jewelry-target-1');
   const icon1 = document.getElementById('jewelry-header-icon') as HTMLImageElement | null;
+  const x1 = target1?.querySelector<HTMLElement>('.jewelry-score-x') || null;
   const count1 = document.getElementById('jewelry-collect-val') as HTMLElement | null;
 
   const target2 = document.getElementById('jewelry-target-2');
   const icon2 = document.getElementById('jewelry-header-icon-2') as HTMLImageElement | null;
+  const x2 = target2?.querySelector<HTMLElement>('.jewelry-score-x') || null;
   const count2 = document.getElementById('jewelry-collect-val-2') as HTMLElement | null;
 
   const items = [
     {
       target: target1,
       icon: icon1,
-      xEl: target1?.querySelector('.jewelry-score-x') as HTMLElement | null,
+      xEl: x1,
       countEl: count1,
       fallbackSrc: jewelryCustomAssets['gem-1'] || jewelryCustomAssets['gem'] || 'assets/jewelry_box/gem-1.webp' || generateProceduralJewelryDataUrl('gem-1'),
-      countVal: jewelryCollectedCount1
+      countText: count1?.innerText || String(jewelryCollectedCount1 || 0)
     },
     {
       target: target2,
       icon: icon2,
-      xEl: target2?.querySelector('.jewelry-score-x') as HTMLElement | null,
+      xEl: x2,
       countEl: count2,
       fallbackSrc: jewelryCustomAssets['gem-2'] || 'assets/jewelry_box/gem-2.webp' || generateProceduralJewelryDataUrl('gem-2'),
-      countVal: jewelryCollectedCount2
+      countText: count2?.innerText || String(jewelryCollectedCount2 || 0)
     }
   ];
 
-  if (boardRect && hud && hud.style.display !== 'none') {
-    items.forEach(item => {
+  const boardRect = boardWrapper?.getBoundingClientRect();
+  const hasLiveDom = !!(
+    boardRect &&
+    boardRect.width > 0 &&
+    boardRect.height > 0 &&
+    icon1 &&
+    icon1.getBoundingClientRect().width > 0
+  );
+
+  if (hasLiveDom && boardRect) {
+    const scaleX = width / boardRect.width;
+    const scaleY = height / boardRect.height;
+
+    items.forEach((item) => {
       const img = (item.icon && item.icon.complete && (item.icon.naturalWidth || item.icon.width) > 0)
         ? item.icon
         : getClearTextImage(item.fallbackSrc);
-
-      const targetRect = item.target?.getBoundingClientRect();
-      const imageRect = item.icon?.getBoundingClientRect();
-      const xRect = item.xEl?.getBoundingClientRect();
-      const countRect = item.countEl?.getBoundingClientRect();
-
-      const scaleX = useRecordingBackground ? width / Math.max(1, boardRect.width) : dpr;
-      const mappedImage = imageRect && imageRect.width > 0
-        ? (useRecordingBackground
-            ? mapBoardWrapperRectToRecordingRect(imageRect, boardRect, { x: 0, y: 0, w: width, h: height })
-            : {
-                x: (imageRect.left - boardRect.left) * dpr,
-                y: (imageRect.top - boardRect.top) * dpr,
-                w: imageRect.width * dpr,
-                h: imageRect.height * dpr
-              })
-        : (targetRect && targetRect.width > 0
-            ? (useRecordingBackground
-                ? mapBoardWrapperRectToRecordingRect(targetRect, boardRect, { x: 0, y: 0, w: width, h: height })
-                : {
-                    x: (targetRect.left - boardRect.left) * dpr,
-                    y: (targetRect.top - boardRect.top) * dpr,
-                    w: targetRect.width * dpr,
-                    h: targetRect.height * dpr
-                  })
-            : null);
-
-      if (!mappedImage) return;
 
       let iconScale = 1;
       if (item.icon) {
@@ -34480,124 +34464,147 @@ function drawRecordingJewelryBoxHud(
         } catch (_) {}
       }
 
-      context.save();
-      if (iconScale !== 1) {
-        const icx = mappedImage.x + mappedImage.w / 2;
-        const icy = mappedImage.y + mappedImage.h / 2;
-        context.translate(icx, icy);
-        context.scale(iconScale, iconScale);
-        context.translate(-icx, -icy);
-      }
-      drawRecordingImageContained(context, img, mappedImage);
-      context.restore();
+      // 1. Draw Ring Icon directly from live DOM position
+      if (item.icon) {
+        const iRect = item.icon.getBoundingClientRect();
+        const mappedIcon = mapBoardWrapperRectToRecordingRect(iRect, boardRect, { x: 0, y: 0, w: width, h: height });
 
-      const xCssFontSize = item.xEl ? parseFloat(getComputedStyle(item.xEl).fontSize) : 26;
-      const xFontSize = Math.max(16, Math.round((xCssFontSize || 26) * scaleX));
-
-      let xPosX = mappedImage.x + mappedImage.w + 10 * scaleX;
-      let xPosY = mappedImage.y + mappedImage.h / 2;
-
-      if (xRect && xRect.width > 0) {
-        const mappedX = useRecordingBackground
-          ? mapBoardWrapperRectToRecordingRect(xRect, boardRect, { x: 0, y: 0, w: width, h: height })
-          : {
-              x: (xRect.left - boardRect.left) * dpr,
-              y: (xRect.top - boardRect.top) * dpr,
-              w: xRect.width * dpr,
-              h: xRect.height * dpr
-            };
-        xPosX = mappedX.x + mappedX.w / 2;
-        xPosY = mappedX.y + mappedX.h / 2;
+        context.save();
+        if (iconScale !== 1) {
+          const icx = mappedIcon.x + mappedIcon.w / 2;
+          const icy = mappedIcon.y + mappedIcon.h / 2;
+          context.translate(icx, icy);
+          context.scale(iconScale, iconScale);
+          context.translate(-icx, -icy);
+        }
+        drawRecordingImageContained(context, img, mappedIcon);
+        context.restore();
       }
 
-      context.save();
-      context.font = `900 ${xFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-      context.textAlign = 'center';
-      context.textBaseline = 'middle';
-      context.fillStyle = '#ffffff';
-      context.shadowColor = 'rgba(255, 255, 255, 0.24)';
-      context.shadowBlur = 6 * scaleX;
-      context.fillText('X', xPosX, xPosY);
-      context.restore();
+      // 2. Draw 'x' directly from live DOM position
+      if (item.xEl) {
+        const xRect = item.xEl.getBoundingClientRect();
+        const mappedX = mapBoardWrapperRectToRecordingRect(xRect, boardRect, { x: 0, y: 0, w: width, h: height });
+        const xStyle = window.getComputedStyle(item.xEl);
+        const xFontSize = Math.round(parseFloat(xStyle.fontSize) * scaleX);
 
-      const countText = item.countEl?.innerText || String(item.countVal || 0);
-      const cssFontSize = item.countEl ? parseFloat(getComputedStyle(item.countEl).fontSize) : 32;
-      const countFontSize = Math.max(20, Math.round((cssFontSize || 32) * scaleX));
-
-      let countX = xPosX + 14 * scaleX;
-      let countY = mappedImage.y + mappedImage.h / 2;
-
-      if (countRect && countRect.width > 0) {
-        const mappedCount = useRecordingBackground
-          ? mapBoardWrapperRectToRecordingRect(countRect, boardRect, { x: 0, y: 0, w: width, h: height })
-          : {
-              x: (countRect.left - boardRect.left) * dpr,
-              y: (countRect.top - boardRect.top) * dpr,
-              w: countRect.width * dpr,
-              h: countRect.height * dpr
-            };
-        countX = mappedCount.x;
-        countY = mappedCount.y + mappedCount.h / 2;
+        context.save();
+        context.font = `${xStyle.fontWeight || '900'} ${xFontSize}px ${xStyle.fontFamily || "'Fira Sans', sans-serif"}`;
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillStyle = '#ffffff';
+        context.shadowColor = 'rgba(255, 255, 255, 0.24)';
+        context.shadowBlur = 6 * (width / 720);
+        context.fillText(item.xEl.innerText || 'x', mappedX.x + mappedX.w / 2, mappedX.y + mappedX.h / 2);
+        context.restore();
       }
 
-      context.save();
-      if (popScale !== 1) {
-        context.translate(countX, countY);
-        context.scale(popScale, popScale);
-        context.translate(-countX, -countY);
+      // 3. Draw Count directly from live DOM position
+      if (item.countEl) {
+        const cRect = item.countEl.getBoundingClientRect();
+        const mappedCount = mapBoardWrapperRectToRecordingRect(cRect, boardRect, { x: 0, y: 0, w: width, h: height });
+        const cStyle = window.getComputedStyle(item.countEl);
+        const countFontSize = Math.round(parseFloat(cStyle.fontSize) * scaleX);
+
+        context.save();
+        if (popScale !== 1) {
+          const ccx = mappedCount.x + mappedCount.w / 2;
+          const ccy = mappedCount.y + mappedCount.h / 2;
+          context.translate(ccx, ccy);
+          context.scale(popScale, popScale);
+          context.translate(-ccx, -ccy);
+        }
+        context.font = `${cStyle.fontWeight || '900'} ${countFontSize}px ${cStyle.fontFamily || "'Fira Sans', sans-serif"}`;
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillStyle = '#ffffff';
+        context.shadowColor = 'rgba(255, 255, 255, 0.24)';
+        context.shadowBlur = 6 * (width / 720);
+        context.fillText(item.countText, mappedCount.x + mappedCount.w / 2, mappedCount.y + mappedCount.h / 2);
+        context.restore();
       }
-      context.font = `900 ${countFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-      context.textAlign = 'left';
-      context.textBaseline = 'middle';
-      context.fillStyle = '#ffffff';
-      context.shadowColor = 'rgba(255, 255, 255, 0.24)';
-      context.shadowBlur = 6 * scaleX;
-      context.fillText(countText, countX, countY);
-      context.restore();
     });
+
     return true;
   }
 
   // Fallback when DOM layout is unavailable
-  const headerBox = {
-    x: MASTER_UI.header.x * width,
-    y: MASTER_UI.header.y * height,
-    w: MASTER_UI.header.w * width,
-    h: MASTER_UI.header.h * height
-  };
-  const iconSize = Math.min(72 * dpr, headerBox.h * 0.55);
-  const gap = 22 * (width / 720);
-  const hudStartX = headerBox.x + headerBox.w * 0.48;
+  const headerBox = passedHeaderBox || (useRecordingBackground
+    ? {
+        x: MASTER_UI.header.x * width,
+        y: MASTER_UI.header.y * height,
+        w: MASTER_UI.header.w * width,
+        h: MASTER_UI.header.h * height
+      }
+    : {
+        x: 0,
+        y: 0,
+        w: width,
+        h: 80 * dpr
+      });
+
+  const scale = useRecordingBackground ? width / 720 : dpr;
+  const padX = 30 * scale;
   const centerY = headerBox.y + headerBox.h / 2;
-  const fontSize = Math.max(20, Math.round(32 * (width / 720)));
-  const xFontSize = Math.max(16, Math.round(26 * (width / 720)));
+
+  const iconSize = Math.round(72 * scale);
+  const xFontSize = Math.round(26 * scale);
+  const countFontSize = Math.round(32 * scale);
+  const innerGap = Math.round(8 * scale);
+  const groupGap = Math.round(20 * scale);
+
+  context.save();
+  context.font = `900 ${countFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+  const countWidths = items.map(item => Math.max(16 * scale, context.measureText(item.countText).width));
+
+  context.font = `900 ${xFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+  const xWidth = context.measureText('x').width;
+  context.restore();
+
+  const itemWidths = items.map((_, idx) => iconSize + innerGap + xWidth + innerGap + countWidths[idx]);
+  const totalGroupWidth = itemWidths[0] + groupGap + itemWidths[1];
+
+  let curX = headerBox.x + headerBox.w - padX - totalGroupWidth;
 
   items.forEach((item, idx) => {
-    const img = getClearTextImage(item.fallbackSrc);
-    const targetX = hudStartX + idx * (iconSize + 64 * (width / 720) + gap);
+    const img = (item.icon && item.icon.complete && (item.icon.naturalWidth || item.icon.width) > 0)
+      ? item.icon
+      : getClearTextImage(item.fallbackSrc);
+
+    // 1. Draw Ring Icon
     const imgBox = {
-      x: targetX,
+      x: curX,
       y: centerY - iconSize / 2,
       w: iconSize,
       h: iconSize
     };
     drawRecordingImageContained(context, img, imgBox);
+    curX += iconSize + innerGap;
 
-    const xPos = imgBox.x + imgBox.w + 12 * (width / 720);
+    // 2. Draw 'x'
+    const xPos = curX + xWidth / 2;
     context.save();
     context.font = `900 ${xFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.fillStyle = '#ffffff';
     context.shadowColor = 'rgba(255, 255, 255, 0.24)';
-    context.shadowBlur = 6 * (width / 720);
-    context.fillText('X', xPos, centerY);
-
-    const countText = String(item.countVal || 0);
-    context.font = `900 ${fontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-    context.textAlign = 'left';
-    context.fillText(countText, xPos + 12 * (width / 720), centerY);
+    context.shadowBlur = 6 * scale;
+    context.fillText('x', xPos, centerY);
     context.restore();
+    curX += xWidth + innerGap;
+
+    // 3. Draw Count
+    context.save();
+    context.font = `900 ${countFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+    context.textAlign = 'left';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#ffffff';
+    context.shadowColor = 'rgba(255, 255, 255, 0.24)';
+    context.shadowBlur = 6 * scale;
+    context.fillText(item.countText, curX, centerY);
+    context.restore();
+    curX += countWidths[idx] + groupGap;
   });
 
   return true;
@@ -45047,32 +45054,59 @@ function startRecording(): Promise<boolean> {
           : headerBox.x + headerBox.w * 0.05;
 
         if (isJewelryBoxRecording) {
-          const scoreText = document.getElementById('score-val')?.innerText || '854,682';
-          const scoreContainer = document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live .collect-score-hud') || headerItems[0];
-          const scoreRect = scoreContainer?.getBoundingClientRect();
+          const scoreLabelEl = document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live .collect-score-label');
+          const scoreValEl = document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live #score-val') || document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live .collect-score-value');
+          const scoreText = scoreValEl?.innerText || document.getElementById('score-val')?.innerText || '854,682';
 
-          const scoreLeftX = useRecordingBackground && scoreRect && boardRectForHeader
-            ? (scoreRect.left - boardRectForHeader.left) * (width / boardRectForHeader.width)
-            : headerBox.x + headerBox.w * 0.05;
+          if (scoreLabelEl && scoreValEl && boardRectForHeader && boardRectForHeader.width > 0) {
+            const scaleX = width / boardRectForHeader.width;
+            const scaleY = height / boardRectForHeader.height;
 
-          const scoreCenterY = useRecordingBackground && scoreRect && boardRectForHeader
-            ? ((scoreRect.top + scoreRect.height / 2) - boardRectForHeader.top) * (height / boardRectForHeader.height)
-            : textY;
+            const lRect = scoreLabelEl.getBoundingClientRect();
+            const vRect = scoreValEl.getBoundingClientRect();
 
-          const labelFontSize = headerFontSize * 0.54;
-          const valueFontSize = headerFontSize * 1.05;
-          const labelY = scoreCenterY - headerFontSize * 0.32;
-          const valueY = scoreCenterY + headerFontSize * 0.38;
+            const lx = (lRect.left - boardRectForHeader.left) * scaleX;
+            const ly = (lRect.top + lRect.height / 2 - boardRectForHeader.top) * scaleY;
+            const lStyle = window.getComputedStyle(scoreLabelEl);
+            const lFontSize = Math.round(parseFloat(lStyle.fontSize) * scaleX);
 
-          recordingCtx!.textAlign = 'left';
+            const vx = (vRect.left - boardRectForHeader.left) * scaleX;
+            const vy = (vRect.top + vRect.height / 2 - boardRectForHeader.top) * scaleY;
+            const vStyle = window.getComputedStyle(scoreValEl);
+            const vFontSize = Math.round(parseFloat(vStyle.fontSize) * scaleX);
 
-          recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-          recordingCtx!.fillText('SCORE', scoreLeftX, labelY);
-          if (!useRecordingBackground) recordingCtx!.strokeText('SCORE', scoreLeftX, labelY);
+            recordingCtx!.textAlign = 'left';
+            recordingCtx!.textBaseline = 'middle';
 
-          recordingCtx!.font = `900 ${valueFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-          recordingCtx!.fillText(scoreText, scoreLeftX, valueY);
-          if (!useRecordingBackground) recordingCtx!.strokeText(scoreText, scoreLeftX, valueY);
+            recordingCtx!.font = `${lStyle.fontWeight || '900'} ${lFontSize}px ${lStyle.fontFamily || "'PingFang SC', sans-serif"}`;
+            recordingCtx!.fillText(scoreLabelEl.innerText || 'SCORE', lx, ly);
+            if (!useRecordingBackground) recordingCtx!.strokeText(scoreLabelEl.innerText || 'SCORE', lx, ly);
+
+            recordingCtx!.font = `${vStyle.fontWeight || '900'} ${vFontSize}px ${vStyle.fontFamily || "'Fira Sans', sans-serif"}`;
+            recordingCtx!.fillText(scoreText, vx, vy);
+            if (!useRecordingBackground) recordingCtx!.strokeText(scoreText, vx, vy);
+          } else {
+            const scale = useRecordingBackground ? width / 720 : dpr;
+            const padX = 30 * scale;
+            const scoreLeftX = headerBox.x + padX;
+            const scoreCenterY = headerBox.y + headerBox.h / 2;
+
+            const labelFontSize = Math.round(14 * scale);
+            const valueFontSize = Math.round(36 * scale);
+            const labelY = scoreCenterY - valueFontSize * 0.40;
+            const valueY = scoreCenterY + labelFontSize * 0.76;
+
+            recordingCtx!.textAlign = 'left';
+            recordingCtx!.textBaseline = 'middle';
+
+            recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+            recordingCtx!.fillText('SCORE', scoreLeftX, labelY);
+            if (!useRecordingBackground) recordingCtx!.strokeText('SCORE', scoreLeftX, labelY);
+
+            recordingCtx!.font = `900 ${valueFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+            recordingCtx!.fillText(scoreText, scoreLeftX, valueY);
+            if (!useRecordingBackground) recordingCtx!.strokeText(scoreText, scoreLeftX, valueY);
+          }
         } else if (isCollectMode) {
           const scoreText = document.getElementById('score-val')?.innerText || '0';
           const isMultiCollectRecording = multiCollectibleModeEnabled && multiCollectibleItems.length > 0;
@@ -45131,7 +45165,8 @@ function startRecording(): Promise<boolean> {
           height,
           boardWrapper || null,
           useRecordingBackground,
-          dpr
+          dpr,
+          headerBox
         );
       } else if (isCollectMode && topUiMode !== 'heart') {
 
@@ -46071,6 +46106,7 @@ Object.defineProperty(window, 'isJewelryBoxMode', { get: () => isJewelryBoxMode,
 (window as any).setJewelryBoxMode = setJewelryBoxMode;
 (window as any).jewelryColorCustomAssets = jewelryColorCustomAssets;
 (window as any).jewelryCustomAssets = jewelryCustomAssets;
+(window as any).drawRecordingJewelryBoxHud = drawRecordingJewelryBoxHud;
 
 (window as any).PARAMS = PARAMS;
 
