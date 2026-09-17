@@ -151,14 +151,20 @@ body:not(.is-playable) #tab-level {
 }
 
 .collect-score-label {
+  font-family: 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   margin-bottom: 4px;
   font-size: 15px;
   font-weight: 900;
 }
 
+.collect-score-value,
+#score-val {
+  font-family: 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  font-weight: 900;
+}
+
 .collect-score-value {
   font-size: 27px;
-  font-weight: 900;
 }
 
 #board-wrapper.multi-collectible-live .collect-score-hud {
@@ -208,6 +214,7 @@ body:not(.is-playable) #tab-level {
 }
 
 #board-wrapper.jewelry-box-live .collect-score-label {
+  font-family: 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   margin-bottom: 5px;
   font-size: 14px;
   font-weight: 900;
@@ -215,18 +222,19 @@ body:not(.is-playable) #tab-level {
   text-align: left;
   letter-spacing: 0.5px;
   color: #0c1b50;
-  -webkit-text-stroke: 1.5px #ffffff;
+  -webkit-text-stroke: 3.5px #ffffff;
   paint-order: stroke fill;
   text-shadow: 0 2px 6px rgba(12, 27, 80, 0.28);
 }
 
 #board-wrapper.jewelry-box-live .collect-score-value {
+  font-family: 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   font-size: 36px;
   font-weight: 900;
   line-height: 0.95;
   text-align: left;
   color: #0c1b50;
-  -webkit-text-stroke: 2.5px #ffffff;
+  -webkit-text-stroke: 7.2px #ffffff;
   paint-order: stroke fill;
   text-shadow: 0 2px 6px rgba(12, 27, 80, 0.28);
 }
@@ -2353,14 +2361,30 @@ body:not(.is-playable) #script-steps-panel {
   src: url('/fonts/FiraSans-Black.ttf') format('truetype');
 }
 
+@font-face {
+  font-family: 'Fira Sans Black';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('/fonts/FiraSans-Black.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Fira Sans Black';
+  font-style: normal;
+  font-weight: normal;
+  font-display: swap;
+  src: url('/fonts/FiraSans-Black.ttf') format('truetype');
+}
+
 .jewelry-score-x {
   color: #0c1b50;
-  font-family: 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  font-family: 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   font-size: 26px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
-  -webkit-text-stroke: 1.8px #ffffff;
+  -webkit-text-stroke: 5.2px #ffffff;
   paint-order: stroke fill;
   text-shadow: 0 2px 6px rgba(12, 27, 80, 0.28);
   display: inline-flex;
@@ -2371,12 +2395,12 @@ body:not(.is-playable) #script-steps-panel {
 
 .jewelry-score-val {
   color: #0c1b50;
-  font-family: 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  font-family: 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   font-size: 32px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
-  -webkit-text-stroke: 2.2px #ffffff;
+  -webkit-text-stroke: 6.5px #ffffff;
   paint-order: stroke fill;
   text-shadow: 0 2px 6px rgba(12, 27, 80, 0.28);
   min-width: 16px;

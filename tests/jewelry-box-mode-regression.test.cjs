@@ -201,14 +201,14 @@ assert.match(
 
 assert.match(
   cssSource,
-  /\.jewelry-score-x\s*\{[\s\S]*?font-family:\s*['"]Fira Sans['"][\s\S]*?font-weight:\s*900/,
-  '.jewelry-score-x must use Fira Sans font with weight 900'
+  /\.jewelry-score-x\s*\{[\s\S]*?font-family:\s*['"](?:Fira Sans Black|Fira Sans)['"][\s\S]*?font-weight:\s*900/,
+  '.jewelry-score-x must use Fira Sans Black font with weight 900'
 );
 
 assert.match(
   cssSource,
-  /\.jewelry-score-val\s*\{[\s\S]*?font-family:\s*['"]Fira Sans['"][\s\S]*?font-weight:\s*900[\s\S]*?transform-origin:\s*center center/,
-  '.jewelry-score-val must use Fira Sans font with weight 900 and centered transform origin'
+  /\.jewelry-score-val\s*\{[\s\S]*?font-family:\s*['"](?:Fira Sans Black|Fira Sans)['"][\s\S]*?font-weight:\s*900[\s\S]*?transform-origin:\s*center center/,
+  '.jewelry-score-val must use Fira Sans Black font with weight 900 and centered transform origin'
 );
 
 assert.match(
@@ -232,20 +232,20 @@ assert.match(
 // 13. Styling for #0c1b50 text and stroke
 assert.match(
   cssSource,
-  /\.jewelry-score-x\s*\{[\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*1\.8px\s*#ffffff;/,
-  '.jewelry-score-x must have color #0c1b50 and white stroke'
+  /\.jewelry-score-x\s*\{[\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*5\.2px\s*#ffffff;/,
+  '.jewelry-score-x must have color #0c1b50 and bold white stroke'
 );
 
 assert.match(
   cssSource,
-  /\.jewelry-score-val\s*\{[\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*2\.2px\s*#ffffff;/,
-  '.jewelry-score-val must have color #0c1b50 and white stroke'
+  /\.jewelry-score-val\s*\{[\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*6\.5px\s*#ffffff;/,
+  '.jewelry-score-val must have color #0c1b50 and bold white stroke'
 );
 
 assert.match(
   cssSource,
-  /#board-wrapper\.jewelry-box-live\s*\.collect-score-value\s*\{[\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*2\.5px\s*#ffffff;/,
-  '.collect-score-value in jewelry-box-live must have color #0c1b50 and white stroke'
+  /#board-wrapper\.jewelry-box-live\s*\.collect-score-value\s*\{[\s\S]*?font-family:\s*['"]Fira Sans Black['"][\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*7\.2px\s*#ffffff;/,
+  '.collect-score-value in jewelry-box-live must use Fira Sans Black, have color #0c1b50 and bold white stroke'
 );
 
 console.log('jewelry box mode regression checks passed');

@@ -2092,7 +2092,13 @@ let jewelryCollectedCount2 = 0;
 if (typeof document !== 'undefined' && (document as any).fonts) {
   try {
     const firaBlack = new FontFace('Fira Sans', 'url(/fonts/FiraSans-Black.ttf)', { weight: '900', style: 'normal' });
-    firaBlack.load().then(f => (document as any).fonts.add(f)).catch(() => {});
+    const firaBlackAlias = new FontFace('Fira Sans Black', 'url(/fonts/FiraSans-Black.ttf)', { weight: '900', style: 'normal' });
+    const firaBlackAliasNorm = new FontFace('Fira Sans Black', 'url(/fonts/FiraSans-Black.ttf)', { weight: 'normal', style: 'normal' });
+    Promise.all([
+      firaBlack.load().then(f => (document as any).fonts.add(f)),
+      firaBlackAlias.load().then(f => (document as any).fonts.add(f)),
+      firaBlackAliasNorm.load().then(f => (document as any).fonts.add(f))
+    ]).catch(() => {});
   } catch (_) {}
 }
 
@@ -34494,13 +34500,13 @@ function drawRecordingJewelryBoxHud(
         const xFontSize = Math.round(parseFloat(xStyle.fontSize) * scaleX);
 
         context.save();
-        context.font = `${xStyle.fontWeight || '900'} ${xFontSize}px ${xStyle.fontFamily || "'Fira Sans', sans-serif"}`;
+        context.font = `${xStyle.fontWeight || '900'} ${xFontSize}px ${xStyle.fontFamily || "'Fira Sans Black', 'Fira Sans', sans-serif"}`;
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.lineJoin = 'round';
         context.miterLimit = 2;
         context.strokeStyle = '#ffffff';
-        context.lineWidth = Math.max(1, Math.round(1.8 * scaleX));
+        context.lineWidth = Math.max(2, Math.round(5.2 * scaleX));
         context.strokeText(item.xEl.innerText || 'x', mappedX.x + mappedX.w / 2, mappedX.y + mappedX.h / 2);
         context.fillStyle = '#0c1b50';
         context.fillText(item.xEl.innerText || 'x', mappedX.x + mappedX.w / 2, mappedX.y + mappedX.h / 2);
@@ -34522,13 +34528,13 @@ function drawRecordingJewelryBoxHud(
           context.scale(popScale, popScale);
           context.translate(-ccx, -ccy);
         }
-        context.font = `${cStyle.fontWeight || '900'} ${countFontSize}px ${cStyle.fontFamily || "'Fira Sans', sans-serif"}`;
+        context.font = `${cStyle.fontWeight || '900'} ${countFontSize}px ${cStyle.fontFamily || "'Fira Sans Black', 'Fira Sans', sans-serif"}`;
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.lineJoin = 'round';
         context.miterLimit = 2;
         context.strokeStyle = '#ffffff';
-        context.lineWidth = Math.max(1.5, Math.round(2.2 * scaleX));
+        context.lineWidth = Math.max(2.5, Math.round(6.5 * scaleX));
         context.strokeText(item.countText, mappedCount.x + mappedCount.w / 2, mappedCount.y + mappedCount.h / 2);
         context.fillStyle = '#0c1b50';
         context.fillText(item.countText, mappedCount.x + mappedCount.w / 2, mappedCount.y + mappedCount.h / 2);
@@ -34565,10 +34571,10 @@ function drawRecordingJewelryBoxHud(
   const groupGap = Math.round(20 * scale);
 
   context.save();
-  context.font = `900 ${countFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+  context.font = `900 ${countFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
   const countWidths = items.map(item => Math.max(16 * scale, context.measureText(item.countText).width));
 
-  context.font = `900 ${xFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+  context.font = `900 ${xFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
   const xWidth = context.measureText('x').width;
   context.restore();
 
@@ -34595,13 +34601,13 @@ function drawRecordingJewelryBoxHud(
     // 2. Draw 'x'
     const xPos = curX + xWidth / 2;
     context.save();
-    context.font = `900 ${xFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+    context.font = `900 ${xFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.lineJoin = 'round';
     context.miterLimit = 2;
     context.strokeStyle = '#ffffff';
-    context.lineWidth = Math.max(1, Math.round(1.8 * scale));
+    context.lineWidth = Math.max(2, Math.round(5.2 * scale));
     context.strokeText('x', xPos, centerY);
     context.fillStyle = '#0c1b50';
     context.fillText('x', xPos, centerY);
@@ -34610,13 +34616,13 @@ function drawRecordingJewelryBoxHud(
 
     // 3. Draw Count
     context.save();
-    context.font = `900 ${countFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+    context.font = `900 ${countFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
     context.textAlign = 'left';
     context.textBaseline = 'middle';
     context.lineJoin = 'round';
     context.miterLimit = 2;
     context.strokeStyle = '#ffffff';
-    context.lineWidth = Math.max(1.5, Math.round(2.2 * scale));
+    context.lineWidth = Math.max(2.5, Math.round(6.5 * scale));
     context.strokeText(item.countText, curX, centerY);
     context.fillStyle = '#0c1b50';
     context.fillText(item.countText, curX, centerY);
@@ -45097,16 +45103,16 @@ function startRecording(): Promise<boolean> {
             recordingCtx!.lineJoin = 'round';
             recordingCtx!.miterLimit = 2;
 
-            recordingCtx!.font = `${lStyle.fontWeight || '900'} ${lFontSize}px ${lStyle.fontFamily || "'PingFang SC', sans-serif"}`;
+            recordingCtx!.font = `${lStyle.fontWeight || '900'} ${lFontSize}px ${lStyle.fontFamily || "'Fira Sans Black', 'Fira Sans', sans-serif"}`;
             recordingCtx!.strokeStyle = '#ffffff';
-            recordingCtx!.lineWidth = Math.max(1, Math.round(1.5 * scaleX));
+            recordingCtx!.lineWidth = Math.max(1.8, Math.round(3.5 * scaleX));
             recordingCtx!.strokeText(scoreLabelEl.innerText || 'SCORE', lx, ly);
             recordingCtx!.fillStyle = '#0c1b50';
             recordingCtx!.fillText(scoreLabelEl.innerText || 'SCORE', lx, ly);
 
-            recordingCtx!.font = `${vStyle.fontWeight || '900'} ${vFontSize}px ${vStyle.fontFamily || "'Fira Sans', sans-serif"}`;
+            recordingCtx!.font = `${vStyle.fontWeight || '900'} ${vFontSize}px ${vStyle.fontFamily || "'Fira Sans Black', 'Fira Sans', sans-serif"}`;
             recordingCtx!.strokeStyle = '#ffffff';
-            recordingCtx!.lineWidth = Math.max(1.5, Math.round(2.5 * scaleX));
+            recordingCtx!.lineWidth = Math.max(3, Math.round(7.2 * scaleX));
             recordingCtx!.strokeText(scoreText, vx, vy);
             recordingCtx!.fillStyle = '#0c1b50';
             recordingCtx!.fillText(scoreText, vx, vy);
@@ -45126,16 +45132,16 @@ function startRecording(): Promise<boolean> {
             recordingCtx!.lineJoin = 'round';
             recordingCtx!.miterLimit = 2;
 
-            recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+            recordingCtx!.font = `900 ${labelFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
             recordingCtx!.strokeStyle = '#ffffff';
-            recordingCtx!.lineWidth = Math.max(1, Math.round(1.5 * scale));
+            recordingCtx!.lineWidth = Math.max(1.8, Math.round(3.5 * scale));
             recordingCtx!.strokeText('SCORE', scoreLeftX, labelY);
             recordingCtx!.fillStyle = '#0c1b50';
             recordingCtx!.fillText('SCORE', scoreLeftX, labelY);
 
-            recordingCtx!.font = `900 ${valueFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+            recordingCtx!.font = `900 ${valueFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
             recordingCtx!.strokeStyle = '#ffffff';
-            recordingCtx!.lineWidth = Math.max(1.5, Math.round(2.5 * scale));
+            recordingCtx!.lineWidth = Math.max(3, Math.round(7.2 * scale));
             recordingCtx!.strokeText(scoreText, scoreLeftX, valueY);
             recordingCtx!.fillStyle = '#0c1b50';
             recordingCtx!.fillText(scoreText, scoreLeftX, valueY);
@@ -45148,11 +45154,11 @@ function startRecording(): Promise<boolean> {
           const labelY = textY - headerFontSize * (isMultiCollectRecording ? 0.42 : 0.28);
           const valueY = textY + headerFontSize * 0.58;
 
-          recordingCtx!.font = `900 ${labelFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+          recordingCtx!.font = `900 ${labelFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
           recordingCtx!.fillText('SCORE', leftX, labelY);
           if (!useRecordingBackground) recordingCtx!.strokeText('SCORE', leftX, labelY);
 
-          recordingCtx!.font = `900 ${valueFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+          recordingCtx!.font = `900 ${valueFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
           recordingCtx!.fillText(scoreText, leftX, valueY);
           if (!useRecordingBackground) recordingCtx!.strokeText(scoreText, leftX, valueY);
         } else {
