@@ -45081,75 +45081,43 @@ function startRecording(): Promise<boolean> {
           const scoreValEl = document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live #score-val') || document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live .collect-score-value');
           const scoreText = scoreValEl?.innerText || document.getElementById('score-val')?.innerText || '854,682';
 
-          if (scoreLabelEl && scoreValEl && boardRectForHeader && boardRectForHeader.width > 0) {
+          const scale = useRecordingBackground ? width / 720 : dpr;
+          let scoreLeftX = headerBox.x + 40 * scale;
+          if (scoreLabelEl && boardRectForHeader && boardRectForHeader.width > 0) {
             const scaleX = width / boardRectForHeader.width;
-            const scaleY = height / boardRectForHeader.height;
-
             const lRect = scoreLabelEl.getBoundingClientRect();
-            const vRect = scoreValEl.getBoundingClientRect();
-
-            const lx = (lRect.left - boardRectForHeader.left) * scaleX;
-            const ly = (lRect.top - boardRectForHeader.top) * scaleY;
-            const lStyle = window.getComputedStyle(scoreLabelEl);
-            const lFontSize = Math.round(parseFloat(lStyle.fontSize) * scaleX);
-
-            const vx = (vRect.left - boardRectForHeader.left) * scaleX;
-            const vStyle = window.getComputedStyle(scoreValEl);
-            const vFontSize = Math.round(parseFloat(vStyle.fontSize) * scaleX);
-
-            const gap = Math.max(Math.round(8 * scaleY), Math.round((vRect.top - lRect.bottom) * scaleY));
-            const vy = ly + lFontSize * 0.82 + gap;
-
-            recordingCtx!.textAlign = 'left';
-            recordingCtx!.textBaseline = 'top';
-            recordingCtx!.lineJoin = 'round';
-            recordingCtx!.miterLimit = 2;
-
-            recordingCtx!.font = `${lStyle.fontWeight || '900'} ${lFontSize}px ${lStyle.fontFamily || "'Fira Sans Black', 'Fira Sans', sans-serif"}`;
-            recordingCtx!.strokeStyle = '#ffffff';
-            recordingCtx!.lineWidth = Math.max(1.8, Math.round(3.5 * scaleX));
-            recordingCtx!.strokeText(scoreLabelEl.innerText || 'SCORE', lx, ly);
-            recordingCtx!.fillStyle = '#0c1b50';
-            recordingCtx!.fillText(scoreLabelEl.innerText || 'SCORE', lx, ly);
-
-            recordingCtx!.font = `${vStyle.fontWeight || '900'} ${vFontSize}px ${vStyle.fontFamily || "'Fira Sans Black', 'Fira Sans', sans-serif"}`;
-            recordingCtx!.strokeStyle = '#ffffff';
-            recordingCtx!.lineWidth = Math.max(3, Math.round(7.2 * scaleX));
-            recordingCtx!.strokeText(scoreText, vx, vy);
-            recordingCtx!.fillStyle = '#0c1b50';
-            recordingCtx!.fillText(scoreText, vx, vy);
-          } else {
-            const scale = useRecordingBackground ? width / 720 : dpr;
-            const padX = 40 * scale;
-            const scoreLeftX = headerBox.x + padX;
-            const scoreCenterY = headerBox.y + headerBox.h / 2;
-
-            const labelFontSize = Math.round(14 * scale);
-            const valueFontSize = Math.round(36 * scale);
-            const gap = Math.round(8 * scale);
-            const totalH = labelFontSize * 0.82 + gap + valueFontSize * 0.82;
-            const labelY = scoreCenterY - totalH / 2;
-            const valueY = labelY + labelFontSize * 0.82 + gap;
-
-            recordingCtx!.textAlign = 'left';
-            recordingCtx!.textBaseline = 'top';
-            recordingCtx!.lineJoin = 'round';
-            recordingCtx!.miterLimit = 2;
-
-            recordingCtx!.font = `900 ${labelFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-            recordingCtx!.strokeStyle = '#ffffff';
-            recordingCtx!.lineWidth = Math.max(1.8, Math.round(3.5 * scale));
-            recordingCtx!.strokeText('SCORE', scoreLeftX, labelY);
-            recordingCtx!.fillStyle = '#0c1b50';
-            recordingCtx!.fillText('SCORE', scoreLeftX, labelY);
-
-            recordingCtx!.font = `900 ${valueFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
-            recordingCtx!.strokeStyle = '#ffffff';
-            recordingCtx!.lineWidth = Math.max(3, Math.round(7.2 * scale));
-            recordingCtx!.strokeText(scoreText, scoreLeftX, valueY);
-            recordingCtx!.fillStyle = '#0c1b50';
-            recordingCtx!.fillText(scoreText, scoreLeftX, valueY);
+            scoreLeftX = (lRect.left - boardRectForHeader.left) * scaleX;
           }
+
+          const scoreCenterY = headerBox.y + headerBox.h / 2;
+          const lFontSize = Math.round(18 * scale);
+          const vFontSize = Math.round(48 * scale);
+          const gap = Math.round(6 * scale);
+          const lCapH = lFontSize * 0.72;
+          const vCapH = vFontSize * 0.72;
+          const totalH = lCapH + gap + vCapH;
+          const labelTopY = scoreCenterY - totalH / 2;
+          const valTopY = labelTopY + lCapH + gap;
+
+          recordingCtx!.textAlign = 'left';
+          recordingCtx!.textBaseline = 'top';
+          recordingCtx!.lineJoin = 'round';
+          recordingCtx!.miterLimit = 2;
+
+          const labelText = scoreLabelEl?.innerText || 'SCORE';
+          recordingCtx!.font = `900 ${lFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+          recordingCtx!.strokeStyle = '#ffffff';
+          recordingCtx!.lineWidth = Math.max(1.8, Math.round(3.8 * scale));
+          recordingCtx!.strokeText(labelText, scoreLeftX, labelTopY);
+          recordingCtx!.fillStyle = '#0c1b50';
+          recordingCtx!.fillText(labelText, scoreLeftX, labelTopY);
+
+          recordingCtx!.font = `900 ${vFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+          recordingCtx!.strokeStyle = '#ffffff';
+          recordingCtx!.lineWidth = Math.max(3, Math.round(7.5 * scale));
+          recordingCtx!.strokeText(scoreText, scoreLeftX, valTopY);
+          recordingCtx!.fillStyle = '#0c1b50';
+          recordingCtx!.fillText(scoreText, scoreLeftX, valTopY);
         } else if (isCollectMode) {
           const scoreText = document.getElementById('score-val')?.innerText || '0';
           const isMultiCollectRecording = multiCollectibleModeEnabled && multiCollectibleItems.length > 0;
