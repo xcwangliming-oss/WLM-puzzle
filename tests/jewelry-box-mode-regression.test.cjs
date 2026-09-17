@@ -229,5 +229,25 @@ assert.match(
   'main.ts must trigger count increment and pop animation when flying gem lands at target'
 );
 
+// 13. Styling for #0c1b50 text and stroke
+assert.match(
+  cssSource,
+  /\.jewelry-score-x\s*\{[\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*1\.8px\s*#ffffff;/,
+  '.jewelry-score-x must have color #0c1b50 and white stroke'
+);
+
+assert.match(
+  cssSource,
+  /\.jewelry-score-val\s*\{[\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*2\.2px\s*#ffffff;/,
+  '.jewelry-score-val must have color #0c1b50 and white stroke'
+);
+
+assert.match(
+  cssSource,
+  /#board-wrapper\.jewelry-box-live\s*\.collect-score-value\s*\{[\s\S]*?color:\s*#0c1b50;[\s\S]*?-webkit-text-stroke:\s*2\.5px\s*#ffffff;/,
+  '.collect-score-value in jewelry-box-live must have color #0c1b50 and white stroke'
+);
+
 console.log('jewelry box mode regression checks passed');
+
 

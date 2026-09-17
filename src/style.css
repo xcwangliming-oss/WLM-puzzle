@@ -214,6 +214,10 @@ body:not(.is-playable) #tab-level {
   line-height: 1;
   text-align: left;
   letter-spacing: 0.5px;
+  color: #0c1b50;
+  -webkit-text-stroke: 1.5px #ffffff;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 6px rgba(12, 27, 80, 0.28);
 }
 
 #board-wrapper.jewelry-box-live .collect-score-value {
@@ -221,6 +225,10 @@ body:not(.is-playable) #tab-level {
   font-weight: 900;
   line-height: 0.95;
   text-align: left;
+  color: #0c1b50;
+  -webkit-text-stroke: 2.5px #ffffff;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 6px rgba(12, 27, 80, 0.28);
 }
 
 #board-wrapper.jewelry-box-live #multi-collectible-hud {
@@ -2346,14 +2354,15 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 .jewelry-score-x {
-  color: #ffffff;
+  color: #0c1b50;
   font-family: 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   font-size: 26px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
-  -webkit-text-stroke: 0;
-  text-shadow: 0 2px 6px rgba(255, 255, 255, 0.24);
+  -webkit-text-stroke: 1.8px #ffffff;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 6px rgba(12, 27, 80, 0.28);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2361,14 +2370,15 @@ body:not(.is-playable) #script-steps-panel {
 }
 
 .jewelry-score-val {
-  color: #ffffff;
+  color: #0c1b50;
   font-family: 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   font-size: 32px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
-  -webkit-text-stroke: 0;
-  text-shadow: 0 2px 6px rgba(255, 255, 255, 0.24);
+  -webkit-text-stroke: 2.2px #ffffff;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 6px rgba(12, 27, 80, 0.28);
   min-width: 16px;
   display: inline-flex;
   align-items: center;
