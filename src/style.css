@@ -188,7 +188,7 @@ body:not(.is-playable) #tab-level {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 0 30px;
+  padding: 0 40px;
 }
 
 #board-wrapper.jewelry-box-live .header-item:first-child {

@@ -34561,7 +34561,7 @@ function drawRecordingJewelryBoxHud(
       });
 
   const scale = useRecordingBackground ? width / 720 : dpr;
-  const padX = 30 * scale;
+  const padX = 40 * scale;
   const centerY = headerBox.y + headerBox.h / 2;
 
   const iconSize = Math.round(72 * scale);
@@ -45120,7 +45120,7 @@ function startRecording(): Promise<boolean> {
             recordingCtx!.fillText(scoreText, vx, vy);
           } else {
             const scale = useRecordingBackground ? width / 720 : dpr;
-            const padX = 30 * scale;
+            const padX = 40 * scale;
             const scoreLeftX = headerBox.x + padX;
             const scoreCenterY = headerBox.y + headerBox.h / 2;
 
