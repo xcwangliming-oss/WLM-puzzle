@@ -45089,17 +45089,19 @@ function startRecording(): Promise<boolean> {
             const vRect = scoreValEl.getBoundingClientRect();
 
             const lx = (lRect.left - boardRectForHeader.left) * scaleX;
-            const ly = (lRect.top + lRect.height / 2 - boardRectForHeader.top) * scaleY;
+            const ly = (lRect.top - boardRectForHeader.top) * scaleY;
             const lStyle = window.getComputedStyle(scoreLabelEl);
             const lFontSize = Math.round(parseFloat(lStyle.fontSize) * scaleX);
 
             const vx = (vRect.left - boardRectForHeader.left) * scaleX;
-            const vy = (vRect.top + vRect.height / 2 - boardRectForHeader.top) * scaleY;
             const vStyle = window.getComputedStyle(scoreValEl);
             const vFontSize = Math.round(parseFloat(vStyle.fontSize) * scaleX);
 
+            const gap = Math.max(Math.round(8 * scaleY), Math.round((vRect.top - lRect.bottom) * scaleY));
+            const vy = ly + lFontSize * 0.82 + gap;
+
             recordingCtx!.textAlign = 'left';
-            recordingCtx!.textBaseline = 'middle';
+            recordingCtx!.textBaseline = 'top';
             recordingCtx!.lineJoin = 'round';
             recordingCtx!.miterLimit = 2;
 
@@ -45124,11 +45126,13 @@ function startRecording(): Promise<boolean> {
 
             const labelFontSize = Math.round(14 * scale);
             const valueFontSize = Math.round(36 * scale);
-            const labelY = scoreCenterY - valueFontSize * 0.40;
-            const valueY = scoreCenterY + labelFontSize * 0.76;
+            const gap = Math.round(8 * scale);
+            const totalH = labelFontSize * 0.82 + gap + valueFontSize * 0.82;
+            const labelY = scoreCenterY - totalH / 2;
+            const valueY = labelY + labelFontSize * 0.82 + gap;
 
             recordingCtx!.textAlign = 'left';
-            recordingCtx!.textBaseline = 'middle';
+            recordingCtx!.textBaseline = 'top';
             recordingCtx!.lineJoin = 'round';
             recordingCtx!.miterLimit = 2;
 

@@ -215,7 +215,7 @@ body:not(.is-playable) #tab-level {
 
 #board-wrapper.jewelry-box-live .collect-score-label {
   font-family: 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
-  margin-bottom: 5px;
+  margin-bottom: 8px;
   font-size: 14px;
   font-weight: 900;
   line-height: 1;
