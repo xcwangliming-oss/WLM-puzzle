@@ -10,14 +10,20 @@ const cssSource = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 // 1. DOM and CSS UI verification
 assert.match(
   htmlSource,
-  /id="jewelry-score-hud"[\s\S]*?id="jewelry-target-1"[\s\S]*?id="jewelry-header-icon"[\s\S]*?id="jewelry-collect-val"[\s\S]*?id="jewelry-target-2"[\s\S]*?id="jewelry-header-icon-2"[\s\S]*?id="jewelry-collect-val-2"/,
-  'top header must include dual collectible targets for pearl and diamond'
+  /id="jewelry-score-hud"[\s\S]*?id="jewelry-target-1"[\s\S]*?id="jewelry-header-icon"[\s\S]*?class="jewelry-score-x">X<\/span>[\s\S]*?id="jewelry-collect-val"[\s\S]*?id="jewelry-target-2"[\s\S]*?id="jewelry-header-icon-2"[\s\S]*?class="jewelry-score-x">X<\/span>[\s\S]*?id="jewelry-collect-val-2"/,
+  'top header must include dual collectible targets with X separator for pearl and diamond'
 );
 
 assert.match(
   cssSource,
-  /\.jewelry-score-hud[\s\S]*?\.jewelry-header-icon[\s\S]*?\.jewelry-fly-img/,
-  'style.css must contain styles for jewelry HUD and flying gem particle animation'
+  /\.jewelry-score-hud[\s\S]*?\.jewelry-header-icon[\s\S]*?\.jewelry-score-x[\s\S]*?\.jewelry-fly-img/,
+  'style.css must contain styles for jewelry HUD, X separator, and flying gem particle animation'
+);
+
+assert.match(
+  cssSource,
+  /#board-wrapper\.jewelry-box-live \.collect-score-hud\s*\{[\s\S]*?align-items:\s*flex-start;[\s\S]*?text-align:\s*left;/,
+  'score HUD in jewelry box mode must be left-aligned'
 );
 
 // 2. Editor Panel & Upload Controls
