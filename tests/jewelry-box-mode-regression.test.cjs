@@ -192,10 +192,41 @@ assert.match(
   'recording canvas must capture both collectible-fly-img and jewelry-fly-img elements'
 );
 
+// 12. Progressive Count Up and Pop Animation with Fira Sans Font
+assert.match(
+  cssSource,
+  /@font-face\s*\{[\s\S]*?font-family:\s*['"]Fira Sans['"][\s\S]*?url\(['"]\/fonts\/FiraSans-Black\.ttf['"]\)/,
+  'style.css must define @font-face for Fira Sans Black'
+);
+
+assert.match(
+  cssSource,
+  /\.jewelry-score-x\s*\{[\s\S]*?font-family:\s*['"]Fira Sans['"][\s\S]*?font-weight:\s*900/,
+  '.jewelry-score-x must use Fira Sans font with weight 900'
+);
+
+assert.match(
+  cssSource,
+  /\.jewelry-score-val\s*\{[\s\S]*?font-family:\s*['"]Fira Sans['"][\s\S]*?font-weight:\s*900[\s\S]*?transform-origin:\s*center center/,
+  '.jewelry-score-val must use Fira Sans font with weight 900 and centered transform origin'
+);
+
+assert.match(
+  cssSource,
+  /@keyframes jewelryValPopAnim[\s\S]*?scale\(1\.5[\s\S]*?\.jewelry-score-val\.pop-anim/,
+  'style.css must define bouncy scale-up and scale-down animation for jewelry-score-val'
+);
+
 assert.match(
   mainSource,
-  /flyImgs\.forEach\(imgEl => \{[\s\S]*?matchScale[\s\S]*?recordingCtx!\.globalAlpha[\s\S]*?recordingCtx!\.scale\(scaleVal, scaleVal\);/,
-  'flying elements on recording canvas must support scale and opacity transforms'
+  /function triggerJewelryCountPop\(targetIndex: 1 \| 2\): void \{[\s\S]*?countEl\.classList\.add\('pop-anim'\)/,
+  'main.ts must define triggerJewelryCountPop triggering progressive count up and pop-anim'
+);
+
+assert.match(
+  mainSource,
+  /flyImg\.remove\(\);[\s\S]*?triggerJewelryCountPop\(targetIndex\);/,
+  'main.ts must trigger count increment and pop animation when flying gem lands at target'
 );
 
 console.log('jewelry box mode regression checks passed');

@@ -2084,21 +2084,55 @@ function advanceJewelryBox(block: Block): number {
   return 1;
 }
 
-function playJewelryBoxFlyAnimation(block: Block): void {
-  const is1x1 = block.length === 1;
-  const assetKey: JewelryBoxAssetKey = is1x1 ? 'gem-1' : 'gem-2';
-  const gemSrc = jewelryCustomAssets[assetKey] || (is1x1 && jewelryCustomAssets['gem']) || `assets/jewelry_box/${assetKey}.webp` || generateProceduralJewelryDataUrl(assetKey);
-  const targetId = is1x1 ? 'jewelry-target-1' : 'jewelry-target-2';
+let isJewelryBoxMode = false;
+let jewelryCollectedCount = 0;
+let jewelryCollectedCount1 = 0;
+let jewelryCollectedCount2 = 0;
 
-  if (is1x1) {
+if (typeof document !== 'undefined' && (document as any).fonts) {
+  try {
+    const firaBlack = new FontFace('Fira Sans', 'url(/fonts/FiraSans-Black.ttf)', { weight: '900', style: 'normal' });
+    firaBlack.load().then(f => (document as any).fonts.add(f)).catch(() => {});
+  } catch (_) {}
+}
+
+function triggerJewelryCountPop(targetIndex: 1 | 2): void {
+  if (targetIndex === 1) {
     jewelryCollectedCount1 += 1;
   } else {
     jewelryCollectedCount2 += 1;
   }
   jewelryCollectedCount = jewelryCollectedCount1 + jewelryCollectedCount2;
-  syncJewelryBoxUI();
 
   if (typeof document === 'undefined') return;
+
+  const countEl = document.getElementById(targetIndex === 1 ? 'jewelry-collect-val' : 'jewelry-collect-val-2');
+  if (countEl) {
+    countEl.innerText = String(targetIndex === 1 ? jewelryCollectedCount1 : jewelryCollectedCount2);
+    countEl.classList.remove('pop-anim');
+    void countEl.offsetWidth;
+    countEl.classList.add('pop-anim');
+  }
+
+  const iconEl = document.getElementById(targetIndex === 1 ? 'jewelry-header-icon' : 'jewelry-header-icon-2');
+  if (iconEl) {
+    iconEl.classList.remove('pop-anim');
+    void iconEl.offsetWidth;
+    iconEl.classList.add('pop-anim');
+  }
+}
+
+function playJewelryBoxFlyAnimation(block: Block): void {
+  const is1x1 = block.length === 1;
+  const targetIndex: 1 | 2 = is1x1 ? 1 : 2;
+  const assetKey: JewelryBoxAssetKey = is1x1 ? 'gem-1' : 'gem-2';
+  const gemSrc = jewelryCustomAssets[assetKey] || (is1x1 && jewelryCustomAssets['gem']) || `assets/jewelry_box/${assetKey}.webp` || generateProceduralJewelryDataUrl(assetKey);
+  const targetId = is1x1 ? 'jewelry-target-1' : 'jewelry-target-2';
+
+  if (typeof document === 'undefined') {
+    triggerJewelryCountPop(targetIndex);
+    return;
+  }
 
   const iconEl = document.getElementById(is1x1 ? 'jewelry-header-icon' : 'jewelry-header-icon-2');
   const targetEl = iconEl || document.getElementById(targetId) || document.getElementById('jewelry-score-hud');
@@ -2106,7 +2140,10 @@ function playJewelryBoxFlyAnimation(block: Block): void {
   const canvas = (typeof app !== 'undefined' && ((app as any).canvas || (app as any).view)) ? (((app as any).canvas || (app as any).view) as HTMLCanvasElement) : null;
   const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
 
-  if (!targetRect || !canvasRect) return;
+  if (!targetRect || !canvasRect) {
+    triggerJewelryCountPop(targetIndex);
+    return;
+  }
 
   const cell = PARAMS.cellSize;
   const cellW = canvasRect.width / (PARAMS.gridCols || 9);
@@ -2175,13 +2212,7 @@ function playJewelryBoxFlyAnimation(block: Block): void {
           requestAnimationFrame(animateFly);
         } else {
           flyImg.remove();
-          if (targetEl) {
-            targetEl.style.transform = 'scale(1.25)';
-            targetEl.style.transition = 'transform 0.15s ease-out';
-            setTimeout(() => {
-              targetEl.style.transform = 'scale(1)';
-            }, 150);
-          }
+          triggerJewelryCountPop(targetIndex);
         }
       };
       requestAnimationFrame(animateFly);
@@ -2204,11 +2235,6 @@ function playJewelryBoxFlyAnimation(block: Block): void {
     }
   }
 }
-
-let isJewelryBoxMode = false;
-let jewelryCollectedCount = 0;
-let jewelryCollectedCount1 = 0;
-let jewelryCollectedCount2 = 0;
 
 function isJewelryBoxCandidate(block: Pick<Block, 'length' | 'isProp' | 'isCollectible'>): boolean {
   return (block.length === 1 || block.length === 2) && !block.isProp && !block.isCollectible;
@@ -34424,7 +34450,46 @@ function drawRecordingJewelryBoxHud(
 
       if (!mappedImage) return;
 
+      let iconScale = 1;
+      if (item.icon) {
+        try {
+          const tr = window.getComputedStyle(item.icon).transform;
+          if (tr && tr !== 'none') {
+            const m = tr.match(/^matrix\(([^,]+),\s*([^,]+)/);
+            if (m) {
+              const a = parseFloat(m[1]);
+              const b = parseFloat(m[2]);
+              iconScale = Math.sqrt(a * a + b * b) || 1;
+            }
+          }
+        } catch (_) {}
+      }
+
+      let popScale = 1;
+      if (item.countEl) {
+        try {
+          const tr = window.getComputedStyle(item.countEl).transform;
+          if (tr && tr !== 'none') {
+            const m = tr.match(/^matrix\(([^,]+),\s*([^,]+)/);
+            if (m) {
+              const a = parseFloat(m[1]);
+              const b = parseFloat(m[2]);
+              popScale = Math.sqrt(a * a + b * b) || 1;
+            }
+          }
+        } catch (_) {}
+      }
+
+      context.save();
+      if (iconScale !== 1) {
+        const icx = mappedImage.x + mappedImage.w / 2;
+        const icy = mappedImage.y + mappedImage.h / 2;
+        context.translate(icx, icy);
+        context.scale(iconScale, iconScale);
+        context.translate(-icx, -icy);
+      }
       drawRecordingImageContained(context, img, mappedImage);
+      context.restore();
 
       const xCssFontSize = item.xEl ? parseFloat(getComputedStyle(item.xEl).fontSize) : 26;
       const xFontSize = Math.max(16, Math.round((xCssFontSize || 26) * scaleX));
@@ -34446,7 +34511,7 @@ function drawRecordingJewelryBoxHud(
       }
 
       context.save();
-      context.font = `900 ${xFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+      context.font = `900 ${xFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
       context.textAlign = 'center';
       context.textBaseline = 'middle';
       context.fillStyle = '#ffffff';
@@ -34476,7 +34541,12 @@ function drawRecordingJewelryBoxHud(
       }
 
       context.save();
-      context.font = `900 ${countFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+      if (popScale !== 1) {
+        context.translate(countX, countY);
+        context.scale(popScale, popScale);
+        context.translate(-countX, -countY);
+      }
+      context.font = `900 ${countFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
       context.textAlign = 'left';
       context.textBaseline = 'middle';
       context.fillStyle = '#ffffff';
@@ -34515,7 +34585,7 @@ function drawRecordingJewelryBoxHud(
 
     const xPos = imgBox.x + imgBox.w + 12 * (width / 720);
     context.save();
-    context.font = `900 ${xFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+    context.font = `900 ${xFontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.fillStyle = '#ffffff';
@@ -34524,7 +34594,7 @@ function drawRecordingJewelryBoxHud(
     context.fillText('X', xPos, centerY);
 
     const countText = String(item.countVal || 0);
-    context.font = `900 ${fontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+    context.font = `900 ${fontSize}px 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
     context.textAlign = 'left';
     context.fillText(countText, xPos + 12 * (width / 720), centerY);
     context.restore();

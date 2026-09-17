@@ -2337,9 +2337,17 @@ body:not(.is-playable) #script-steps-panel {
   filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
 }
 
+@font-face {
+  font-family: 'Fira Sans';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('/fonts/FiraSans-Black.ttf') format('truetype');
+}
+
 .jewelry-score-x {
   color: #ffffff;
-  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  font-family: 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   font-size: 26px;
   font-weight: 900;
   line-height: 1;
@@ -2354,7 +2362,7 @@ body:not(.is-playable) #script-steps-panel {
 
 .jewelry-score-val {
   color: #ffffff;
-  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  font-family: 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   font-size: 32px;
   font-weight: 900;
   line-height: 1;
@@ -2365,6 +2373,52 @@ body:not(.is-playable) #script-steps-panel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transform-origin: center center;
+  will-change: transform, filter;
+}
+
+@keyframes jewelryValPopAnim {
+  0% {
+    transform: scale(1);
+    filter: brightness(1) drop-shadow(0 2px 6px rgba(255, 255, 255, 0.24));
+  }
+  32% {
+    transform: scale(1.52);
+    filter: brightness(1.35) drop-shadow(0 0 12px rgba(255, 235, 120, 0.95));
+  }
+  68% {
+    transform: scale(0.92);
+    filter: brightness(1.1) drop-shadow(0 0 6px rgba(255, 235, 120, 0.5));
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1) drop-shadow(0 2px 6px rgba(255, 255, 255, 0.24));
+  }
+}
+
+.jewelry-score-val.pop-anim {
+  animation: jewelryValPopAnim 0.36s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes jewelryIconPopAnim {
+  0% {
+    transform: scale(1);
+  }
+  32% {
+    transform: scale(1.22);
+    filter: drop-shadow(0 0 14px rgba(255, 215, 0, 0.9));
+  }
+  68% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
+  }
+}
+
+.jewelry-header-icon.pop-anim {
+  animation: jewelryIconPopAnim 0.36s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
 .jewelry-fly-img {
