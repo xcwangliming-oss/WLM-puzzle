@@ -34436,7 +34436,7 @@ function drawRecordingJewelryBoxHud(
     icon1.getBoundingClientRect().width > 0
   );
 
-  if (useRecordingBackground && hasLiveDom && boardRect) {
+  if (hasLiveDom && boardRect) {
     const scaleX = width / boardRect.width;
     const scaleY = height / boardRect.height;
 
@@ -34546,29 +34546,22 @@ function drawRecordingJewelryBoxHud(
   }
 
   // Fallback when DOM layout is unavailable
-  const headerBox = passedHeaderBox || (useRecordingBackground
-    ? {
-        x: MASTER_UI.header.x * width,
-        y: MASTER_UI.header.y * height,
-        w: MASTER_UI.header.w * width,
-        h: MASTER_UI.header.h * height
-      }
-    : {
-        x: 0,
-        y: 0,
-        w: width,
-        h: 96 * dpr
-      });
+  const headerBox = passedHeaderBox || {
+    x: MASTER_UI.header.x * width,
+    y: MASTER_UI.header.y * height,
+    w: MASTER_UI.header.w * width,
+    h: MASTER_UI.header.h * height
+  };
 
-  const scale = useRecordingBackground ? width / 720 : Math.max(0.85, width / 720);
-  const padX = Math.round((useRecordingBackground ? 40 : 16) * scale);
+  const scale = width / 720;
+  const padX = 40 * scale;
   const centerY = headerBox.y + headerBox.h / 2;
 
   const iconSize = Math.round(72 * scale);
   const xFontSize = Math.round(26 * scale);
   const countFontSize = Math.round(32 * scale);
   const innerGap = Math.round(8 * scale);
-  const groupGap = Math.round((useRecordingBackground ? 20 : 14) * scale);
+  const groupGap = Math.round(20 * scale);
 
   context.save();
   context.font = `900 ${countFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
@@ -44739,7 +44732,9 @@ function startRecording(): Promise<boolean> {
 
   let isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
 
-  const currentOffset = useRecordingBackground || isHideText ? 0 : (isJewelryBoxRecording ? 96 : headerHeight + 30) * dpr;
+  const useMasterRecordingLayout = useRecordingBackground || isJewelryBoxRecording;
+
+  const currentOffset = useMasterRecordingLayout || isHideText ? 0 : (headerHeight + 30) * dpr;
 
 
 
@@ -44747,11 +44742,11 @@ function startRecording(): Promise<boolean> {
 
 
 
-  const width = useRecordingBackground ? MASTER_UI.width : pixiCanvas.width;
+  const width = useMasterRecordingLayout ? MASTER_UI.width : pixiCanvas.width;
 
 
 
-  const height = useRecordingBackground ? MASTER_UI.height : pixiCanvas.height + currentOffset;
+  const height = useMasterRecordingLayout ? MASTER_UI.height : pixiCanvas.height + currentOffset;
 
 
 
@@ -44927,35 +44922,14 @@ function startRecording(): Promise<boolean> {
 
 
 
-      const headerBox = useRecordingBackground
-
-
-
+      const headerBox = useMasterRecordingLayout
         ? {
-
-
-
             x: MASTER_UI.header.x * width,
-
-
-
             y: MASTER_UI.header.y * height,
-
-
-
             w: MASTER_UI.header.w * width,
-
-
-
             h: MASTER_UI.header.h * height
-
-
-
           }
-
-
-
-        : { x: 0, y: 0, w: width, h: (isJewelryBoxRecording ? 96 : headerHeight) * dpr };
+        : { x: 0, y: 0, w: width, h: headerHeight * dpr };
 
 
 
@@ -45068,9 +45042,9 @@ function startRecording(): Promise<boolean> {
           const scoreValEl = document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live #score-val') || document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live .collect-score-value');
           const scoreText = scoreValEl?.innerText || document.getElementById('score-val')?.innerText || '854,682';
 
-          const scale = useRecordingBackground ? width / 720 : Math.max(0.85, width / 720);
-          let scoreLeftX = headerBox.x + Math.round((useRecordingBackground ? 40 : 16) * scale);
-          if (useRecordingBackground && scoreLabelEl && boardRectForHeader && boardRectForHeader.width > 0) {
+          const scale = width / 720;
+          let scoreLeftX = headerBox.x + 40 * scale;
+          if (scoreLabelEl && boardRectForHeader && boardRectForHeader.width > 0) {
             const scaleX = width / boardRectForHeader.width;
             const lRect = scoreLabelEl.getBoundingClientRect();
             scoreLeftX = (lRect.left - boardRectForHeader.left) * scaleX;
@@ -45419,7 +45393,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-    if (useRecordingBackground) {
+    if (useMasterRecordingLayout) {
 
 
 
@@ -45552,13 +45526,13 @@ function startRecording(): Promise<boolean> {
 
     if (flyImgs.length > 0 && boardWrapper) {
       const boardRect = boardWrapper.getBoundingClientRect();
-      const recordingBoardBox = useRecordingBackground ? { x: 0, y: 0, w: width, h: height } : null;
+      const recordingBoardBox = useMasterRecordingLayout ? { x: 0, y: 0, w: width, h: height } : null;
 
       flyImgs.forEach(imgEl => {
         const img = imgEl as HTMLImageElement;
         const flyRect = img.getBoundingClientRect();
 
-        const mapped = useRecordingBackground && recordingBoardBox
+        const mapped = useMasterRecordingLayout && recordingBoardBox
           ? mapBoardWrapperRectToRecordingRect(flyRect, boardRect, recordingBoardBox)
           : {
               x: (flyRect.left - boardRect.left) * dpr,
@@ -45588,8 +45562,8 @@ function startRecording(): Promise<boolean> {
         // so applying canvas rotate and scale exactly reproduces what is seen in the browser without double-scaling
         const domW = parseFloat(img.style.width) || img.offsetWidth || (mapped.w / Math.max(0.1, scaleVal));
         const domH = parseFloat(img.style.height) || img.offsetHeight || (mapped.h / Math.max(0.1, scaleVal));
-        const scaleFactorX = useRecordingBackground ? width / Math.max(1, boardRect.width) : dpr;
-        const scaleFactorY = useRecordingBackground ? height / Math.max(1, boardRect.height) : dpr;
+        const scaleFactorX = useMasterRecordingLayout ? width / Math.max(1, boardRect.width) : dpr;
+        const scaleFactorY = useMasterRecordingLayout ? height / Math.max(1, boardRect.height) : dpr;
         const baseW = domW * scaleFactorX;
         const baseH = domH * scaleFactorY;
 
@@ -46171,15 +46145,13 @@ Object.defineProperty(window, 'isJewelryBoxMode', { get: () => isJewelryBoxMode,
 
 
 
-  return useRecordingBackground
-
-
-
-    ? { width: MASTER_UI.width, height: MASTER_UI.height, mode: 'mp4-background' }
-
-
-
-    : { width: app.canvas.width * 2, height: transparentHeight, mode: 'transparent-side-by-side-source' };
+  if (useRecordingBackground) {
+    return { width: MASTER_UI.width, height: MASTER_UI.height, mode: 'mp4-background' };
+  }
+  if (isJewelryBoxRecording) {
+    return { width: MASTER_UI.width * 2, height: MASTER_UI.height, mode: 'transparent-side-by-side-source' };
+  }
+  return { width: app.canvas.width * 2, height: transparentHeight, mode: 'transparent-side-by-side-source' };
 
 
 
