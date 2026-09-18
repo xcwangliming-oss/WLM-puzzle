@@ -44949,7 +44949,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-        : 40 * dpr;
+        : 32 * dpr;
 
 
 
@@ -44969,7 +44969,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-      recordingCtx!.lineWidth = useRecordingBackground ? 0 : 2 * dpr;
+      recordingCtx!.lineWidth = useRecordingBackground ? 0 : 1.5 * dpr;
 
 
 
