@@ -115,14 +115,14 @@ body:not(.is-playable) #tab-level {
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
+  padding: 0 14px;
   box-sizing: border-box;
   background: transparent;
   z-index: 2;
 }
 
 .header-item {
-  font-size: 39px;
+  font-size: 40px;
   font-weight: 900;
   color: #ffffff;
   letter-spacing: 0;
