@@ -34557,18 +34557,18 @@ function drawRecordingJewelryBoxHud(
         x: 0,
         y: 0,
         w: width,
-        h: 80 * dpr
+        h: 96 * dpr
       });
 
-  const scale = useRecordingBackground ? width / 720 : Math.min(width / 720, headerBox.h / 100);
-  const padX = useRecordingBackground ? 40 * scale : Math.round(headerBox.w * 0.04);
+  const scale = useRecordingBackground ? width / 720 : Math.max(0.85, width / 720);
+  const padX = Math.round((useRecordingBackground ? 40 : 16) * scale);
   const centerY = headerBox.y + headerBox.h / 2;
 
-  const iconSize = Math.round(useRecordingBackground ? 72 * scale : 56 * scale);
-  const xFontSize = Math.round(useRecordingBackground ? 26 * scale : 20 * scale);
-  const countFontSize = Math.round(useRecordingBackground ? 32 * scale : 26 * scale);
-  const innerGap = Math.round(useRecordingBackground ? 8 * scale : 6 * scale);
-  const groupGap = Math.round(useRecordingBackground ? 20 * scale : 18 * scale);
+  const iconSize = Math.round(72 * scale);
+  const xFontSize = Math.round(26 * scale);
+  const countFontSize = Math.round(32 * scale);
+  const innerGap = Math.round(8 * scale);
+  const groupGap = Math.round((useRecordingBackground ? 20 : 14) * scale);
 
   context.save();
   context.font = `900 ${countFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
@@ -44737,9 +44737,9 @@ function startRecording(): Promise<boolean> {
 
   const isHideText = (document.getElementById('input-hidetext') as HTMLInputElement)?.checked || false;
 
+  let isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
 
-
-  const currentOffset = useRecordingBackground || isHideText ? 0 : (headerHeight + 30) * dpr;
+  const currentOffset = useRecordingBackground || isHideText ? 0 : (isJewelryBoxRecording ? 96 : headerHeight + 30) * dpr;
 
 
 
@@ -44955,7 +44955,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-        : { x: 0, y: 0, w: width, h: headerHeight * dpr };
+        : { x: 0, y: 0, w: width, h: (isJewelryBoxRecording ? 96 : headerHeight) * dpr };
 
 
 
@@ -45028,7 +45028,7 @@ function startRecording(): Promise<boolean> {
 
 
       // 纵向拉伸文字
-      const isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
+      isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
 
       recordingCtx!.save();
 
@@ -45068,8 +45068,8 @@ function startRecording(): Promise<boolean> {
           const scoreValEl = document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live #score-val') || document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live .collect-score-value');
           const scoreText = scoreValEl?.innerText || document.getElementById('score-val')?.innerText || '854,682';
 
-          const scale = useRecordingBackground ? width / 720 : Math.min(width / 720, headerBox.h / 100);
-          let scoreLeftX = headerBox.x + (useRecordingBackground ? 40 : 25) * scale;
+          const scale = useRecordingBackground ? width / 720 : Math.max(0.85, width / 720);
+          let scoreLeftX = headerBox.x + Math.round((useRecordingBackground ? 40 : 16) * scale);
           if (useRecordingBackground && scoreLabelEl && boardRectForHeader && boardRectForHeader.width > 0) {
             const scaleX = width / boardRectForHeader.width;
             const lRect = scoreLabelEl.getBoundingClientRect();
@@ -46166,7 +46166,8 @@ Object.defineProperty(window, 'isJewelryBoxMode', { get: () => isJewelryBoxMode,
 
 
 
-  const transparentHeight = app.canvas.height + (isHideText ? 0 : (headerHeight + 30) * dpr);
+  const isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
+  const transparentHeight = app.canvas.height + (isHideText ? 0 : (isJewelryBoxRecording ? 96 : headerHeight + 30) * dpr);
 
 
 
