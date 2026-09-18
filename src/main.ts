@@ -7058,22 +7058,53 @@ function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): nu
         return rowsToClear;
       }
 
+      if (
+        (scriptPlaybackMechanic !== 'scroll' || !scriptPlaybackUsesRecordedScrollTrack)
+        && (isPlayingStepTransition || liveClearChainActive || hasAnyEliminationThisStep)
+      ) {
+        const continuingVisibleRows = getFullRowsFromOccupancy(
+          occ,
+          visualRange.minRow,
+          visualRange.maxRow
+        );
+        if (continuingVisibleRows.length > 0) {
+          return continuingVisibleRows;
+        }
+      }
+
+      if (
+        (scriptPlaybackMechanic !== 'scroll' || !scriptPlaybackUsesRecordedScrollTrack)
+        && visibleFullRows.length > 0
+      ) {
+        return visibleFullRows;
+      }
+
       return [];
     }
 
     const allowedFullRows = allFullRows.filter(row => allowed.includes(row));
-    const rowsToClear = getTriggeredVisibleFullRows(
+    let rowsToClear = getTriggeredVisibleFullRows(
       visibleFullRows,
       pendingRows,
       allowedFullRows
     );
 
     const rowsClearingNow = new Set(rowsToClear);
-    allowedFullRows.forEach(row => {
-      if (rowsClearingNow.has(row) || pendingRows.includes(row)) return;
-      const ids = getFullRowBlockIds(row);
-      if (ids.length > 0) pendingOffscreenFullRowBlockIds.push(ids);
-    });
+    if (scriptPlaybackMechanic === 'scroll' && scriptPlaybackUsesRecordedScrollTrack) {
+      allowedFullRows.forEach(row => {
+        if (rowsClearingNow.has(row) || pendingRows.includes(row)) return;
+        const ids = getFullRowBlockIds(row);
+        if (ids.length > 0) pendingOffscreenFullRowBlockIds.push(ids);
+      });
+    }
+
+    if (
+      (scriptPlaybackMechanic !== 'scroll' || !scriptPlaybackUsesRecordedScrollTrack)
+      && rowsToClear.length === 0
+      && visibleFullRows.length > 0
+    ) {
+      rowsToClear = visibleFullRows;
+    }
 
     if (rowsToClear.length === 0) return [];
 
@@ -7206,6 +7237,8 @@ function shouldContinuePlaybackClearChain(stepIndex: number | null): boolean {
       && hasAnyEliminationThisStep
     ) return true;
 
+    if (hasAnyEliminationThisStep) return true;
+
     return getPlaybackAllowedRows(step).length > 0;
   }
 
@@ -7215,6 +7248,10 @@ function shouldContinuePlaybackClearChain(stepIndex: number | null): boolean {
     && activeEliminationWaveIndex >= waves.length
     && hasAnyEliminationThisStep
   ) return true;
+
+  if (activeEliminationWaveIndex >= waves.length && hasAnyEliminationThisStep) {
+    return true;
+  }
 
   return activeEliminationWaveIndex < waves.length;
 
@@ -9411,6 +9448,9 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
     activeEliminationWaveIndex = 0;
+    if (scriptPlaybackMechanic !== 'scroll' || !scriptPlaybackUsesRecordedScrollTrack) {
+      pendingOffscreenFullRowBlockIds = [];
+    }
 
 
 

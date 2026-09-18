@@ -11,7 +11,7 @@ assert.match(
 );
 assert.match(
   source,
-  /const recordingBoardBox = useRecordingBackground \? \{ x: 0, y: 0, w: width, h: height \} : null;/,
+  /const recordingBoardBox = useMasterRecordingLayout \? \{ x: 0, y: 0, w: width, h: height \} : null;/,
   'recorded collectible flight should use the full phone template so header avatar targets map correctly'
 );
 assert.match(
