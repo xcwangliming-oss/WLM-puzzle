@@ -34436,7 +34436,7 @@ function drawRecordingJewelryBoxHud(
     icon1.getBoundingClientRect().width > 0
   );
 
-  if (hasLiveDom && boardRect) {
+  if (useRecordingBackground && hasLiveDom && boardRect) {
     const scaleX = width / boardRect.width;
     const scaleY = height / boardRect.height;
 
@@ -34560,15 +34560,15 @@ function drawRecordingJewelryBoxHud(
         h: 80 * dpr
       });
 
-  const scale = useRecordingBackground ? width / 720 : dpr;
-  const padX = 40 * scale;
+  const scale = useRecordingBackground ? width / 720 : Math.min(width / 720, headerBox.h / 100);
+  const padX = useRecordingBackground ? 40 * scale : Math.round(headerBox.w * 0.04);
   const centerY = headerBox.y + headerBox.h / 2;
 
-  const iconSize = Math.round(72 * scale);
-  const xFontSize = Math.round(26 * scale);
-  const countFontSize = Math.round(32 * scale);
-  const innerGap = Math.round(8 * scale);
-  const groupGap = Math.round(20 * scale);
+  const iconSize = Math.round(useRecordingBackground ? 72 * scale : 56 * scale);
+  const xFontSize = Math.round(useRecordingBackground ? 26 * scale : 20 * scale);
+  const countFontSize = Math.round(useRecordingBackground ? 32 * scale : 26 * scale);
+  const innerGap = Math.round(useRecordingBackground ? 8 * scale : 6 * scale);
+  const groupGap = Math.round(useRecordingBackground ? 20 * scale : 18 * scale);
 
   context.save();
   context.font = `900 ${countFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
@@ -45028,28 +45028,17 @@ function startRecording(): Promise<boolean> {
 
 
       // 纵向拉伸文字
-
-
+      const isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
 
       recordingCtx!.save();
 
-
-
-      if (!useRecordingBackground) recordingCtx!.scale(1, 1.3);
-
-
+      if (!useRecordingBackground && !isJewelryBoxRecording && topUiMode !== 'heart') recordingCtx!.scale(1, 1.3);
 
       const firstHeaderRect = headerItems[0]?.getBoundingClientRect();
 
-
-
       const textY = useRecordingBackground && firstHeaderRect && boardRectForHeader
 
-
-
         ? ((firstHeaderRect.top + firstHeaderRect.height / 2) - boardRectForHeader.top) * (height / boardRectForHeader.height)
-
-
 
         : (headerBox.y + headerBox.h / 2) / 1.3;
 
@@ -45058,8 +45047,6 @@ function startRecording(): Promise<boolean> {
 
 
 
-
-      const isJewelryBoxRecording = isJewelryBoxMode || blocks.some(b => b.isJewelryBox) || (document.getElementById('jewelry-score-hud')?.style.display === 'flex');
 
       if (topUiMode === 'heart') {
         recordingCtx!.restore();
@@ -45081,9 +45068,9 @@ function startRecording(): Promise<boolean> {
           const scoreValEl = document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live #score-val') || document.querySelector<HTMLElement>('#board-wrapper.jewelry-box-live .collect-score-value');
           const scoreText = scoreValEl?.innerText || document.getElementById('score-val')?.innerText || '854,682';
 
-          const scale = useRecordingBackground ? width / 720 : dpr;
-          let scoreLeftX = headerBox.x + 40 * scale;
-          if (scoreLabelEl && boardRectForHeader && boardRectForHeader.width > 0) {
+          const scale = useRecordingBackground ? width / 720 : Math.min(width / 720, headerBox.h / 100);
+          let scoreLeftX = headerBox.x + (useRecordingBackground ? 40 : 25) * scale;
+          if (useRecordingBackground && scoreLabelEl && boardRectForHeader && boardRectForHeader.width > 0) {
             const scaleX = width / boardRectForHeader.width;
             const lRect = scoreLabelEl.getBoundingClientRect();
             scoreLeftX = (lRect.left - boardRectForHeader.left) * scaleX;
@@ -45096,8 +45083,8 @@ function startRecording(): Promise<boolean> {
           const lCapH = lFontSize * 0.72;
           const vCapH = vFontSize * 0.72;
           const totalH = lCapH + gap + vCapH;
-          const labelTopY = scoreCenterY - totalH / 2;
-          const valTopY = labelTopY + lCapH + gap;
+          const labelTopY = scoreCenterY - totalH / 2 - 5 * scale;
+          const valTopY = scoreCenterY - totalH / 2 + lCapH + gap;
 
           recordingCtx!.textAlign = 'left';
           recordingCtx!.textBaseline = 'top';
