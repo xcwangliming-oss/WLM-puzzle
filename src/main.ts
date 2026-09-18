@@ -33597,7 +33597,7 @@ function syncRecordingBackgroundUI() {
 
 
 
-function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, height: number, boardWrapper?: HTMLElement | null) {
 
 
 
@@ -33610,7 +33610,7 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
   ctx.fillRect(0, 0, width, height);
 
   if (isSolidRecordingBackgroundActive() && topUiMode !== 'heart') {
-    drawSolidRecordingFrame(ctx, width, height);
+    drawSolidRecordingFrame(ctx, width, height, boardWrapper);
     return;
   }
 
@@ -33638,14 +33638,14 @@ function drawRecordingBackground(ctx: CanvasRenderingContext2D, width: number, h
 
 }
 
-function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, height: number, boardWrapper?: HTMLElement | null) {
   const headerBox = {
     x: MASTER_UI.header.x * width,
     y: MASTER_UI.header.y * height,
     w: MASTER_UI.header.w * width,
     h: MASTER_UI.header.h * height
   };
-  const boardBox = getMasterBoardCanvasRect(width, height);
+  const boardBox = getRecordingBoardClipRect(boardWrapper || (typeof document !== 'undefined' ? document.getElementById('board-wrapper') : null), width, height);
   const radius = Math.max(4, width * 0.011);
 
   ctx.save();
@@ -44117,6 +44117,7 @@ function prewarmRecordingCanvases() {
 
 
     outputCtx = outputCanvas.getContext('2d', { alpha: false })!;
+    (window as any).outputCanvas = outputCanvas;
 
 
 
@@ -44882,7 +44883,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-      drawRecordingBackground(recordingCtx!, width, height);
+      drawRecordingBackground(recordingCtx!, width, height, boardWrapper || null);
 
 
 
@@ -44941,11 +44942,11 @@ function startRecording(): Promise<boolean> {
 
 
 
-      const headerFontSize = useRecordingBackground && headerItems[0] && boardRectForHeader
+      const headerFontSize = useRecordingBackground && headerItems[0]
 
 
 
-        ? parseFloat(getComputedStyle(headerItems[0]).fontSize) * (width / boardRectForHeader.width)
+        ? parseFloat(getComputedStyle(headerItems[0]).fontSize) * (width / MASTER_UI.width)
 
 
 
