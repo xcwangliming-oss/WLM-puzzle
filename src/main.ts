@@ -44979,7 +44979,7 @@ function startRecording(): Promise<boolean> {
 
 
 
-      recordingCtx!.font = `700 ${headerFontSize}px 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
+      recordingCtx!.font = `900 ${headerFontSize}px 'Fira Sans Black', 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif`;
 
 
 
