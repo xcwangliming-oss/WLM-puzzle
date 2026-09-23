@@ -7748,6 +7748,7 @@ function restoreBoardState(options: { preserveWorldY?: boolean } = {}) {
   if (isConcentricObstacleMode) {
     currentConcentricLayerIndex = initialConcentricLayerIndex;
     syncActiveConcentricCorridorBounds();
+    ensureConcentricTopBuffer();
     updateConcentricBlockVisibility();
   }
 
@@ -8809,18 +8810,16 @@ function continueGravityAfterElimination() {
   const applyNextGravity = () => {
     isAnimating = false;
     if (isConcentricObstacleMode) {
-      if (activeSimulatingStepIndex === null) {
-        const bounds = getActiveConcentricCorridorBounds();
-        const stagedRowCount = new Set(
-          blocks
-            .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
-            .map(b => b.row)
-        ).size;
-        const missingTopRows = getConcentricMissingTopRowCount();
-        const rowsToStage = Math.max(0, Math.max(concentricRecentEliminatedRowCount, missingTopRows) - stagedRowCount);
-        if (rowsToStage > 0) replenishConcentricCentralRows(rowsToStage);
-        concentricRecentEliminatedRowCount = 0;
-      }
+      const bounds = getActiveConcentricCorridorBounds();
+      const stagedRowCount = new Set(
+        blocks
+          .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
+          .map(b => b.row)
+      ).size;
+      const missingTopRows = getConcentricMissingTopRowCount();
+      const rowsToStage = Math.max(0, Math.max(concentricRecentEliminatedRowCount, missingTopRows) - stagedRowCount);
+      if (rowsToStage > 0) replenishConcentricCentralRows(rowsToStage);
+      concentricRecentEliminatedRowCount = 0;
     }
     applyGravity(shouldCheckNextClear);
   };
@@ -9355,7 +9354,16 @@ function runPhysicsInstant() {
 
       if (isConcentricObstacleMode) {
         damageConcentricActiveLayerInstant();
-        ensureConcentricCorridorFilled();
+        const bounds = getActiveConcentricCorridorBounds();
+        const stagedRowCount = new Set(
+          blocks
+            .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
+            .map(b => b.row)
+        ).size;
+        const missingRows = Math.max(0, getConcentricMissingTopRowCount() - stagedRowCount);
+        if (missingRows > 0) {
+          stageConcentricReserveRowsForGravity(missingRows);
+        }
       }
 
       changed = true;
@@ -28495,16 +28503,14 @@ function applyGravity(checkElim: boolean = true) {
 
   if (isConcentricObstacleMode) {
     const bounds = getActiveConcentricCorridorBounds();
-    if (activeSimulatingStepIndex === null) {
-      const stagedRowCount = new Set(
-        blocks
-          .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
-          .map(b => b.row)
-      ).size;
-      const missingRows = Math.max(0, getConcentricMissingTopRowCount() - stagedRowCount);
-      if (missingRows > 0) {
-        stageConcentricReserveRowsForGravity(missingRows);
-      }
+    const stagedRowCount = new Set(
+      blocks
+        .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
+        .map(b => b.row)
+    ).size;
+    const missingRows = Math.max(0, getConcentricMissingTopRowCount() - stagedRowCount);
+    if (missingRows > 0) {
+      stageConcentricReserveRowsForGravity(missingRows);
     }
     blocks.forEach(b => {
       if (!b.isProp && b.row >= bounds.minRow && b.concentricBuffer) {
@@ -30418,9 +30424,13 @@ function checkEliminations() {
 
 
 
-  if (!isConcentricObstacleMode && pendingSequentialClearBlockIds.length > 0) {
-    lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
-    fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+  if (pendingSequentialClearBlockIds.length > 0) {
+    if (!isConcentricObstacleMode) {
+      lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
+      fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
+    } else {
+      pendingSequentialClearBlockIds = [];
+    }
   } else if (forcedPlaybackFullRows && forcedPlaybackFullRows.length > 0) {
 
     fullRows.push(...forcedPlaybackFullRows);
@@ -39968,7 +39978,9 @@ function setupDOMUI() {
 
 
 
-        playScriptFromButton(false, false);
+        const mechanic = isFallingMode ? 'falling' : undefined;
+
+        playScriptFromButton(false, false, mechanic);
 
 
 
