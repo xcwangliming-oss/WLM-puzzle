@@ -3006,7 +3006,7 @@ function getConcentricTopRowsNeedingSupply(): number {
       .filter(c => c >= bounds.minCol && c <= bounds.maxCol);
     if (openCols.length === 0) continue;
     const hasBlock = openCols.every(c => blocks.some(b =>
-      !b.isProp && b.row === r && c >= b.col && c < b.col + b.length));
+      !b.isProp && !b.concentricBuffer && b.row === r && c >= b.col && c < b.col + b.length));
     if (hasBlock) break;
     missingRows++;
   }
@@ -3015,24 +3015,7 @@ function getConcentricTopRowsNeedingSupply(): number {
 
 function getConcentricMissingTopRowCount(): number {
   if (!isConcentricObstacleMode) return 0;
-  const bounds = getActiveConcentricCorridorBounds();
-  if (bounds.minRow > bounds.maxRow) return 0;
-
-  let topOccupiedRow = bounds.maxRow + 1;
-  for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
-    const hasBlock = blocks.some(b =>
-      !b.isProp &&
-      !b.concentricBuffer &&
-      b.row === r &&
-      b.col + b.length - 1 >= bounds.minCol &&
-      b.col <= bounds.maxCol
-    );
-    if (hasBlock) {
-      topOccupiedRow = r;
-      break;
-    }
-  }
-  return Math.max(0, topOccupiedRow - bounds.minRow);
+  return getConcentricTopRowsNeedingSupply();
 }
 
 /**
@@ -3061,25 +3044,86 @@ function ensureConcentricTopBuffer(): void {
   // without creating a piece during the visible frame.
   // Reserve buffer rows MUST ALWAYS BE strictly above the board (row < 0).
   const targetBufferTop = -30;
-  for (let r = -1; r >= targetBufferTop; r--) {
-    const occupiedCols = new Set<number>();
-    blocks.filter(b => !b.isProp && b.row === r).forEach(b => {
-      for (let c = b.col; c < b.col + b.length; c++) occupiedCols.add(c);
-    });
-    const openCols: number[] = [];
-    for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
-      if (!occupiedCols.has(c)) openCols.push(c);
-    }
-    generateConcentricBlocksForOpenColumns(openCols).forEach(spec => {
-      const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
-      if (blk) {
-        blk.concentricBuffer = true;
-        if (blk.sprite) {
-          blk.sprite.visible = false;
-          blk.sprite.eventMode = 'none';
+  const targetBufferDepth = 50;
+
+  const bufferBlocks = blocks.filter(b => !b.isProp && b.concentricBuffer && b.row < 0);
+  const existingRows = new Set(bufferBlocks.map(b => b.row));
+
+  if (existingRows.size === 0) {
+    for (let r = -1; r >= -targetBufferDepth; r--) {
+      const openCols: number[] = [];
+      for (let c = bounds.minCol; c <= bounds.maxCol; c++) openCols.push(c);
+      generateConcentricBlocksForOpenColumns(openCols).forEach(spec => {
+        const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
+        if (blk) {
+          blk.concentricBuffer = true;
+          if (blk.sprite) {
+            blk.sprite.visible = false;
+            blk.sprite.eventMode = 'none';
+          }
+          if (isRecordingSteps) {
+            initialBoardBlocks.push({
+              id: blk.id,
+              col: blk.col,
+              row: blk.row,
+              length: blk.length,
+              color: blk.color,
+              noGravity: blk.noGravity,
+              isCollectible: blk.isCollectible,
+              isProp: blk.isProp,
+              propType: blk.propType,
+              propDir: blk.propDir,
+              collectibleId: blk.collectibleId,
+              pastureStage: blk.pastureStage,
+              concentricLayer: blk.concentricLayer,
+              concentricBuffer: blk.concentricBuffer,
+              propOrientation: blk.propOrientation,
+              isJewelryBox: blk.isJewelryBox,
+              jewelryBoxState: blk.jewelryBoxState
+            });
+          }
         }
-      }
-    });
+      });
+    }
+  } else if (existingRows.size < 35 && !isPlayingScript) {
+    const minExistingRow = Math.min(...existingRows);
+    const rowsToAdd = targetBufferDepth - existingRows.size;
+    for (let i = 1; i <= rowsToAdd; i++) {
+      const r = minExistingRow - i;
+      const openCols: number[] = [];
+      for (let c = bounds.minCol; c <= bounds.maxCol; c++) openCols.push(c);
+      generateConcentricBlocksForOpenColumns(openCols).forEach(spec => {
+        const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
+        if (blk) {
+          blk.concentricBuffer = true;
+          if (blk.sprite) {
+            blk.sprite.visible = false;
+            blk.sprite.eventMode = 'none';
+          }
+          if (isRecordingSteps) {
+            initialBoardBlocks.push({
+              id: blk.id,
+              col: blk.col,
+              row: blk.row,
+              length: blk.length,
+              color: blk.color,
+              noGravity: blk.noGravity,
+              isCollectible: blk.isCollectible,
+              isProp: blk.isProp,
+              propType: blk.propType,
+              propDir: blk.propDir,
+              collectibleId: blk.collectibleId,
+              pastureStage: blk.pastureStage,
+              concentricLayer: blk.concentricLayer,
+              concentricBuffer: blk.concentricBuffer,
+              propOrientation: blk.propOrientation,
+              isJewelryBox: blk.isJewelryBox,
+              jewelryBoxState: blk.jewelryBoxState
+            });
+          }
+        }
+      });
+    }
   }
 }
 
@@ -8528,7 +8572,10 @@ function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): nu
     );
 
     if (allowed.length === 0) {
-      if (isConcentricObstacleMode) return [];
+      if (isConcentricObstacleMode) {
+        if (visibleFullRows.length > 0) return visibleFullRows;
+        return [];
+      }
       const recordedWaves = normalizeEliminationWaves(step.eliminationWaves);
       const recordedChainFinished = recordedWaves.length > 0
         && activeEliminationWaveIndex >= recordedWaves.length;
@@ -8951,6 +8998,7 @@ function runPhysicsInstant() {
 
       if (isNoGravityMode && b.noGravity) return;
       if (isPastureLayerGravityLocked(b)) return;
+      if (isConcentricObstacleMode && b.concentricBuffer) return;
 
 
 
@@ -9002,6 +9050,9 @@ function runPhysicsInstant() {
 
             if (other.id === b.id) continue;
             if (isConcentricObstacleMode && other.isProp && other.concentricLayer !== undefined) {
+              continue;
+            }
+            if (isConcentricObstacleMode && !other.isProp && other.concentricBuffer) {
               continue;
             }
             if (other.row === targetRow + 1) {
@@ -11253,7 +11304,15 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
       getStepGravityMaxRow(step)
     );
 
+    draggedBlockId = block.id;
 
+    if (isRisingAdvanceActive()) {
+      pendingRisingRows = getRisingRowsForCompletedMove(risingEliminationWavesThisMove);
+    }
+
+    blocksThatFell.clear();
+
+    blocksThatFell.add(block.id);
 
     const immediatePlaybackRows = getImmediatePlayableFullRows();
 
@@ -11278,26 +11337,6 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
     if (immediatePlaybackRows.length === 0) {
-      draggedBlockId = block.id;
-
-      if (isRisingAdvanceActive()) {
-        pendingRisingRows = getRisingRowsForCompletedMove(risingEliminationWavesThisMove);
-      }
-
-
-
-      blocksThatFell.clear();
-
-
-
-      blocksThatFell.add(block.id);
-
-
-
-
-
-
-
       applyGravity(true);
 
 
