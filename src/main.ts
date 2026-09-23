@@ -3058,7 +3058,24 @@ function getConcentricTopRowsNeedingSupply(): number {
 
 function getConcentricMissingTopRowCount(): number {
   if (!isConcentricObstacleMode) return 0;
-  return getConcentricTopRowsNeedingSupply();
+  const bounds = getActiveConcentricCorridorBounds();
+  if (bounds.minRow > bounds.maxRow) return 0;
+
+  let topOccupiedRow = bounds.maxRow + 1;
+  for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
+    const hasBlock = blocks.some(b =>
+      !b.isProp &&
+      !b.concentricBuffer &&
+      b.row === r &&
+      b.col + b.length - 1 >= bounds.minCol &&
+      b.col <= bounds.maxCol
+    );
+    if (hasBlock) {
+      topOccupiedRow = r;
+      break;
+    }
+  }
+  return Math.max(0, topOccupiedRow - bounds.minRow);
 }
 
 /**

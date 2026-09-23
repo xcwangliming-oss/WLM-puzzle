@@ -29,11 +29,12 @@ assert.ok(
   'dynamically created buffer rows during recording must be added to initialBoardBlocks for playback fidelity',
 );
 
-// 2. getConcentricMissingTopRowCount must align with getConcentricTopRowsNeedingSupply
+// 2. getConcentricMissingTopRowCount must calculate only empty rows above the top occupied row
 const missingFn = bodyOf('getConcentricMissingTopRowCount', 'updateConcentricFallingVisibility');
 assert.ok(
-  missingFn.includes('return getConcentricTopRowsNeedingSupply()'),
-  'getConcentricMissingTopRowCount must delegate to getConcentricTopRowsNeedingSupply',
+  missingFn.includes('topOccupiedRow') &&
+  missingFn.includes('Math.max(0, topOccupiedRow - bounds.minRow)'),
+  'getConcentricMissingTopRowCount must compute only rows above topOccupiedRow to prevent flooding the board',
 );
 
 // 3. playScript must initialize draggedBlockId and blocksThatFell before resolving playback rows
