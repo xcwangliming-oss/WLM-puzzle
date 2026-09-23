@@ -3473,7 +3473,7 @@ function ensureConcentricTopBuffer(forceRegenerate = false): void {
         }
       });
     }
-  } else if (existingRows.size < 35 && !isPlayingScript) {
+  } else if (existingRows.size < 35) {
     const openCols: number[] = [];
     for (let c = bounds.minCol; c <= bounds.maxCol; c++) openCols.push(c);
     const minExistingRow = Math.min(...existingRows);
@@ -4669,12 +4669,13 @@ interface BoardBlockState {
   jewelryBoxState?: 'closed' | 'open';
 }
 
-function spawnRecordedBlockState(sb: BoardBlockState | any) {
+function spawnRecordedBlockState(sb: BoardBlockState | any): Block | null {
   const shouldUseSingleCollectible =
     sb?.isCollectible === true &&
     (sb.collectibleId === undefined || sb.collectibleId === null || sb.collectibleId === '');
   const previousMultiCollectibleMode = multiCollectibleModeEnabled;
   if (shouldUseSingleCollectible) multiCollectibleModeEnabled = false;
+  let createdBlock: Block | null = null;
   try {
     const blk = spawnBlock(
       sb.col,
@@ -4693,6 +4694,7 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
       sb.jewelryBoxState
     );
     if (blk) {
+      createdBlock = blk;
       if (sb.concentricLayer !== undefined && sb.concentricLayer !== null) {
         blk.concentricLayer = sb.concentricLayer;
         blk.propOrientation = sb.propOrientation;
@@ -4736,6 +4738,7 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
   } finally {
     multiCollectibleModeEnabled = previousMultiCollectibleMode;
   }
+  return createdBlock;
 }
 
 function captureCurrentBoardBlockStates(): BoardBlockState[] {
@@ -4802,7 +4805,96 @@ function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
 }
 
 function syncBoardToRecordedStep(states: BoardBlockState[]) {
-  restoreBoardBlockStates(states);
+  if (!states || states.length === 0) return;
+  if (areBoardBlockStatesEquivalent(states)) return;
+
+  const currentById = new Map<number, Block>();
+  const unmatchedLiveBlocks: Block[] = [];
+  blocks.forEach(b => {
+    if (b.id !== undefined && !b.isProp) {
+      currentById.set(b.id, b);
+    } else {
+      unmatchedLiveBlocks.push(b);
+    }
+  });
+
+  const stateIds = new Set(states.map(s => s.id).filter(id => id !== undefined));
+
+  // 1. Remove blocks that are not in the recorded snapshot (skip props)
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.isProp) continue;
+    if (b.id !== undefined && !stateIds.has(b.id)) {
+      if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+      blocks.splice(i, 1);
+    }
+  }
+
+  // 2. Sync existing blocks or spawn missing ones smoothly
+  states.forEach(sb => {
+    if (sb.isProp) {
+      const prop = blocks.find(b => b.isProp && b.id === sb.id);
+      if (prop) {
+        prop.col = sb.col;
+        prop.row = sb.row;
+        prop.length = sb.length;
+        if (prop.sprite && !(prop.sprite as any).destroyed) {
+          prop.sprite.x = prop.col * PARAMS.cellSize;
+          prop.sprite.y = prop.row * PARAMS.cellSize;
+        }
+      }
+      return;
+    }
+
+    let existing = sb.id !== undefined ? currentById.get(sb.id) : null;
+    if (!existing) {
+      const idx = unmatchedLiveBlocks.findIndex(b => b.length === sb.length && b.row === sb.row);
+      if (idx >= 0) {
+        existing = unmatchedLiveBlocks.splice(idx, 1)[0];
+        if (sb.id !== undefined) existing.id = sb.id;
+      }
+    }
+
+    if (existing) {
+      existing.col = sb.col;
+      existing.row = sb.row;
+      existing.length = sb.length;
+      existing.color = sb.color;
+      existing.noGravity = sb.noGravity;
+      existing.concentricBuffer = sb.concentricBuffer;
+      if (existing.sprite && !(existing.sprite as any).destroyed) {
+        gsap.killTweensOf(existing.sprite);
+        existing.sprite.x = existing.col * PARAMS.cellSize;
+        existing.sprite.y = existing.row * PARAMS.cellSize;
+        if (isConcentricObstacleMode) {
+          const bounds = getActiveConcentricCorridorBounds();
+          const isHidden = existing.concentricBuffer || existing.row < bounds.minRow || existing.row > bounds.maxRow;
+          existing.sprite.visible = !isHidden;
+          existing.sprite.eventMode = isHidden ? 'none' : 'static';
+        } else {
+          existing.sprite.visible = true;
+          existing.sprite.alpha = 1;
+        }
+      }
+    } else {
+      const blk = spawnRecordedBlockState(sb);
+      if (blk && blk.sprite && !(blk.sprite as any).destroyed) {
+        if (isConcentricObstacleMode && (blk.concentricBuffer || blk.row < 0)) {
+          blk.sprite.visible = false;
+          blk.sprite.eventMode = 'none';
+        } else {
+          blk.sprite.alpha = 0;
+          gsap.to(blk.sprite, { alpha: 1, duration: 0.15, ease: 'power1.out' });
+        }
+      }
+    }
+  });
+
+  if (isConcentricObstacleMode) {
+    syncCurrentConcentricLayerFromBlocks();
+    syncActiveConcentricCorridorBounds();
+    updateConcentricBlockVisibility();
+  }
 }
 
 
@@ -10814,50 +10906,46 @@ function updateScriptUI() {
 
 
 
+function isPhysicsActuallyBusy(): boolean {
+  if (isAnimating) return true;
+  if (typeof worldContainer !== 'undefined' && worldContainer && gsap.isTweening(worldContainer)) return true;
+  if (typeof blocks !== 'undefined' && Array.isArray(blocks)) {
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (b && b.sprite && !(b.sprite as any).destroyed && gsap.isTweening(b.sprite)) return true;
+    }
+  }
+  return false;
+}
+
 function waitForPhysics(): Promise<void> {
-
-
-
   return new Promise<void>((resolve) => {
-
-
+    let quietFrames = 0;
+    const requiredQuietFrames = 4;
+    const startTime = Date.now();
+    const maxTimeoutMs = 6000;
 
     const check = () => {
-
-
-
-      if (!isAnimating) {
-
-
-
+      if (Date.now() - startTime > maxTimeoutMs) {
         resolve();
-
-
-
-      } else {
-
-
-
-        requestAnimationFrame(check);
-
-
-
+        return;
       }
 
+      if (!isPhysicsActuallyBusy()) {
+        quietFrames++;
+        if (quietFrames >= requiredQuietFrames) {
+          resolve();
+          return;
+        }
+      } else {
+        quietFrames = 0;
+      }
 
-
+      requestAnimationFrame(check);
     };
 
-
-
-    setTimeout(check, 80);
-
-
-
+    setTimeout(check, 60);
   });
-
-
-
 }
 
 
@@ -11509,15 +11597,18 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
     }
 
     let block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row) : null;
-    if (!block && step.blockId) {
-      block = blocks.find(b => b.id === step.blockId);
-    }
     if (!block) {
-      block = blocks.find(b => b.col === step.fromCol && b.row === step.row);
+      block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
+    }
+    if (!block && step.blockId) {
+      block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer);
     }
 
-    if ((!block || !canMoveBlockHorizontallyTo(block, step.toCol)) && step.boardBefore && step.boardBefore.length > 0) {
-      console.warn(`[Playback] Step ${i + 1} board drifted; resyncing from recorded snapshot.`);
+    const needsResync = (!block || block.row !== step.row || !canMoveBlockHorizontallyTo(block, step.toCol))
+      && !!step.boardBefore && step.boardBefore.length > 0;
+
+    if (needsResync && step.boardBefore) {
+      console.warn(`[Playback] Step ${i + 1} board drifted; smoothly resyncing from recorded snapshot.`);
       syncBoardToRecordedStep(step.boardBefore);
       block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row) : null;
       if (!block && step.blockId) {
@@ -24345,13 +24436,17 @@ function getGridOccupancy(ignoreBlockId: number = -1): number[][] {
 
 
 
+  const concentricBounds = isConcentricObstacleMode ? getActiveConcentricCorridorBounds() : null;
+
   blocks.forEach(b => {
-
-
-
     if (b.id === ignoreBlockId) return;
-
-
+    if (b.sprite && (b.sprite as any).destroyed) return;
+    if (isConcentricObstacleMode) {
+      if (!b.isProp && b.concentricBuffer) return;
+      if (concentricBounds && !b.isProp) {
+        if (b.row < concentricBounds.minRow || b.row > concentricBounds.maxRow) return;
+      }
+    }
 
     if (b.row >= 0 && b.row < PARAMS.totalRows) {
 
