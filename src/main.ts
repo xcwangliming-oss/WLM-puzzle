@@ -35792,15 +35792,22 @@ function drawSolidRecordingFrame(ctx: CanvasRenderingContext2D, width: number, h
   const radius = Math.max(4, width * 0.011);
 
   ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+  ctx.shadowBlur = Math.max(8, width * 0.02);
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = Math.max(2, width * 0.006);
   ctx.fillStyle = 'rgba(30, 40, 86, 0.7)';
-  ctx.strokeStyle = 'rgba(32, 43, 97, 0.7)';
-  ctx.lineWidth = Math.max(4, width * 0.008);
   drawRoundedRectPath(ctx, headerBox.x, headerBox.y, headerBox.w, headerBox.h, radius);
   ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(32, 43, 97, 0.7)';
+  ctx.lineWidth = Math.max(4, width * 0.008);
   ctx.stroke();
+  ctx.restore();
 
   drawSolidRecordingBoardFrame(ctx, boardBox, width);
-  ctx.restore();
 }
 
 function drawSolidRecordingBoardFrame(
@@ -35811,11 +35818,18 @@ function drawSolidRecordingBoardFrame(
   const radius = Math.max(4, width * 0.011);
 
   ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.shadowBlur = Math.max(12, width * 0.035);
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = Math.max(4, width * 0.012);
   ctx.fillStyle = 'rgba(35, 45, 92, 0.7)';
-  ctx.strokeStyle = 'rgba(28, 38, 85, 0.7)';
-  ctx.lineWidth = Math.max(5, width * 0.009);
   drawRoundedRectPath(ctx, boardBox.x, boardBox.y, boardBox.w, boardBox.h, radius);
   ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(28, 38, 85, 0.7)';
+  ctx.lineWidth = Math.max(5, width * 0.009);
   ctx.stroke();
   ctx.restore();
 }
