@@ -3095,7 +3095,7 @@ function updateConcentricFallingVisibility(block: Block, visualY: number): void 
   block.sprite.eventMode = covered ? 'none' : 'static';
 }
 
-function ensureConcentricTopBuffer(): void {
+function ensureConcentricTopBuffer(forceRegenerate = false): void {
   if (!isConcentricObstacleMode) return;
   const bounds = getActiveConcentricCorridorBounds();
   if (bounds.minCol > bounds.maxCol) return;
@@ -3106,13 +3106,31 @@ function ensureConcentricTopBuffer(): void {
   const targetBufferTop = -30;
   const targetBufferDepth = 50;
 
-  const bufferBlocks = blocks.filter(b => !b.isProp && b.concentricBuffer && b.row < 0);
-  const existingRows = new Set(bufferBlocks.map(b => b.row));
+  let bufferBlocks = blocks.filter(b => !b.isProp && b.concentricBuffer && b.row < 0);
+  let existingRows = new Set(bufferBlocks.map(b => b.row));
+
+  // When corridor expands (e.g. obstacle shrunk), regenerate the off-screen hidden buffer
+  // across the FULL unified width so dropping rows naturally contain 1x1, 1x2, 1x3, 1x4 blocks
+  // spanning seamlessly across the newly opened columns.
+  if (forceRegenerate && !isPlayingScript && existingRows.size > 0) {
+    bufferBlocks.forEach(b => {
+      if (b.sprite && b.sprite.parent) {
+        blocksContainer.removeChild(b.sprite);
+      }
+    });
+    blocks = blocks.filter(b => !(b.concentricBuffer && b.row < 0));
+    if (isRecordingSteps) {
+      initialBoardBlocks = initialBoardBlocks.filter(b => !(b.concentricBuffer && b.row < 0));
+    }
+    bufferBlocks = [];
+    existingRows.clear();
+  }
 
   if (existingRows.size === 0) {
+    const openCols: number[] = [];
+    for (let c = bounds.minCol; c <= bounds.maxCol; c++) openCols.push(c);
+
     for (let r = -1; r >= -targetBufferDepth; r--) {
-      const openCols: number[] = [];
-      for (let c = bounds.minCol; c <= bounds.maxCol; c++) openCols.push(c);
       generateConcentricBlocksForOpenColumns(openCols).forEach(spec => {
         const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
         if (blk) {
@@ -3145,193 +3163,44 @@ function ensureConcentricTopBuffer(): void {
         }
       });
     }
-  } else {
-    if (existingRows.size < 35 && !isPlayingScript) {
-      const minExistingRow = Math.min(...existingRows);
-      const rowsToAdd = targetBufferDepth - existingRows.size;
-      for (let i = 1; i <= rowsToAdd; i++) {
-        const r = minExistingRow - i;
-        const openCols: number[] = [];
-        for (let c = bounds.minCol; c <= bounds.maxCol; c++) openCols.push(c);
-        generateConcentricBlocksForOpenColumns(openCols).forEach(spec => {
-          const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
-          if (blk) {
-            blk.concentricBuffer = true;
-            if (blk.sprite) {
-              blk.sprite.visible = false;
-              blk.sprite.eventMode = 'none';
-            }
-            if (isRecordingSteps) {
-              initialBoardBlocks.push({
-                id: blk.id,
-                col: blk.col,
-                row: blk.row,
-                length: blk.length,
-                color: blk.color,
-                noGravity: blk.noGravity,
-                isCollectible: blk.isCollectible,
-                isProp: blk.isProp,
-                propType: blk.propType,
-                propDir: blk.propDir,
-                collectibleId: blk.collectibleId,
-                pastureStage: blk.pastureStage,
-                concentricLayer: blk.concentricLayer,
-                concentricBuffer: blk.concentricBuffer,
-                propOrientation: blk.propOrientation,
-                isJewelryBox: blk.isJewelryBox,
-                jewelryBoxState: blk.jewelryBoxState
-              });
-            }
+  } else if (existingRows.size < 35 && !isPlayingScript) {
+    const openCols: number[] = [];
+    for (let c = bounds.minCol; c <= bounds.maxCol; c++) openCols.push(c);
+    const minExistingRow = Math.min(...existingRows);
+    const rowsToAdd = targetBufferDepth - existingRows.size;
+    for (let i = 1; i <= rowsToAdd; i++) {
+      const r = minExistingRow - i;
+      generateConcentricBlocksForOpenColumns(openCols).forEach(spec => {
+        const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
+        if (blk) {
+          blk.concentricBuffer = true;
+          if (blk.sprite) {
+            blk.sprite.visible = false;
+            blk.sprite.eventMode = 'none';
           }
-        });
-      }
-    }
-
-    if (!isPlayingScript) {
-      existingRows.forEach(r => {
-        const rowBlocks = bufferBlocks.filter(b => b.row === r);
-        const occupiedCols = new Set<number>();
-        rowBlocks.forEach(b => {
-          for (let c = b.col; c < b.col + b.length; c++) occupiedCols.add(c);
-        });
-
-        const missingCols: number[] = [];
-        for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
-          if (!occupiedCols.has(c)) missingCols.push(c);
-        }
-
-        if (missingCols.length > 0) {
-          generateConcentricBlocksForOpenColumns(missingCols).forEach(spec => {
-            const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
-            if (blk) {
-              blk.concentricBuffer = true;
-              if (blk.sprite) {
-                blk.sprite.visible = false;
-                blk.sprite.eventMode = 'none';
-              }
-              if (isRecordingSteps) {
-                initialBoardBlocks.push({
-                  id: blk.id,
-                  col: blk.col,
-                  row: blk.row,
-                  length: blk.length,
-                  color: blk.color,
-                  noGravity: blk.noGravity,
-                  isCollectible: blk.isCollectible,
-                  isProp: blk.isProp,
-                  propType: blk.propType,
-                  propDir: blk.propDir,
-                  collectibleId: blk.collectibleId,
-                  pastureStage: blk.pastureStage,
-                  concentricLayer: blk.concentricLayer,
-                  concentricBuffer: blk.concentricBuffer,
-                  propOrientation: blk.propOrientation,
-                  isJewelryBox: blk.isJewelryBox,
-                  jewelryBoxState: blk.jewelryBoxState
-                });
-              }
-            }
-          });
-        }
-      });
-    }
-  }
-}
-
-function fillConcentricVacatedColumns(): void {
-  if (!isConcentricObstacleMode || isPlayingScript) return;
-  const bounds = getActiveConcentricCorridorBounds();
-  if (bounds.minCol > bounds.maxCol || bounds.minRow > bounds.maxRow) return;
-
-  const activeProps = blocks.filter(b => b.isProp && b.length > 0);
-
-  let topOccupiedRow = bounds.maxRow + 1;
-  for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
-    const hasBlock = blocks.some(b =>
-      !b.isProp &&
-      !b.concentricBuffer &&
-      b.row === r &&
-      b.col + b.length - 1 >= bounds.minCol &&
-      b.col <= bounds.maxCol
-    );
-    if (hasBlock) {
-      topOccupiedRow = r;
-      break;
-    }
-  }
-
-  if (topOccupiedRow > bounds.maxRow) return;
-
-  for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
-    for (let r = bounds.maxRow; r >= topOccupiedRow; r--) {
-      if (isCellCoveredByProps(activeProps, c, r)) continue;
-
-      const alreadyOccupied = blocks.some(b =>
-        !b.isProp &&
-        !b.concentricBuffer &&
-        b.row === r &&
-        c >= b.col &&
-        c < b.col + b.length
-      );
-      if (alreadyOccupied) continue;
-
-      const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r);
-      if (openCols.length <= 1) continue;
-
-      const filledColsInRow = new Set<number>();
-      blocks.forEach(b => {
-        if (!b.isProp && !b.concentricBuffer && b.row === r) {
-          for (let colIdx = b.col; colIdx < b.col + b.length; colIdx++) {
-            filledColsInRow.add(colIdx);
+          if (isRecordingSteps) {
+            initialBoardBlocks.push({
+              id: blk.id,
+              col: blk.col,
+              row: blk.row,
+              length: blk.length,
+              color: blk.color,
+              noGravity: blk.noGravity,
+              isCollectible: blk.isCollectible,
+              isProp: blk.isProp,
+              propType: blk.propType,
+              propDir: blk.propDir,
+              collectibleId: blk.collectibleId,
+              pastureStage: blk.pastureStage,
+              concentricLayer: blk.concentricLayer,
+              concentricBuffer: blk.concentricBuffer,
+              propOrientation: blk.propOrientation,
+              isJewelryBox: blk.isJewelryBox,
+              jewelryBoxState: blk.jewelryBoxState
+            });
           }
         }
       });
-
-      let alreadyFilledCount = 0;
-      openCols.forEach(col => {
-        if (filledColsInRow.has(col)) alreadyFilledCount++;
-      });
-
-      if (alreadyFilledCount >= openCols.length - 1) {
-        continue;
-      }
-
-      if (Math.random() < 0.25) {
-        continue;
-      }
-
-      const color = pickColorForCurrentMode(r);
-      const blk = spawnBlock(c, r, 1, color);
-      if (blk) {
-        blk.concentricBuffer = false;
-        if (blk.sprite) {
-          blk.sprite.zIndex = 10;
-          blk.sprite.visible = true;
-          blk.sprite.alpha = 1;
-          blk.sprite.eventMode = 'static';
-        }
-        if (isRecordingSteps) {
-          initialBoardBlocks.push({
-            id: blk.id,
-            col: blk.col,
-            row: blk.row,
-            length: blk.length,
-            color: blk.color,
-            noGravity: blk.noGravity,
-            isCollectible: blk.isCollectible,
-            isProp: blk.isProp,
-            propType: blk.propType,
-            propDir: blk.propDir,
-            collectibleId: blk.collectibleId,
-            pastureStage: blk.pastureStage,
-            concentricLayer: blk.concentricLayer,
-            concentricBuffer: blk.concentricBuffer,
-            propOrientation: blk.propOrientation,
-            isJewelryBox: blk.isJewelryBox,
-            jewelryBoxState: blk.jewelryBoxState
-          });
-        }
-      }
     }
   }
 }
@@ -3584,8 +3453,7 @@ function syncActiveConcentricCorridorBounds(): void {
   // The top-buffer synchronizer fills only newly opened columns so a prop
   // hit cannot delete the current falling wave and start a second one.
   if (bounds.minCol < oldMinCol || bounds.maxCol > oldMaxCol) {
-    ensureConcentricTopBuffer();
-    fillConcentricVacatedColumns();
+    ensureConcentricTopBuffer(true);
   }
 }
 
@@ -4010,7 +3878,6 @@ function damageConcentricActiveLayerInstant(): void {
   });
 
   syncActiveConcentricCorridorBounds();
-  fillConcentricVacatedColumns();
   ensureConcentricCorridorFilled();
 
   const remainingInLayer = blocks.filter(b => b.isProp && b.length > 0 && getPropConcentricLayer(b) === currentConcentricLayerIndex);
@@ -4057,7 +3924,6 @@ function damageConcentricActiveLayer(): void {
         advanceConcentricLayer();
       }
       syncActiveConcentricCorridorBounds();
-      fillConcentricVacatedColumns();
       ensureConcentricCorridorFilled();
       updateConcentricBlockVisibility();
       // The elimination timeline owns the phase transition.  Do not start

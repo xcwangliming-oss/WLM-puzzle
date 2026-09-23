@@ -6,36 +6,28 @@ const root = path.join(__dirname, '..');
 const mainTsPath = path.join(root, 'src', 'main.ts');
 const mainTs = fs.readFileSync(mainTsPath, 'utf8');
 
-// 1. Ensure fillConcentricVacatedColumns exists and is wired up to prop completion and bounds sync
+// 1. Ensure blocks NEVER pop up out of thin air on the live board
 assert.ok(
-  mainTs.includes('function fillConcentricVacatedColumns(): void {'),
-  'fillConcentricVacatedColumns must be declared'
+  !mainTs.includes('function fillConcentricVacatedColumns(): void {'),
+  'fillConcentricVacatedColumns must NOT exist; blocks must only drop in via gravity'
 );
 
+// 2. Ensure ensureConcentricTopBuffer supports forceRegenerate to recreate buffer across the full unified width
 assert.ok(
-  mainTs.includes('fillConcentricVacatedColumns();') &&
-  mainTs.includes('ensureConcentricTopBuffer();'),
-  'fillConcentricVacatedColumns must be called when bounds expand or props shrink'
+  mainTs.includes('function ensureConcentricTopBuffer(forceRegenerate = false): void {'),
+  'ensureConcentricTopBuffer must accept forceRegenerate parameter'
 );
 
-// 2. Ensure ensureConcentricTopBuffer synchronizes existing buffer rows with newly opened columns
+// 3. Ensure syncActiveConcentricCorridorBounds triggers forceRegenerate when bounds expand
 assert.ok(
-  mainTs.includes('const missingCols: number[] = [];') &&
-  mainTs.includes('if (missingCols.length > 0) {'),
-  'ensureConcentricTopBuffer must fill missing opened columns into existing buffer rows'
+  mainTs.includes('ensureConcentricTopBuffer(true);'),
+  'syncActiveConcentricCorridorBounds must trigger forceRegenerate on bounds expansion'
 );
 
-// 3. Ensure fillConcentricVacatedColumns prevents full-row creations (strictly maintains gaps)
+// 4. Ensure script playback safety guard exists during buffer regeneration
 assert.ok(
-  mainTs.includes('alreadyFilledCount >= openCols.length - 1') &&
-  mainTs.includes('continue;'),
-  'fillConcentricVacatedColumns must keep at least one gap in every row to prevent instant auto-elimination'
+  mainTs.includes('if (forceRegenerate && !isPlayingScript && existingRows.size > 0) {'),
+  'ensureConcentricTopBuffer must guard forceRegenerate during script playback'
 );
 
-// 4. Ensure script playback safety guard exists
-assert.ok(
-  mainTs.includes('if (!isConcentricObstacleMode || isPlayingScript) return;'),
-  'fillConcentricVacatedColumns must exit immediately during script playback'
-);
-
-console.log('concentric vacated column fill regression checks passed');
+console.log('concentric unified buffer regeneration regression checks passed');
