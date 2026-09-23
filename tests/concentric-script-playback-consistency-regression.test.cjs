@@ -62,4 +62,13 @@ assert.ok(
   'getPlaybackFullRowsFromOccupancy must clear visible full rows in concentric mode even when allowed is empty',
 );
 
+// 5. generateCorridorRowBlocks must maintain balanced gaps (25% - 45%) and not over-fill rows with only 1 gap
+const corridorFn = bodyOf('generateCorridorRowBlocks', 'hasConcentricSupport');
+assert.ok(
+  !corridorFn.includes('const numGaps = 1;') &&
+  corridorFn.includes('gapDistribution') &&
+  corridorFn.includes('weightedRandomLength(maxLen)'),
+  'generateCorridorRowBlocks must maintain balanced gaps and distribute them between blocks to prevent instant auto-completes',
+);
+
 console.log('concentric script playback consistency regression tests passed successfully!');

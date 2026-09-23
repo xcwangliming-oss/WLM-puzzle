@@ -2803,9 +2803,22 @@ function generateCorridorRowBlocks(minC: number, maxC: number): { col: number; l
   if (width <= 0) return [];
   if (width === 1) return [{ col: minC, length: 1 }];
 
-  // Keep one gap so rows look dense without immediately auto-completing.
-  const numGaps = 1;
-  const targetFilled = width - numGaps;
+  // Keep adequate gaps (25% - 45% empty space) so newly generated rows
+  // leave room to slide blocks and never continuously auto-complete on drop.
+  let numGaps = 2;
+  if (width <= 3) {
+    numGaps = 1;
+  } else if (width <= 5) {
+    numGaps = 2;
+  } else if (width <= 7) {
+    numGaps = Math.random() < 0.6 ? 2 : 3;
+  } else if (width <= 9) {
+    numGaps = Math.random() < 0.6 ? 3 : 4;
+  } else {
+    numGaps = Math.max(3, Math.min(5, Math.floor(width * 0.35)));
+  }
+
+  const targetFilled = Math.max(1, width - numGaps);
 
   const blockLengths: number[] = [];
   let remaining = targetFilled;
@@ -2830,13 +2843,43 @@ function generateCorridorRowBlocks(minC: number, maxC: number): { col: number; l
     [blockLengths[i], blockLengths[j]] = [blockLengths[j], blockLengths[i]];
   }
 
-  // Insert gaps at random slot positions among the blocks
+  // Distribute gaps nicely between and around blocks to prevent merging into full rows
   type CorridorSlot = { type: 'block'; length: number } | { type: 'gap'; length: number };
-  const slots: CorridorSlot[] = blockLengths.map(l => ({ type: 'block', length: l }));
+  const slots: CorridorSlot[] = [];
 
-  for (let g = 0; g < numGaps; g++) {
-    const insertIdx = Math.floor(Math.random() * (slots.length + 1));
-    slots.splice(insertIdx, 0, { type: 'gap', length: 1 });
+  const gapDistribution = Array(blockLengths.length + 1).fill(0);
+  let gapsLeft = numGaps;
+
+  // If there are multiple blocks, prioritize placing gaps between them so they don't visually merge
+  if (blockLengths.length > 1 && gapsLeft > 0) {
+    const innerIndices: number[] = [];
+    for (let i = 1; i < blockLengths.length; i++) innerIndices.push(i);
+    for (let i = innerIndices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [innerIndices[i], innerIndices[j]] = [innerIndices[j], innerIndices[i]];
+    }
+    for (const idx of innerIndices) {
+      if (gapsLeft <= 0) break;
+      gapDistribution[idx]++;
+      gapsLeft--;
+    }
+  }
+
+  // Distribute remaining gaps randomly
+  while (gapsLeft > 0) {
+    const pos = Math.floor(Math.random() * gapDistribution.length);
+    gapDistribution[pos]++;
+    gapsLeft--;
+  }
+
+  for (let i = 0; i < blockLengths.length; i++) {
+    if (gapDistribution[i] > 0) {
+      slots.push({ type: 'gap', length: gapDistribution[i] });
+    }
+    slots.push({ type: 'block', length: blockLengths[i] });
+  }
+  if (gapDistribution[blockLengths.length] > 0) {
+    slots.push({ type: 'gap', length: gapDistribution[blockLengths.length] });
   }
 
   const result: { col: number; length: number }[] = [];
