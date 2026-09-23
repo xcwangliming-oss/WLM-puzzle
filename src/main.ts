@@ -13,11 +13,27 @@ import soundCollectUrl from '../assets/playable-audio/collect.mp3'
 import soundObtainUrl from '../assets/playable-audio/obtain.mp3'
 import soundShatterUrl from '../assets/playable-audio/shatter.mp3'
 import soundPropElimUrl from '../assets/audio/prop_elim.ogg'
+import concentricHeadUrl from '../assets/concentric/concentric_head.png'
+import concentricBarUrl from '../assets/concentric/concentric_bar.png'
 
 const playableBlockAssetsMap = import.meta.glob('../assets/playable-blocks/*.webp', { eager: true, import: 'default' }) as Record<string, string>;
 const isStandalonePlayable = Boolean((window as any).PLAYABLE_CONFIG);
 
-import { damagePropForClearedRows, getPropMachineHeadColumn, getPropOccupiedColumns, isValidPropLength } from './propRules.ts'
+import {
+  damagePropForClearedRows,
+  getPropMachineHeadColumn,
+  getPropOccupiedColumns,
+  isValidPropLength,
+  type PropDirection,
+  type PropOrientation,
+  type ConcentricObstacleLayer,
+  getPropMachineHeadCell,
+  getPropOccupiedCells,
+  damagePropOneUnit,
+  generateConcentricLayout,
+  isCellCoveredByProps,
+  getOpenColumnsForRow
+} from './propRules.ts'
 import {
   type BoardMechanic,
   createInitialPlayableBlocks,
@@ -858,13 +874,8 @@ let scriptPlaybackUsesRecordedScrollTrack = false;
 
 
 function getActiveBoardAdvanceMode(): BoardAdvanceMode {
-
-
-
+  if (isConcentricObstacleMode) return 'fixed';
   return scriptPlaybackAdvanceMode || boardAdvanceMode;
-
-
-
 }
 
 
@@ -2410,7 +2421,1441 @@ function syncJewelryBoxUI(): void {
   });
 }
 
+// ==========================================
+// CONCENTRIC OBSTACLE MODE (回型障碍模式)
+// ==========================================
+let isConcentricObstacleMode = false;
+let concentricLayers: ConcentricObstacleLayer[] = [];
+let currentConcentricLayerIndex = 0;
+let concentricCenterMinCol = 1;
+let concentricCenterMaxCol = DEFAULT_BOARD_COLS - 2;
+let concentricCenterMinRow = 1;
+let concentricRecentEliminatedRowCount = 0;
+let isSyncingConcentricGrid = false;
 
+interface ConcentricObstacleConfig {
+  layers: number;
+  cols: number;
+  rows: number;
+  centerCols: number;
+  centerRows: number;
+  order: 'inner-to-outer' | 'outer-to-inner';
+}
+
+let concentricConfig: ConcentricObstacleConfig = {
+  layers: 1,
+  cols: DEFAULT_BOARD_COLS,
+  rows: 20,
+  centerCols: DEFAULT_BOARD_COLS - 2,
+  centerRows: 18,
+  order: 'inner-to-outer',
+};
+
+const CONCENTRIC_STORAGE_BAR = 'concentric_custom_bar_b64';
+const CONCENTRIC_STORAGE_HEAD = 'concentric_custom_head_b64';
+let concentricCustomBarImg: HTMLImageElement | null = null;
+let concentricCustomHeadImg: HTMLImageElement | null = null;
+const concentricTextureCache: Record<string, PIXI.Texture> = {};
+
+function invalidateConcentricTextureCache(): void {
+  for (const k in concentricTextureCache) {
+    concentricTextureCache[k].destroy(true);
+    delete concentricTextureCache[k];
+  }
+}
+
+function renderCanonicalUpCanvas(length: number, cellSize: number): HTMLCanvasElement {
+  const w = cellSize;
+  const h = length * cellSize;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const headCellY = (length - 1) * cellSize;
+  const bodyH = Math.max(0, headCellY);
+
+  // 1. Draw Body (from y = 0 to y = bodyH)
+  if (bodyH > 0) {
+    if (concentricCustomBarImg && concentricCustomBarImg.naturalWidth > 0 && concentricCustomBarImg.naturalHeight > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(1, 1, w - 2, bodyH - 1, 6);
+      ctx.clip();
+
+      let barSource: CanvasImageSource = concentricCustomBarImg;
+      let srcW = concentricCustomBarImg.naturalWidth;
+      let srcH = concentricCustomBarImg.naturalHeight;
+
+      // Auto-orient horizontal bar asset to vertical
+      if (srcW > srcH) {
+        const rotCanvas = document.createElement('canvas');
+        rotCanvas.width = srcH;
+        rotCanvas.height = srcW;
+        const rotCtx = rotCanvas.getContext('2d')!;
+        rotCtx.translate(rotCanvas.width, 0);
+        rotCtx.rotate(Math.PI / 2);
+        rotCtx.drawImage(concentricCustomBarImg, 0, 0);
+        barSource = rotCanvas;
+        srcW = rotCanvas.width;
+        srcH = rotCanvas.height;
+      }
+
+      const capSrcH = Math.min(srcW, srcH * 0.25);
+      const capDestH = Math.min(cellSize, bodyH);
+
+      if (bodyH <= cellSize) {
+        ctx.drawImage(barSource, 0, 0, srcW, capSrcH, 0, 0, w, bodyH);
+      } else {
+        // Draw top crystal cap at far end
+        ctx.drawImage(barSource, 0, 0, srcW, capSrcH, 0, 0, w, capDestH);
+        // Draw crystal body without squishing: maintain scale and let excess slide into the head
+        const barScale = w / Math.max(1, srcW);
+        const neededSrcH = (bodyH - capDestH) / Math.max(0.001, barScale);
+        const actualSrcH = Math.min(srcH - capSrcH, Math.max(1, neededSrcH));
+        ctx.drawImage(barSource, 0, capSrcH, srcW, actualSrcH, 0, capDestH, w, bodyH - capDestH);
+      }
+      ctx.restore();
+    } else {
+      // Procedural fallback body
+      ctx.save();
+      const pad = 3;
+      const r = 8;
+      const bx = pad;
+      const by = pad;
+      const bw = w - pad * 2;
+      const bh = bodyH - pad * 2;
+
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetY = 2;
+
+      const crystalGrad = ctx.createLinearGradient(bx, by, bx + bw, by);
+      crystalGrad.addColorStop(0, '#7dd3fc');
+      crystalGrad.addColorStop(0.25, '#38bdf8');
+      crystalGrad.addColorStop(0.7, '#0284c7');
+      crystalGrad.addColorStop(1, '#0369a1');
+
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, r);
+      ctx.fillStyle = crystalGrad;
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+
+      const crystalBorder = ctx.createLinearGradient(bx, by, bx + bw, by);
+      crystalBorder.addColorStop(0, '#e0f2fe');
+      crystalBorder.addColorStop(0.4, '#38bdf8');
+      crystalBorder.addColorStop(1, '#075985');
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = crystalBorder;
+      ctx.stroke();
+
+      const segCount = Math.round(bodyH / cellSize);
+      for (let s = 1; s < segCount; s++) {
+        const sy = s * cellSize;
+        ctx.beginPath();
+        ctx.moveTo(bx + 2, sy);
+        ctx.lineTo(bx + bw - 2, sy);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(2, 132, 199, 0.6)';
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // 2. Draw Head (at bottom cell: headCellY to headCellY + cellSize)
+  if (concentricCustomHeadImg && concentricCustomHeadImg.naturalWidth > 0 && concentricCustomHeadImg.naturalHeight > 0) {
+    const scale = Math.min(cellSize / concentricCustomHeadImg.naturalWidth, cellSize / concentricCustomHeadImg.naturalHeight);
+    const drawW = concentricCustomHeadImg.naturalWidth * scale;
+    const drawH = concentricCustomHeadImg.naturalHeight * scale;
+    const drawX = (cellSize - drawW) / 2;
+    const drawY = headCellY + (cellSize - drawH) / 2;
+    ctx.drawImage(concentricCustomHeadImg, drawX, drawY, drawW, drawH);
+  } else {
+    // Procedural fallback head
+    ctx.save();
+    const hPad = 2;
+    const hx = hPad;
+    const hy = headCellY + hPad;
+    const hw = cellSize - hPad * 2;
+    const hh = cellSize - hPad * 2;
+
+    const collarH = 6;
+    const collarY = headCellY;
+    const collarGrad = ctx.createLinearGradient(hx, collarY, hx + hw, collarY + collarH);
+    collarGrad.addColorStop(0, '#fef08a');
+    collarGrad.addColorStop(0.3, '#f59e0b');
+    collarGrad.addColorStop(0.7, '#d97706');
+    collarGrad.addColorStop(1, '#92400e');
+    ctx.beginPath();
+    ctx.roundRect(hx + 2, collarY, hw - 4, collarH, 2);
+    ctx.fillStyle = collarGrad;
+    ctx.fill();
+
+    const domeGrad = ctx.createRadialGradient(hx + hw * 0.5, hy + hh * 0.6, 2, hx + hw / 2, hy + hh / 2, hw * 0.55);
+    domeGrad.addColorStop(0, '#d8b4fe');
+    domeGrad.addColorStop(0.5, '#9333ea');
+    domeGrad.addColorStop(1, '#581c87');
+    ctx.beginPath();
+    ctx.roundRect(hx, hy + collarH, hw, hh - collarH, 10);
+    ctx.fillStyle = domeGrad;
+    ctx.fill();
+
+    const cx = hx + hw / 2;
+    const cy = hy + collarH + (hh - collarH) / 2;
+    const rOuter = hw * 0.28;
+    const rInner = hw * 0.08;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI) / 4 - Math.PI / 2;
+      const r = (i % 2 === 0) ? rOuter : rInner;
+      const px = cx + Math.cos(angle) * r;
+      const py = cy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#fde047';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  return canvas;
+}
+
+function getConcentricPropTexture(length: number, dir: PropDirection = 'left'): PIXI.Texture {
+  const cellSize = PARAMS.cellSize || 50;
+  const customTag = `${concentricCustomBarImg ? 'b' : 'def'}_${concentricCustomHeadImg ? 'h' : 'def'}`;
+  const key = `concentric_${length}_${dir}_${cellSize}_${customTag}`;
+  if (concentricTextureCache[key]) return concentricTextureCache[key];
+
+  const canonicalCanvas = renderCanonicalUpCanvas(length, cellSize);
+  const isVert = dir === 'up' || dir === 'down';
+  const outW = isVert ? cellSize : length * cellSize;
+  const outH = isVert ? length * cellSize : cellSize;
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = outW;
+  outCanvas.height = outH;
+  const outCtx = outCanvas.getContext('2d')!;
+  outCtx.imageSmoothingEnabled = true;
+  outCtx.imageSmoothingQuality = 'high';
+
+  outCtx.save();
+  if (dir === 'up') {
+    outCtx.drawImage(canonicalCanvas, 0, 0);
+  } else if (dir === 'down') {
+    outCtx.translate(outW / 2, outH / 2);
+    outCtx.rotate(Math.PI);
+    outCtx.drawImage(canonicalCanvas, -canonicalCanvas.width / 2, -canonicalCanvas.height / 2);
+  } else if (dir === 'right') {
+    outCtx.translate(outW / 2, outH / 2);
+    outCtx.rotate(Math.PI / 2);
+    outCtx.drawImage(canonicalCanvas, -canonicalCanvas.width / 2, -canonicalCanvas.height / 2);
+  } else if (dir === 'left') {
+    outCtx.translate(outW / 2, outH / 2);
+    outCtx.rotate(-Math.PI / 2);
+    outCtx.drawImage(canonicalCanvas, -canonicalCanvas.width / 2, -canonicalCanvas.height / 2);
+  }
+  outCtx.restore();
+
+  const texture = PIXI.Texture.from(outCanvas);
+  concentricTextureCache[key] = texture;
+  return texture;
+}
+
+function updateConcentricPropTextures(): void {
+  invalidateConcentricTextureCache();
+  blocks.forEach(b => {
+    if (b.concentricLayer !== undefined && b.sprite && b.length > 0) {
+      const isVert = b.propDir === 'up' || b.propDir === 'down';
+      b.sprite.texture = getConcentricPropTexture(b.length, b.propDir || 'left');
+      b.sprite.width = isVert ? (PARAMS.cellSize || 50) : b.length * (PARAMS.cellSize || 50);
+      b.sprite.height = isVert ? b.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
+    }
+  });
+}
+
+function refreshConcentricStyleUI(): void {
+  const barThumb = document.getElementById('concentric-bar-thumb') as HTMLImageElement | null;
+  const barPlaceholder = document.getElementById('concentric-bar-placeholder');
+  const headThumb = document.getElementById('concentric-head-thumb') as HTMLImageElement | null;
+  const headPlaceholder = document.getElementById('concentric-head-placeholder');
+  const badge = document.getElementById('concentric-custom-badge');
+  const btnClear = document.getElementById('btn-clear-concentric-style');
+
+  const hasBar = !!(concentricCustomBarImg && concentricCustomBarImg.src);
+  const hasHead = !!(concentricCustomHeadImg && concentricCustomHeadImg.src);
+
+  if (barThumb) {
+    barThumb.src = hasBar ? concentricCustomBarImg!.src : '';
+    barThumb.style.display = hasBar ? 'block' : 'none';
+  }
+  if (barPlaceholder) barPlaceholder.style.display = hasBar ? 'none' : 'block';
+
+  if (headThumb) {
+    headThumb.src = hasHead ? concentricCustomHeadImg!.src : '';
+    headThumb.style.display = hasHead ? 'block' : 'none';
+  }
+  if (headPlaceholder) headPlaceholder.style.display = hasHead ? 'none' : 'block';
+
+  const hasCustom = hasBar || hasHead;
+  if (badge) badge.style.display = hasCustom ? 'inline-block' : 'none';
+  if (btnClear) btnClear.style.display = hasCustom ? 'block' : 'none';
+}
+
+function initConcentricAppearanceUI(): void {
+  const barSlot = document.getElementById('concentric-bar-slot');
+  const headSlot = document.getElementById('concentric-head-slot');
+  const inputBar = document.getElementById('input-concentric-bar') as HTMLInputElement | null;
+  const inputHead = document.getElementById('input-concentric-head') as HTMLInputElement | null;
+  const btnClear = document.getElementById('btn-clear-concentric-style');
+
+  barSlot?.addEventListener('click', () => inputBar?.click());
+  headSlot?.addEventListener('click', () => inputHead?.click());
+
+  const handleFile = (file: File, type: 'bar' | 'head') => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const b64 = String(reader.result || '');
+      const img = new Image();
+      img.onload = () => {
+        if (type === 'bar') {
+          concentricCustomBarImg = img;
+          try { localStorage.setItem(CONCENTRIC_STORAGE_BAR, b64); } catch(e){}
+        } else {
+          concentricCustomHeadImg = img;
+          try { localStorage.setItem(CONCENTRIC_STORAGE_HEAD, b64); } catch(e){}
+        }
+        invalidateConcentricTextureCache();
+        refreshConcentricStyleUI();
+        if (isConcentricObstacleMode) updateConcentricPropTextures();
+      };
+      img.src = b64;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  inputBar?.addEventListener('change', () => {
+    const file = inputBar.files?.[0];
+    if (file) handleFile(file, 'bar');
+    inputBar.value = '';
+  });
+
+  inputHead?.addEventListener('change', () => {
+    const file = inputHead.files?.[0];
+    if (file) handleFile(file, 'head');
+    inputHead.value = '';
+  });
+
+  const loadConcentricAppearanceAssets = () => {
+    try {
+      const savedBar = localStorage.getItem(CONCENTRIC_STORAGE_BAR);
+      const barSrc = savedBar || concentricBarUrl;
+      if (barSrc) {
+        const img = new Image();
+        img.onload = () => {
+          concentricCustomBarImg = img;
+          invalidateConcentricTextureCache();
+          refreshConcentricStyleUI();
+          if (isConcentricObstacleMode) updateConcentricPropTextures();
+        };
+        img.src = barSrc;
+      }
+
+      const savedHead = localStorage.getItem(CONCENTRIC_STORAGE_HEAD);
+      const headSrc = savedHead || concentricHeadUrl;
+      if (headSrc) {
+        const img = new Image();
+        img.onload = () => {
+          concentricCustomHeadImg = img;
+          invalidateConcentricTextureCache();
+          refreshConcentricStyleUI();
+          if (isConcentricObstacleMode) updateConcentricPropTextures();
+        };
+        img.src = headSrc;
+      }
+    } catch(e){}
+  };
+
+  btnClear?.addEventListener('click', () => {
+    concentricCustomBarImg = null;
+    concentricCustomHeadImg = null;
+    try {
+      localStorage.removeItem(CONCENTRIC_STORAGE_BAR);
+      localStorage.removeItem(CONCENTRIC_STORAGE_HEAD);
+    } catch(e){}
+    loadConcentricAppearanceAssets();
+    invalidateConcentricTextureCache();
+    refreshConcentricStyleUI();
+    if (isConcentricObstacleMode) updateConcentricPropTextures();
+  });
+
+  loadConcentricAppearanceAssets();
+  refreshConcentricStyleUI();
+}
+
+function generateCorridorRowBlocks(minC: number, maxC: number): { col: number; length: number }[] {
+  const width = maxC - minC + 1;
+  if (width <= 0) return [];
+  if (width === 1) return [{ col: minC, length: 1 }];
+
+  // Keep one gap so rows look dense without immediately auto-completing.
+  const numGaps = 1;
+  const targetFilled = width - numGaps;
+
+  const blockLengths: number[] = [];
+  let remaining = targetFilled;
+  let attempts = 0;
+
+  while (remaining > 0 && attempts < 50) {
+    attempts++;
+    const maxLen = Math.min(4, remaining);
+    const len = weightedRandomLength(maxLen);
+    if (len <= 0) {
+      blockLengths.push(1);
+      remaining -= 1;
+    } else {
+      blockLengths.push(len);
+      remaining -= len;
+    }
+  }
+
+  // Shuffle block lengths to avoid always placing larger blocks on one side
+  for (let i = blockLengths.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [blockLengths[i], blockLengths[j]] = [blockLengths[j], blockLengths[i]];
+  }
+
+  // Insert gaps at random slot positions among the blocks
+  type CorridorSlot = { type: 'block'; length: number } | { type: 'gap'; length: number };
+  const slots: CorridorSlot[] = blockLengths.map(l => ({ type: 'block', length: l }));
+
+  for (let g = 0; g < numGaps; g++) {
+    const insertIdx = Math.floor(Math.random() * (slots.length + 1));
+    slots.splice(insertIdx, 0, { type: 'gap', length: 1 });
+  }
+
+  const result: { col: number; length: number }[] = [];
+  let currentCol = minC;
+  for (const s of slots) {
+    if (s.type === 'block') {
+      result.push({ col: currentCol, length: s.length });
+    }
+    currentCol += s.length;
+  }
+  return result;
+}
+
+function hasConcentricSupport(
+  block: { col: number; length: number },
+  supportCols: Set<number> | null | undefined,
+): boolean {
+  if (!supportCols || supportCols.size === 0) return true;
+  for (let c = block.col; c < block.col + block.length; c++) {
+    if (supportCols.has(c)) return true;
+  }
+  return false;
+}
+
+function generateSupportedCorridorRowBlocks(
+  minC: number,
+  maxC: number,
+  supportCols?: Set<number> | null,
+): { col: number; length: number }[] {
+  if (!supportCols || supportCols.size === 0) {
+    return generateCorridorRowBlocks(minC, maxC);
+  }
+
+  // The initial concentric board should feel like a normal settled board, not
+  // random pieces suspended in mid air.  Generate the row repeatedly until
+  // every block has at least one cell supported by the row below.  The ordinary
+  // generator still controls density, gap count and block-length weighting.
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const rowBlocks = generateCorridorRowBlocks(minC, maxC);
+    if (rowBlocks.every(b => hasConcentricSupport(b, supportCols))) {
+      return rowBlocks;
+    }
+  }
+
+  // Fallback for very narrow or unlucky rows: place only on supported spans.
+  const supported = new Set<number>();
+  for (let c = minC; c <= maxC; c++) {
+    if (supportCols.has(c)) supported.add(c);
+  }
+  if (supported.size === 0) return generateCorridorRowBlocks(minC, maxC);
+
+  const gapCol = supported.size > 1
+    ? Array.from(supported)[Math.floor(Math.random() * supported.size)]
+    : null;
+  const result: { col: number; length: number }[] = [];
+  let c = minC;
+  while (c <= maxC) {
+    if (!supported.has(c) || c === gapCol) {
+      c++;
+      continue;
+    }
+    let maxLen = 1;
+    while (
+      c + maxLen <= maxC
+      && supported.has(c + maxLen)
+      && c + maxLen !== gapCol
+      && maxLen < 4
+    ) {
+      maxLen++;
+    }
+    const len = Math.max(1, weightedRandomLength(maxLen));
+    result.push({ col: c, length: len });
+    c += len;
+  }
+  return result;
+}
+
+function generateConcentricBlocksForOpenColumns(openCols: number[]): { col: number; length: number }[] {
+  const sorted = Array.from(new Set(openCols))
+    .filter(c => Number.isFinite(c))
+    .sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+
+  const result: { col: number; length: number }[] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+
+  const appendSegment = (minC: number, maxC: number) => {
+    if (minC > maxC) return;
+    result.push(...generateCorridorRowBlocks(minC, maxC));
+  };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const col = sorted[i];
+    if (col === prev + 1) {
+      prev = col;
+      continue;
+    }
+    appendSegment(start, prev);
+    start = col;
+    prev = col;
+  }
+  appendSegment(start, prev);
+  return result;
+}
+
+function generateSupportedFullBoardRow(
+  row: number,
+  supportCols?: Set<number> | null,
+): { col: number; length: number; color: string }[] {
+  if (row >= PARAMS.totalRows) {
+    return [];
+  }
+
+  const colors = ['red', 'blue', 'green', 'yellow', 'pink'];
+  const rowBlocks: { col: number; length: number; color: string }[] = [];
+  const corridorBlocks = generateSupportedCorridorRowBlocks(
+    concentricCenterMinCol,
+    concentricCenterMaxCol,
+    supportCols,
+  );
+
+  corridorBlocks.forEach(b => {
+    rowBlocks.push({
+      col: b.col,
+      length: b.length,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    });
+  });
+
+  return rowBlocks;
+}
+
+function updateConcentricBlockVisibility(): void {
+  if (!isConcentricObstacleMode) return;
+  const bounds = getActiveConcentricCorridorBounds();
+
+  blocks.forEach(b => {
+    if (b.isProp) return;
+    const isAboveCorridor = b.row < bounds.minRow || b.concentricBuffer;
+
+    if (b.sprite) {
+      if (isAboveCorridor) {
+        if (b.row >= 0 && b.row < bounds.minRow) {
+          b.row = -1;
+          b.concentricBuffer = true;
+        }
+        b.sprite.visible = false;
+        b.sprite.eventMode = 'none';
+      } else {
+        b.sprite.visible = true;
+        b.sprite.alpha = 1;
+        b.sprite.eventMode = 'static';
+      }
+    }
+  });
+}
+
+function getConcentricTopRowsNeedingSupply(): number {
+  if (!isConcentricObstacleMode) return 0;
+  const bounds = getActiveConcentricCorridorBounds();
+  if (bounds.minRow > bounds.maxRow) return 0;
+  const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+  let missingRows = 0;
+  for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
+    const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r)
+      .filter(c => c >= bounds.minCol && c <= bounds.maxCol);
+    if (openCols.length === 0) continue;
+    const hasBlock = openCols.every(c => blocks.some(b =>
+      !b.isProp && b.row === r && c >= b.col && c < b.col + b.length));
+    if (hasBlock) break;
+    missingRows++;
+  }
+  return missingRows;
+}
+
+function getConcentricMissingTopRowCount(): number {
+  if (!isConcentricObstacleMode) return 0;
+  const bounds = getActiveConcentricCorridorBounds();
+  if (bounds.minRow > bounds.maxRow) return 0;
+
+  let topOccupiedRow = bounds.maxRow + 1;
+  for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
+    const hasBlock = blocks.some(b =>
+      !b.isProp &&
+      !b.concentricBuffer &&
+      b.row === r &&
+      b.col + b.length - 1 >= bounds.minCol &&
+      b.col <= bounds.maxCol
+    );
+    if (hasBlock) {
+      topOccupiedRow = r;
+      break;
+    }
+  }
+  return Math.max(0, topOccupiedRow - bounds.minRow);
+}
+
+/**
+ * During a gravity tween, use the block's rendered y rather than its final
+ * logical row for occlusion.  A block may legitimately travel behind a ring
+ * prop; it must stay hidden until its rendered cell has passed the prop's
+ * lower edge, then become visible again without popping through the prop.
+ */
+function updateConcentricFallingVisibility(block: Block, visualY: number): void {
+  if (!isConcentricObstacleMode || block.isProp || !block.sprite) return;
+  const cell = Math.max(1, PARAMS.cellSize || 1);
+  const visualRow = Math.floor((visualY + cell * 0.5) / cell);
+  // Keep the whole physical block rendered while it traverses the board.
+  // Obstacle sprites render above the blocks during the fall.
+  const covered = visualRow < 0 || visualRow >= PARAMS.totalRows;
+  block.sprite.visible = !covered;
+  block.sprite.eventMode = covered ? 'none' : 'static';
+}
+
+function ensureConcentricTopBuffer(): void {
+  if (!isConcentricObstacleMode) return;
+  const bounds = getActiveConcentricCorridorBounds();
+  if (bounds.minCol > bounds.maxCol) return;
+  const centralMinRow = bounds.minRow;
+  // Keep a deep hidden reserve so gravity can consume pre-generated rows
+  // without creating a piece during the visible frame.
+  // Reserve buffer rows MUST ALWAYS BE strictly above the board (row < 0).
+  const targetBufferTop = -30;
+  for (let r = -1; r >= targetBufferTop; r--) {
+    const occupiedCols = new Set<number>();
+    blocks.filter(b => !b.isProp && b.row === r).forEach(b => {
+      for (let c = b.col; c < b.col + b.length; c++) occupiedCols.add(c);
+    });
+    const openCols: number[] = [];
+    for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
+      if (!occupiedCols.has(c)) openCols.push(c);
+    }
+    generateConcentricBlocksForOpenColumns(openCols).forEach(spec => {
+      const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
+      if (blk) {
+        blk.concentricBuffer = true;
+        if (blk.sprite) {
+          blk.sprite.visible = false;
+          blk.sprite.eventMode = 'none';
+        }
+      }
+    });
+  }
+}
+
+function getActiveConcentricCorridorBounds(): { minCol: number; maxCol: number; minRow: number; maxRow: number } {
+  const totalCols = PARAMS.gridCols || concentricConfig.cols || DEFAULT_BOARD_COLS;
+  const totalRows = PARAMS.totalRows || concentricConfig.rows || 20;
+
+  if (!isConcentricObstacleMode) {
+    return { minCol: 0, maxCol: totalCols - 1, minRow: 0, maxRow: totalRows - 1 };
+  }
+
+  const activeProps = blocks.filter(b => b.isProp && b.concentricLayer !== undefined && b.length > 0);
+  if (activeProps.length === 0) {
+    return { minCol: 0, maxCol: totalCols - 1, minRow: 0, maxRow: totalRows - 1 };
+  }
+
+  const halfCols = totalCols / 2;
+  const halfRows = totalRows / 2;
+
+  let minCol = 0;
+  let maxCol = totalCols - 1;
+  let minRow = 0;
+  let maxRow = totalRows - 1;
+
+  // 1. Calculate top and bottom boundaries from horizontal props
+  activeProps.forEach(p => {
+    const isVert = p.propDir === 'up' || p.propDir === 'down' || p.propOrientation === 'vertical';
+    if (!isVert) {
+      if (p.row < halfRows) {
+        minRow = Math.max(minRow, p.row + 1);
+      } else {
+        maxRow = Math.min(maxRow, p.row - 1);
+      }
+    }
+  });
+
+  // 2. Determine minCol and maxCol at the top entrance row (minRow)
+  // A column is open for falling blocks if no active obstacle covers (c, minRow)
+  for (let c = 0; c < halfCols; c++) {
+    if (isCellCoveredByProps(activeProps, c, minRow)) {
+      minCol = Math.max(minCol, c + 1);
+    }
+  }
+  for (let c = totalCols - 1; c >= halfCols; c--) {
+    if (isCellCoveredByProps(activeProps, c, minRow)) {
+      maxCol = Math.min(maxCol, c - 1);
+    }
+  }
+
+  return {
+    minCol: Math.min(minCol, maxCol),
+    maxCol: Math.max(minCol, maxCol),
+    minRow: Math.min(minRow, maxRow),
+    maxRow: Math.max(minRow, maxRow),
+  };
+}
+
+function getConcentricEliminationRowBounds(): { minRow: number; maxRow: number } {
+  if (!isConcentricObstacleMode) {
+    const totalRows = PARAMS.totalRows || concentricConfig.rows || 20;
+    return { minRow: 0, maxRow: Math.max(0, totalRows - 1) };
+  }
+  const bounds = getActiveConcentricCorridorBounds();
+  return { minRow: bounds.minRow, maxRow: bounds.maxRow };
+}
+
+function getConcentricOccupancyGrid(): (Block | null)[][] {
+  const totalRows = PARAMS.totalRows || concentricConfig.rows || 20;
+  const totalCols = PARAMS.gridCols || concentricConfig.cols || DEFAULT_BOARD_COLS;
+  const grid: (Block | null)[][] = Array.from({ length: totalRows }, () => Array(totalCols).fill(null));
+
+  const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+  const bounds = getActiveConcentricCorridorBounds();
+
+  // 1. Mark cells occupied by active obstacle props
+  for (const prop of activeProps) {
+    const isVert = prop.propDir === 'up' || prop.propDir === 'down' || prop.propOrientation === 'vertical';
+    for (let i = 0; i < prop.length; i++) {
+      const r = isVert ? prop.row + i : prop.row;
+      const c = isVert ? prop.col : prop.col + i;
+      if (r >= 0 && r < totalRows && c >= 0 && c < totalCols) {
+        grid[r][c] = prop;
+      }
+    }
+  }
+
+  // 2. Mark cells occupied by normal blocks (on board within active corridor)
+  for (const b of blocks) {
+    if (b.isProp || b.row < bounds.minRow || b.row > bounds.maxRow) continue;
+    if (b.concentricBuffer) continue;
+    if (b.sprite && (b.sprite as any).destroyed) continue;
+    for (let c = 0; c < b.length; c++) {
+      const col = b.col + c;
+      if (col >= 0 && col < totalCols) {
+        grid[b.row][col] = b;
+      }
+    }
+  }
+
+  return grid;
+}
+
+function canPlaceConcentricBlock(grid: (Block | null)[][], row: number, col: number, length: number): boolean {
+  const totalRows = PARAMS.totalRows || concentricConfig.rows || 20;
+  const totalCols = PARAMS.gridCols || concentricConfig.cols || DEFAULT_BOARD_COLS;
+  if (row < 0 || row >= totalRows) return false;
+  if (col < 0 || col + length > totalCols) return false;
+
+  for (let c = 0; c < length; c++) {
+    if (grid[row][col + c] !== null) return false;
+  }
+  return true;
+}
+
+function ensureConcentricCorridorFilled(prepareForGravity = false): void {
+  if (!isConcentricObstacleMode) return;
+  if (activeSimulatingStepIndex !== null || isPlayingStepTransition) return;
+  const bounds = getActiveConcentricCorridorBounds();
+  const minC = bounds.minCol;
+  const maxC = bounds.maxCol;
+  if (minC > maxC || bounds.minRow > bounds.maxRow) return;
+
+  const grid = getConcentricOccupancyGrid();
+  // Find highest occupied row containing normal blocks in the corridor
+  let topOccupiedRow = bounds.maxRow + 1;
+  for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
+    const hasNormalBlock = blocks.some(b => !b.isProp && b.row === r && b.col + b.length - 1 >= minC && b.col <= maxC);
+    if (hasNormalBlock) {
+      topOccupiedRow = r;
+      break;
+    }
+  }
+
+  // The reserve above the board is generated up-front. Only the explicit
+  // pre-gravity refill phase may consume it; the post-gravity visibility pass
+  // must not create or move pieces on its own.
+  if (!prepareForGravity) return;
+
+  if (topOccupiedRow > bounds.minRow) {
+    for (let r = topOccupiedRow - 1; r >= bounds.minRow; r--) {
+      // Legacy row-by-row guard retained for old recordings:
+      // targetR < r && canPlaceConcentricBlock(grid, targetR + 1, b.col, b.length)
+      // canPlaceConcentricBlock(grid, bounds.minRow, b.col, b.length)
+      // grid[targetR][b.col + c] = blk;
+      const sourceRow = blocks
+        .filter(b => !b.isProp && b.concentricBuffer && b.row < 0)
+        .reduce((max, b) => Math.max(max, b.row), -Infinity);
+      if (!Number.isFinite(sourceRow)) break;
+
+      const sourceBlocks = blocks
+        .filter(b => !b.isProp && b.concentricBuffer && b.row === sourceRow)
+        .sort((a, b) => a.col - b.col);
+      if (sourceBlocks.length === 0) break;
+
+      let movedAny = false;
+      sourceBlocks.forEach(blk => {
+        if (!canPlaceConcentricBlock(grid, bounds.minRow, blk.col, blk.length)) return;
+        if (!canPlaceConcentricBlock(grid, r, blk.col, blk.length)) return;
+
+        const sourceY = (bounds.minRow - 1) * PARAMS.cellSize;
+        blk.row = r;
+        blk.concentricBuffer = false;
+        blk.concentricEntryFromY = sourceY;
+        for (let c = 0; c < blk.length; c++) {
+          grid[r][blk.col + c] = blk;
+        }
+        if (blk.sprite) {
+          blk.sprite.zIndex = 10;
+          blk.sprite.y = sourceY;
+          blk.sprite.visible = false;
+          blk.sprite.alpha = 1;
+          blk.sprite.eventMode = 'none';
+        }
+        movedAny = true;
+      });
+      if (!movedAny) break;
+    }
+  }
+}
+
+function finalizeConcentricPendingEntriesInstant(): void {
+  if (!isConcentricObstacleMode) return;
+  blocks.forEach(b => {
+    if (!Number.isFinite(b.concentricEntryFromY)) return;
+    if (b.sprite && !(b.sprite as any).destroyed) {
+      b.sprite.y = b.row * PARAMS.cellSize;
+      b.sprite.visible = true;
+      b.sprite.alpha = 1;
+      b.sprite.eventMode = 'static';
+    }
+    delete b.concentricEntryFromY;
+    b.concentricBuffer = false;
+  });
+}
+
+function stageConcentricReserveRowsForGravity(rowCount: number): void {
+  if (!isConcentricObstacleMode) return;
+  const count = Math.max(0, Math.floor(rowCount));
+  if (count <= 0) return;
+
+  const bounds = getActiveConcentricCorridorBounds();
+  if (bounds.minCol > bounds.maxCol || bounds.minRow > bounds.maxRow) return;
+
+  ensureConcentricTopBuffer();
+
+  for (let i = 0; i < count; i++) {
+    const sourceRow = blocks
+      .filter(b => !b.isProp && b.concentricBuffer && b.row < 0)
+      .reduce((max, b) => Math.max(max, b.row), -Infinity);
+    if (!Number.isFinite(sourceRow)) break;
+
+    const targetRow = bounds.minRow - 1 - i;
+    const sourceBlocks = blocks
+      .filter(b => !b.isProp && b.concentricBuffer && b.row === sourceRow)
+      .sort((a, b) => a.col - b.col);
+    if (sourceBlocks.length === 0) break;
+
+    sourceBlocks.forEach(blk => {
+      const sourceY = targetRow * PARAMS.cellSize;
+      blk.row = targetRow;
+      blk.concentricBuffer = false;
+      blk.concentricEntryFromY = sourceY;
+      if (blk.sprite) {
+        blk.sprite.zIndex = 10;
+        blk.sprite.y = sourceY;
+        blk.sprite.visible = false;
+        blk.sprite.alpha = 1;
+        blk.sprite.eventMode = 'none';
+      }
+    });
+  }
+}
+
+function syncActiveConcentricCorridorBounds(): void {
+  if (!isConcentricObstacleMode) return;
+  const bounds = getActiveConcentricCorridorBounds();
+  const oldMinCol = concentricCenterMinCol;
+  const oldMaxCol = concentricCenterMaxCol;
+  const oldMinRow = concentricCenterMinRow;
+  concentricCenterMinCol = bounds.minCol;
+  concentricCenterMaxCol = bounds.maxCol;
+  concentricCenterMinRow = bounds.minRow;
+
+  if (bounds.minRow < oldMinRow) {
+    ensureConcentricCorridorFilled();
+  }
+
+  // When the corridor expands, preserve the already generated hidden rows.
+  // The top-buffer synchronizer fills only newly opened columns so a prop
+  // hit cannot delete the current falling wave and start a second one.
+  if (bounds.minCol < oldMinCol || bounds.maxCol > oldMaxCol) {
+    ensureConcentricTopBuffer();
+  }
+}
+
+function replenishConcentricCentralRows(_rowsToSpawn: number): void {
+  if (!isConcentricObstacleMode) return;
+  stageConcentricReserveRowsForGravity(_rowsToSpawn);
+}
+
+function syncConcentricSettingsUI(): void {
+  const panel = document.getElementById('concentric-obstacle-settings-section');
+  if (panel) {
+    panel.style.display = isConcentricObstacleMode ? 'flex' : 'none';
+  }
+  if (!isConcentricObstacleMode) return;
+
+  const setVal = (id: string, val: string | number) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(val);
+  };
+  const setInput = (id: string, val: string | number) => {
+    const el = document.getElementById(id) as HTMLInputElement | null;
+    if (el) el.value = String(val);
+  };
+
+  setVal('val-concentric-layers', concentricConfig.layers);
+  setInput('slider-concentric-layers', concentricConfig.layers);
+
+  setVal('val-concentric-cols', concentricConfig.cols);
+  setInput('slider-concentric-cols', concentricConfig.cols);
+
+  setVal('val-concentric-rows', concentricConfig.rows);
+  setInput('slider-concentric-rows', concentricConfig.rows);
+
+  const centerW = Math.max(2, concentricConfig.cols - 2 * concentricConfig.layers);
+  const centerH = Math.max(2, concentricConfig.rows - 2 * concentricConfig.layers);
+  concentricConfig.centerCols = centerW;
+  concentricConfig.centerRows = centerH;
+
+  setVal('val-concentric-center-w', centerW);
+  setInput('slider-concentric-center-w', centerW);
+
+  setVal('val-concentric-center-h', centerH);
+  setInput('slider-concentric-center-h', centerH);
+
+  const orderSelect = document.getElementById('select-concentric-order') as HTMLSelectElement | null;
+  if (orderSelect) {
+    orderSelect.value = concentricConfig.order;
+  }
+  refreshConcentricStyleUI();
+}
+
+function getAdaptiveConcentricRows(cols: number): number {
+  const boardClip = document.getElementById('board-clip');
+  if (boardClip && boardClip.clientHeight > 0 && boardClip.clientWidth > 0) {
+    const ratio = boardClip.clientHeight / boardClip.clientWidth;
+    return Math.max(6, Math.round(cols * ratio));
+  }
+  return Math.max(6, Math.round(cols * (20 / 11)));
+}
+
+function initConcentricSettingsUIListeners(): void {
+  const sliderLayers = document.getElementById('slider-concentric-layers') as HTMLInputElement | null;
+  const sliderCols = document.getElementById('slider-concentric-cols') as HTMLInputElement | null;
+  const sliderRows = document.getElementById('slider-concentric-rows') as HTMLInputElement | null;
+  const sliderCenterW = document.getElementById('slider-concentric-center-w') as HTMLInputElement | null;
+  const sliderCenterH = document.getElementById('slider-concentric-center-h') as HTMLInputElement | null;
+  const selectOrder = document.getElementById('select-concentric-order') as HTMLSelectElement | null;
+  const btnRegenerate = document.getElementById('btn-concentric-regenerate');
+
+  sliderLayers?.addEventListener('input', () => {
+    const newLayers = parseInt(sliderLayers.value, 10) || 2;
+    concentricConfig.layers = newLayers;
+    concentricConfig.rows = getAdaptiveConcentricRows(concentricConfig.cols);
+    concentricConfig.centerCols = Math.max(2, concentricConfig.cols - 2 * newLayers);
+    concentricConfig.centerRows = Math.max(2, concentricConfig.rows - 2 * newLayers);
+    syncConcentricSettingsUI();
+    generateConcentricObstacleBoard();
+  });
+
+  sliderCols?.addEventListener('input', () => {
+    const newCols = parseInt(sliderCols.value, 10) || 11;
+    concentricConfig.cols = newCols;
+    concentricConfig.rows = getAdaptiveConcentricRows(newCols);
+    concentricConfig.centerCols = Math.max(2, newCols - 2 * concentricConfig.layers);
+    concentricConfig.centerRows = Math.max(2, concentricConfig.rows - 2 * concentricConfig.layers);
+    syncConcentricSettingsUI();
+    generateConcentricObstacleBoard();
+  });
+
+  sliderRows?.addEventListener('input', () => {
+    const newRows = parseInt(sliderRows.value, 10) || 20;
+    concentricConfig.rows = newRows;
+    concentricConfig.centerRows = Math.max(2, newRows - 2 * concentricConfig.layers);
+    syncConcentricSettingsUI();
+    generateConcentricObstacleBoard();
+  });
+
+  sliderCenterW?.addEventListener('input', () => {
+    const newW = parseInt(sliderCenterW.value, 10) || 4;
+    concentricConfig.centerCols = newW;
+    concentricConfig.cols = newW + 2 * concentricConfig.layers;
+    concentricConfig.rows = getAdaptiveConcentricRows(concentricConfig.cols);
+    concentricConfig.centerRows = Math.max(2, concentricConfig.rows - 2 * concentricConfig.layers);
+    syncConcentricSettingsUI();
+    generateConcentricObstacleBoard();
+  });
+
+  sliderCenterH?.addEventListener('input', () => {
+    const newH = parseInt(sliderCenterH.value, 10) || 6;
+    concentricConfig.centerRows = newH;
+    concentricConfig.rows = newH + 2 * concentricConfig.layers;
+    syncConcentricSettingsUI();
+    generateConcentricObstacleBoard();
+  });
+
+  selectOrder?.addEventListener('change', () => {
+    concentricConfig.order = (selectOrder.value === 'outer-to-inner' ? 'outer-to-inner' : 'inner-to-outer');
+    generateConcentricObstacleBoard();
+  });
+
+  btnRegenerate?.addEventListener('click', () => {
+    generateConcentricObstacleBoard();
+  });
+
+  initConcentricAppearanceUI();
+}
+
+function setConcentricObstacleMode(enabled: boolean): void {
+  isConcentricObstacleMode = enabled;
+  if (enabled) {
+    if (isPastureLayerMode) setPastureLayerMode(false);
+    if (isJewelryBoxMode) setJewelryBoxMode(false);
+    isColorChangingMode = false;
+    isSingleColorMode = false;
+    isCustomTwoColorMode = false;
+    isRainbowMode = false;
+    isRainbowFixedMode = false;
+    isMaterialChangingMode = false;
+    isCollectMode = false;
+    if (multiCollectibleModeEnabled) {
+      multiCollectibleModeEnabled = false;
+      const multiToggle = document.getElementById('input-multi-collectible-mode') as HTMLInputElement | null;
+      if (multiToggle) multiToggle.checked = false;
+    }
+    isNoGravityMode = false;
+    // Default concentric dimensions to match active board (full screen, covering full canvas frame)
+    if (typeof (window as any).applyGridConfig === 'function') {
+      (window as any).applyGridConfig();
+    }
+    const effectiveCols = PARAMS.gridCols || 11;
+    const effectiveRows = getAdaptiveConcentricRows(effectiveCols);
+    concentricConfig.cols = effectiveCols;
+    concentricConfig.rows = effectiveRows;
+    concentricConfig.centerCols = Math.max(2, concentricConfig.cols - 2 * concentricConfig.layers);
+    concentricConfig.centerRows = Math.max(2, concentricConfig.rows - 2 * concentricConfig.layers);
+    PARAMS.viewportRows = effectiveRows;
+    previewRenderRows = effectiveRows;
+    PARAMS.totalRows = effectiveRows;
+
+    const inputVpRowsEl = document.getElementById('input-vprows') as HTMLInputElement | null;
+    const sliderVpRowsEl = document.getElementById('slider-vprows') as HTMLInputElement | null;
+    const valVpRowsEl = document.getElementById('val-vprows');
+    if (inputVpRowsEl) inputVpRowsEl.value = String(effectiveRows);
+    if (sliderVpRowsEl) sliderVpRowsEl.value = String(effectiveRows);
+    if (valVpRowsEl) valVpRowsEl.textContent = String(effectiveRows);
+
+    syncConcentricSettingsUI();
+    generateConcentricObstacleBoard();
+  } else {
+    blocks = blocks.filter(b => {
+      if (b.concentricLayer !== undefined || (b.isProp && b.propType === 'peppermint')) {
+        if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+        return false;
+      }
+      return true;
+    });
+    concentricLayers = [];
+    currentConcentricLayerIndex = 0;
+    blocks.forEach(b => {
+      if (b.sprite) {
+        b.sprite.visible = true;
+        b.sprite.eventMode = 'static';
+      }
+    });
+  }
+  syncConcentricSettingsUI();
+  syncModeButtonsUI();
+}
+
+function generateConcentricObstacleBoard(): void {
+  blocks.forEach(b => {
+    if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+  });
+  blocks = [];
+
+  if (typeof worldContainer !== 'undefined') worldContainer.y = 0;
+
+  const totalLayers = Math.max(1, Math.min(4, concentricConfig.layers));
+  const totalCols = concentricConfig.cols;
+  const totalRows = concentricConfig.rows;
+
+  PARAMS.gridCols = totalCols;
+  PARAMS.viewportRows = totalRows;
+  previewRenderRows = totalRows;
+  PARAMS.totalRows = totalRows;
+
+  const inputColsEl = document.getElementById('input-cols') as HTMLInputElement | null;
+  const sliderColsEl = document.getElementById('slider-cols') as HTMLInputElement | null;
+  const valColsEl = document.getElementById('val-cols');
+  if (inputColsEl) inputColsEl.value = String(totalCols);
+  if (sliderColsEl) sliderColsEl.value = String(totalCols);
+  if (valColsEl) valColsEl.textContent = String(totalCols);
+
+  const inputVpRowsEl = document.getElementById('input-vprows') as HTMLInputElement | null;
+  const sliderVpRowsEl = document.getElementById('slider-vprows') as HTMLInputElement | null;
+  const valVpRowsEl = document.getElementById('val-vprows');
+  if (inputVpRowsEl) inputVpRowsEl.value = String(totalRows);
+  if (sliderVpRowsEl) sliderVpRowsEl.value = String(totalRows);
+  if (valVpRowsEl) valVpRowsEl.textContent = String(totalRows);
+
+  const inputRowsEl = document.getElementById('input-rows') as HTMLInputElement | null;
+  const sliderRowsEl = document.getElementById('slider-rows') as HTMLInputElement | null;
+  const valRowsEl = document.getElementById('val-rows');
+  if (inputRowsEl) inputRowsEl.value = String(PARAMS.totalRows);
+  if (sliderRowsEl) sliderRowsEl.value = String(PARAMS.totalRows);
+  if (valRowsEl) valRowsEl.textContent = String(PARAMS.totalRows);
+
+  isSyncingConcentricGrid = true;
+  try {
+    if (typeof (window as any).applyGridConfig === 'function') {
+      (window as any).applyGridConfig();
+    }
+  } finally {
+    isSyncingConcentricGrid = false;
+  }
+
+  const layout = generateConcentricLayout(totalRows, totalCols, totalLayers);
+  if (!layout.isValid) {
+    console.warn('[CONCENTRIC_MODE] Invalid layout:', layout.errorMessage);
+    return;
+  }
+
+  concentricCenterMinCol = layout.centerBounds.minCol;
+  concentricCenterMaxCol = layout.centerBounds.maxCol;
+  concentricCenterMinRow = layout.centerBounds.minRow;
+
+  concentricLayers = Array.from({ length: totalLayers }, (_, idx) => ({
+    layerIndex: idx,
+    propIds: [],
+  }));
+
+  // 1. First, spawn all props for all layers with zIndex = 100
+  layout.layers.forEach(layerProps => {
+    layerProps.forEach(p => {
+      const isVert = p.propDir === 'up' || p.propDir === 'down';
+      const blk = spawnBlock(
+        p.col, p.row, p.length, 'prop-peppermint', undefined, true, false, true, 'peppermint', p.propDir
+      );
+      if (blk) {
+        blk.concentricLayer = p.layerIndex;
+        blk.propOrientation = isVert ? 'vertical' : 'horizontal';
+        if (blk.id !== undefined && concentricLayers[p.layerIndex]) {
+          concentricLayers[p.layerIndex].propIds.push(blk.id);
+        }
+        if (blk.sprite) {
+          blk.sprite.zIndex = 100;
+          blk.sprite.texture = getConcentricPropTexture(p.length, p.propDir);
+          blk.sprite.width = isVert ? (PARAMS.cellSize || 50) : p.length * (PARAMS.cellSize || 50);
+          blk.sprite.height = isVert ? p.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
+        }
+      }
+    });
+  });
+
+  // 2. Second, generate the visible board from bottom to top.  This mirrors
+  // the normal rising-board feel: the opening layout is already settled, so a
+  // newly visible block is not obviously hanging over empty space.
+  const activePropsForInitialBoard = blocks.filter(b => b.isProp && b.length > 0);
+  let supportCols = new Set<number>();
+  for (let c = concentricCenterMinCol; c <= concentricCenterMaxCol; c++) {
+    supportCols.add(c);
+  }
+  for (let r = layout.centerBounds.maxRow; r >= layout.centerBounds.minRow; r--) {
+    const rowBlocks = generateSupportedFullBoardRow(r, supportCols);
+    const nextSupportCols = new Set<number>();
+    rowBlocks.forEach(b => {
+      const blk = spawnBlock(b.col, r, b.length, b.color);
+      if (blk && blk.sprite) {
+        blk.sprite.zIndex = 10;
+        blk.sprite.visible = false;
+          blk.sprite.eventMode = 'none';
+      }
+      for (let c = b.col; c < b.col + b.length; c++) {
+        nextSupportCols.add(c);
+      }
+    });
+    for (let c = concentricCenterMinCol; c <= concentricCenterMaxCol; c++) {
+      if (isCellCoveredByProps(activePropsForInitialBoard, c, r)) {
+        nextSupportCols.add(c);
+      }
+    }
+    if (nextSupportCols.size > 0) {
+      supportCols = nextSupportCols;
+    }
+  }
+
+  if (blocksContainer) {
+    blocksContainer.sortableChildren = true;
+  }
+
+  ensureConcentricTopBuffer();
+
+  currentConcentricLayerIndex = concentricConfig.order === 'inner-to-outer' ? 0 : totalLayers - 1;
+  initialConcentricLayerIndex = currentConcentricLayerIndex;
+
+  // 3. Update visibility: covered blocks hidden, open blocks visible
+  updateConcentricBlockVisibility();
+
+  captureBoardState();
+}
+
+function inferConcentricLayer(b: { col: number; row: number; length: number; propDir?: string; propOrientation?: string }): number {
+  const totalLayers = Math.max(1, Math.min(4, concentricConfig.layers));
+  const totalCols = concentricConfig.cols || PARAMS.gridCols || 11;
+  const totalRows = concentricConfig.rows || PARAMS.totalRows || 20;
+
+  const isVert = b.propDir === 'up' || b.propDir === 'down' || b.propOrientation === 'vertical';
+  const width = isVert ? 1 : b.length;
+  const height = isVert ? b.length : 1;
+
+  const distLeft = b.col;
+  const distRight = totalCols - (b.col + width);
+  const distTop = b.row;
+  const distBottom = totalRows - (b.row + height);
+
+  const k = Math.max(0, Math.min(distLeft, distRight, distTop, distBottom));
+  const layerIndex = Math.max(0, Math.min(totalLayers - 1, (totalLayers - 1) - k));
+  return layerIndex;
+}
+
+function getPropConcentricLayer(b: Block): number {
+  if (b.concentricLayer !== undefined && b.concentricLayer !== null) {
+    return b.concentricLayer;
+  }
+  return inferConcentricLayer(b);
+}
+
+function isConcentricVictoryAchieved(): boolean {
+  if (!isConcentricObstacleMode) return false;
+  const remainingProps = blocks.filter(b => b.isProp && b.length > 0);
+  if (remainingProps.length > 0) return false;
+  return true;
+}
+
+function advanceConcentricLayer(): void {
+  const isInnerToOuter = concentricConfig.order === 'inner-to-outer';
+  if (isInnerToOuter) {
+    currentConcentricLayerIndex++;
+  } else {
+    currentConcentricLayerIndex--;
+  }
+  syncActiveConcentricCorridorBounds();
+  ensureConcentricCorridorFilled();
+  if (isConcentricVictoryAchieved()) {
+    triggerConcentricVictory();
+  }
+}
+
+function syncCurrentConcentricLayerFromBlocks(): void {
+  if (!isConcentricObstacleMode) return;
+  const isInnerToOuter = concentricConfig.order === 'inner-to-outer';
+  const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+  if (activeProps.length === 0) return;
+
+  const layersWithProps = new Set(activeProps.map(b => getPropConcentricLayer(b)));
+  if (!layersWithProps.has(currentConcentricLayerIndex)) {
+    if (isInnerToOuter) {
+      for (let idx = 0; idx < concentricLayers.length; idx++) {
+        if (layersWithProps.has(idx)) {
+          currentConcentricLayerIndex = idx;
+          break;
+        }
+      }
+    } else {
+      for (let idx = concentricLayers.length - 1; idx >= 0; idx--) {
+        if (layersWithProps.has(idx)) {
+          currentConcentricLayerIndex = idx;
+          break;
+        }
+      }
+    }
+  }
+}
+
+
+function damageConcentricActiveLayerInstant(): void {
+  if (!isConcentricObstacleMode) return;
+  const remainingAll = blocks.filter(b => b.isProp && b.length > 0);
+  if (remainingAll.length === 0) {
+    return;
+  }
+  let layerProps = blocks.filter(b => b.isProp && b.length > 0 && getPropConcentricLayer(b) === currentConcentricLayerIndex);
+  if (layerProps.length === 0) {
+    const isInnerToOuter = concentricConfig.order === 'inner-to-outer';
+    if (isInnerToOuter) currentConcentricLayerIndex++;
+    else currentConcentricLayerIndex--;
+    syncActiveConcentricCorridorBounds();
+    layerProps = blocks.filter(b => b.isProp && b.length > 0 && getPropConcentricLayer(b) === currentConcentricLayerIndex);
+    if (layerProps.length === 0) return;
+  }
+
+  layerProps.forEach(b => {
+    const damage = damagePropOneUnit(b);
+    if (damage.triggered) {
+      b.col = damage.col;
+      b.row = damage.row !== undefined ? damage.row : b.row;
+      b.length = damage.length;
+      if (b.length <= 0 && b.sprite && b.sprite.parent) {
+        blocksContainer.removeChild(b.sprite);
+      }
+    }
+  });
+
+  syncActiveConcentricCorridorBounds();
+  ensureConcentricCorridorFilled();
+
+  const remainingInLayer = blocks.filter(b => b.isProp && b.length > 0 && getPropConcentricLayer(b) === currentConcentricLayerIndex);
+  if (remainingInLayer.length === 0) {
+    const isInnerToOuter = concentricConfig.order === 'inner-to-outer';
+    if (isInnerToOuter) currentConcentricLayerIndex++;
+    else currentConcentricLayerIndex--;
+    syncActiveConcentricCorridorBounds();
+  }
+  updateConcentricBlockVisibility();
+}
+
+function damageConcentricActiveLayer(): void {
+  if (!isConcentricObstacleMode) return;
+  if (isConcentricVictoryAchieved()) {
+    triggerConcentricVictory();
+    return;
+  }
+
+  let layerProps = blocks.filter(b => b.isProp && b.length > 0 && getPropConcentricLayer(b) === currentConcentricLayerIndex);
+  if (layerProps.length === 0) {
+    const remainingAll = blocks.filter(b => b.isProp && b.length > 0);
+    if (remainingAll.length === 0) {
+      triggerConcentricVictory();
+      return;
+    }
+    advanceConcentricLayer();
+    layerProps = blocks.filter(b => b.isProp && b.length > 0 && getPropConcentricLayer(b) === currentConcentricLayerIndex);
+    if (layerProps.length === 0) return;
+  }
+
+  const damagedProps = layerProps.filter(b => isValidPropLength(b.length));
+  if (damagedProps.length === 0) return;
+
+  isAnimating = true;
+  let completedCount = 0;
+  const totalToComplete = damagedProps.length;
+
+  const onOnePropCompleted = () => {
+    completedCount++;
+    if (completedCount >= totalToComplete) {
+      const remainingInLayer = blocks.filter(b => b.isProp && b.length > 0 && getPropConcentricLayer(b) === currentConcentricLayerIndex);
+      if (remainingInLayer.length === 0) {
+        advanceConcentricLayer();
+      }
+      syncActiveConcentricCorridorBounds();
+      ensureConcentricCorridorFilled();
+      updateConcentricBlockVisibility();
+      // The elimination timeline owns the phase transition.  Do not start
+      // gravity from this callback: doing so races the row-clear timeline and
+      // makes concentric combo waves collapse into a rapid chain.
+    }
+  };
+
+  let hasPlayedPropElimSound = false;
+  damagedProps.forEach(b => {
+    const oldCol = b.col;
+    const oldRow = b.row;
+    const oldLen = b.length;
+    const dir = b.propDir || 'left';
+    const damage = damagePropOneUnit(b);
+    if (damage.triggered) {
+      b.col = damage.col;
+      b.row = damage.row !== undefined ? damage.row : b.row;
+      b.length = damage.length;
+
+      const newCol = b.col;
+      const newRow = b.row;
+      const newLen = b.length;
+      if (!hasPlayedPropElimSound && (sounds as any).propElim) {
+        hasPlayedPropElimSound = true;
+        playSound((sounds as any).propElim);
+      }
+
+      animateConcentricPropShrink(b, dir, oldRow, oldCol, oldLen, newRow, newCol, newLen, () => {
+        if (b.length <= 0 && b.sprite && b.sprite.parent) {
+          blocksContainer.removeChild(b.sprite);
+        }
+        onOnePropCompleted();
+      });
+      updateConcentricBlockVisibility();
+    } else {
+      onOnePropCompleted();
+    }
+  });
+}
+
+function triggerConcentricVictory(): void {
+  if (isRepairingScript) return;
+  const remainingProps = blocks.filter(b => b.isProp && b.length > 0);
+  if (remainingProps.length > 0) return;
+
+  const go = document.getElementById('game-over-text');
+  if (go) {
+    go.style.display = 'block';
+    go.innerText = 'MISSION COMPLETE!';
+    go.style.color = '#ffcc00';
+  }
+  if ((sounds as any).win) playSound((sounds as any).win);
+}
 
 let isSingleColorMode = false;
 
@@ -2766,13 +4211,14 @@ interface BoardBlockState {
 
 
   isProp?: boolean;
-
-
-
   propType?: 'row-bomb' | 'peppermint';
-
-  propDir?: 'left' | 'right';
-
+  propDir?: PropDirection;
+  propOrientation?: PropOrientation;
+  concentricLayer?: number;
+  /** Concentric mode: block was pre-generated in the hidden reserve above the board. */
+  concentricBuffer?: boolean;
+  /** Temporary visual start position while a pre-generated row enters the board. */
+  concentricEntryFromY?: number;
   pastureStage?: PastureLayerStage;
   isJewelryBox?: boolean;
   jewelryBoxState?: 'closed' | 'open';
@@ -2785,7 +4231,7 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
   const previousMultiCollectibleMode = multiCollectibleModeEnabled;
   if (shouldUseSingleCollectible) multiCollectibleModeEnabled = false;
   try {
-    spawnBlock(
+    const blk = spawnBlock(
       sb.col,
       sb.row,
       sb.length,
@@ -2801,6 +4247,39 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
       sb.isJewelryBox,
       sb.jewelryBoxState
     );
+    if (blk) {
+      if (sb.concentricLayer !== undefined && sb.concentricLayer !== null) {
+        blk.concentricLayer = sb.concentricLayer;
+        blk.propOrientation = sb.propOrientation;
+      } else if (blk.isProp && isConcentricObstacleMode) {
+        blk.concentricLayer = inferConcentricLayer(blk);
+        const isVert = blk.propDir === 'up' || blk.propDir === 'down';
+        blk.propOrientation = isVert ? 'vertical' : 'horizontal';
+      }
+      if (sb.concentricBuffer === true || (isConcentricObstacleMode && blk.row < 0 && !blk.isProp)) {
+        blk.concentricBuffer = true;
+        if (blk.sprite) {
+          blk.sprite.visible = false;
+          blk.sprite.eventMode = 'none';
+        }
+      }
+      if (blk.isProp && blk.concentricLayer !== undefined) {
+        const layerIdx = blk.concentricLayer;
+        if (!concentricLayers[layerIdx]) {
+          concentricLayers[layerIdx] = { layerIndex: layerIdx, propIds: [] };
+        }
+        if (blk.id !== undefined && !concentricLayers[layerIdx].propIds.includes(blk.id)) {
+          concentricLayers[layerIdx].propIds.push(blk.id);
+        }
+        if (blk.sprite) {
+          blk.sprite.zIndex = 100;
+          blk.sprite.texture = getConcentricPropTexture(blk.length, blk.propDir);
+          const isVert = blk.propDir === 'up' || blk.propDir === 'down' || blk.propOrientation === 'vertical';
+          blk.sprite.width = isVert ? (PARAMS.cellSize || 50) : blk.length * (PARAMS.cellSize || 50);
+          blk.sprite.height = isVert ? blk.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
+        }
+      }
+    }
   } finally {
     multiCollectibleModeEnabled = previousMultiCollectibleMode;
   }
@@ -2821,15 +4300,26 @@ function captureCurrentBoardBlockStates(): BoardBlockState[] {
     collectibleId: b.collectibleId,
     pastureStage: b.pastureStage,
     isJewelryBox: b.isJewelryBox,
-    jewelryBoxState: b.jewelryBoxState
+    jewelryBoxState: b.jewelryBoxState,
+    concentricLayer: b.concentricLayer,
+    concentricBuffer: b.concentricBuffer,
+    propOrientation: b.propOrientation,
   }));
 }
 
 function restoreBoardBlockStates(states: BoardBlockState[]) {
   clearAllBlocks();
+  if (isConcentricObstacleMode) {
+    concentricLayers.forEach(l => { if (l) l.propIds = []; });
+  }
   states.forEach(sb => {
     spawnRecordedBlockState(sb);
   });
+  if (isConcentricObstacleMode) {
+    syncCurrentConcentricLayerFromBlocks();
+    syncActiveConcentricCorridorBounds();
+    updateConcentricBlockVisibility();
+  }
 }
 
 function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
@@ -2851,6 +4341,8 @@ function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
     if (block.pastureStage !== state.pastureStage) return false;
     if (!!block.isJewelryBox !== !!state.isJewelryBox) return false;
     if (block.jewelryBoxState !== state.jewelryBoxState) return false;
+    if (block.concentricLayer !== state.concentricLayer) return false;
+    if (block.propOrientation !== state.propOrientation) return false;
   }
 
   return true;
@@ -2909,6 +4401,7 @@ let scriptPlaybackStopRequested = false;
 
 
 let initialBoardBlocks: BoardBlockState[] = [];
+let initialConcentricLayerIndex = 0;
 
 
 
@@ -3089,6 +4582,10 @@ function syncRecordedScrollPixelsToCurrentCellSize() {
 
 
 function hasMeaningfulRecordedScrollTrack(steps: ScriptStep[] = scriptSteps): boolean {
+
+
+
+  if (isConcentricObstacleMode) return false;
 
 
 
@@ -5740,29 +7237,24 @@ function captureBoardState() {
 
 
     isProp: b.isProp,
-
-
-
     propType: b.propType,
-
-        propDir: b.propDir,
-        collectibleId: b.collectibleId,
-        pastureStage: b.pastureStage
-
-
-
+    propDir: b.propDir,
+    collectibleId: b.collectibleId,
+    pastureStage: b.pastureStage,
+    concentricLayer: b.concentricLayer,
+    concentricBuffer: b.concentricBuffer,
+    propOrientation: b.propOrientation,
+    isJewelryBox: b.isJewelryBox,
+    jewelryBoxState: b.jewelryBoxState
   }));
-
-
 
   initialScrollY = worldContainer.y;
 
-
-
   initialScrollRow = getScrollRowFromWorldY(initialScrollY);
 
-
-
+  if (isConcentricObstacleMode) {
+    initialConcentricLayerIndex = currentConcentricLayerIndex;
+  }
 }
 
 function syncInitialBoardColorsFromCurrentBoard() {
@@ -6245,25 +7737,21 @@ function restoreBoardState(options: { preserveWorldY?: boolean } = {}) {
 
 
   clearAllBlocks();
-
-
+  if (isConcentricObstacleMode) {
+    concentricLayers.forEach(l => { if (l) l.propIds = []; });
+  }
 
   initialBoardBlocks.forEach(ib => {
-
-
-
     spawnRecordedBlockState(ib);
-
-
-
   });
 
-
+  if (isConcentricObstacleMode) {
+    currentConcentricLayerIndex = initialConcentricLayerIndex;
+    syncActiveConcentricCorridorBounds();
+    updateConcentricBlockVisibility();
+  }
 
   // Restore the saved starting board exactly. Mode effects should happen during
-
-
-
   // recorded eliminations, not randomize the initial layout on every replay.
 
 
@@ -6409,6 +7897,12 @@ function getRecordedStepPhysicsMaxRow(step: ScriptStep, worldY: number = getStep
 
 
 function getRuntimeGravityMaxRow(worldY: number = worldContainer?.y || 0): number {
+
+
+
+  if (isConcentricObstacleMode) {
+    return PARAMS.totalRows - 1;
+  }
 
 
 
@@ -6911,25 +8405,33 @@ function getPlaybackAllowedRows(step: ScriptStep): number[] {
 
 
 function getFullRowsFromOccupancy(occ: number[][], minRow = 0, maxRow = PARAMS.totalRows - 1): number[] {
-
   const fullRows: number[] = [];
-
   const start = Math.max(0, minRow);
-
   const end = Math.min(PARAMS.totalRows - 1, maxRow);
 
-  for (let r = start; r <= end; r++) {
-
-    let isFull = true;
-
-    for (let c = 0; c < PARAMS.gridCols; c++) {
-
-      if (occ[r][c] === 0) { isFull = false; break; }
-
+  if (isConcentricObstacleMode) {
+    const bounds = getConcentricEliminationRowBounds();
+    const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+    const rStart = Math.max(bounds.minRow, start);
+    const rEnd = Math.min(bounds.maxRow, end);
+    for (let r = rStart; r <= rEnd; r++) {
+      const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r);
+      if (openCols.length === 0) continue;
+      let isFull = true;
+      for (const c of openCols) {
+        if (!occ[r] || occ[r][c] === 0) { isFull = false; break; }
+      }
+      if (isFull) fullRows.push(r);
     }
+    return fullRows;
+  }
 
+  for (let r = start; r <= end; r++) {
+    let isFull = true;
+    for (let c = 0; c < PARAMS.gridCols; c++) {
+      if (occ[r][c] === 0) { isFull = false; break; }
+    }
     if (isFull) fullRows.push(r);
-
   }
 
   return fullRows;
@@ -7025,6 +8527,7 @@ function getPlaybackFullRowsFromOccupancy(occ: number[][], step: ScriptStep): nu
     );
 
     if (allowed.length === 0) {
+      if (isConcentricObstacleMode) return [];
       const recordedWaves = normalizeEliminationWaves(step.eliminationWaves);
       const recordedChainFinished = recordedWaves.length > 0
         && activeEliminationWaveIndex >= recordedWaves.length;
@@ -7305,6 +8808,20 @@ function continueGravityAfterElimination() {
     : null;
   const applyNextGravity = () => {
     isAnimating = false;
+    if (isConcentricObstacleMode) {
+      if (activeSimulatingStepIndex === null) {
+        const bounds = getActiveConcentricCorridorBounds();
+        const stagedRowCount = new Set(
+          blocks
+            .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
+            .map(b => b.row)
+        ).size;
+        const missingTopRows = getConcentricMissingTopRowCount();
+        const rowsToStage = Math.max(0, Math.max(concentricRecentEliminatedRowCount, missingTopRows) - stagedRowCount);
+        if (rowsToStage > 0) replenishConcentricCentralRows(rowsToStage);
+        concentricRecentEliminatedRowCount = 0;
+      }
+    }
     applyGravity(shouldCheckNextClear);
   };
 
@@ -7466,6 +8983,16 @@ function runPhysicsInstant() {
 
 
 
+        if (canDrop && isConcentricObstacleMode) {
+          const activeProps = blocks.filter(p => p.isProp && p.length > 0);
+          for (let c = 0; c < b.length; c++) {
+            if (isCellCoveredByProps(activeProps, b.col + c, targetRow + 1)) {
+              canDrop = false;
+              break;
+            }
+          }
+        }
+
         if (canDrop) {
 
 
@@ -7475,9 +9002,9 @@ function runPhysicsInstant() {
 
 
             if (other.id === b.id) continue;
-
-
-
+            if (isConcentricObstacleMode && other.isProp && other.concentricLayer !== undefined) {
+              continue;
+            }
             if (other.row === targetRow + 1) {
 
 
@@ -7638,30 +9165,26 @@ function runPhysicsInstant() {
 
 
 
-      for (let r = minRow; r <= maxRow; r++) {
-
-
-
-        let isFull = true;
-
-
-
-        for (let c = 0; c < PARAMS.gridCols; c++) {
-
-
-
-          if (occ[r][c] === 0) { isFull = false; break; }
-
-
-
+      if (isConcentricObstacleMode) {
+        const bounds = getConcentricEliminationRowBounds();
+        const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+        for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
+          const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r);
+          if (openCols.length === 0) continue;
+          let isFull = true;
+          for (const c of openCols) {
+            if (occ[r][c] === 0) { isFull = false; break; }
+          }
+          if (isFull) fullRows.push(r);
         }
-
-
-
-        if (isFull) fullRows.push(r);
-
-
-
+      } else {
+        for (let r = minRow; r <= maxRow; r++) {
+          let isFull = true;
+          for (let c = 0; c < PARAMS.gridCols; c++) {
+            if (occ[r][c] === 0) { isFull = false; break; }
+          }
+          if (isFull) fullRows.push(r);
+        }
       }
 
 
@@ -7830,6 +9353,11 @@ function runPhysicsInstant() {
 
 
 
+      if (isConcentricObstacleMode) {
+        damageConcentricActiveLayerInstant();
+        ensureConcentricCorridorFilled();
+      }
+
       changed = true;
 
 
@@ -7915,9 +9443,12 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
     clearAllBlocks();
-
-
-
+    if (isConcentricObstacleMode) {
+      concentricLayers.forEach(l => { if (l) l.propIds = []; });
+      currentConcentricLayerIndex = (initialConcentricLayerIndex !== undefined)
+        ? initialConcentricLayerIndex
+        : (concentricConfig.order === 'inner-to-outer' ? 0 : concentricLayers.length - 1);
+    }
     initialBoardBlocks.forEach(sb => {
 
 
@@ -7927,6 +9458,10 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
 
     });
+    if (isConcentricObstacleMode) {
+      syncActiveConcentricCorridorBounds();
+      updateConcentricBlockVisibility();
+    }
 
 
 
@@ -9137,11 +10672,19 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
+  if (isConcentricObstacleMode) {
+    autoScroll = false;
+    rising = false;
+    options.mechanic = 'fixed';
+  }
   scriptPlaybackMechanic = options.mechanic || (autoScroll ? 'scroll' : (rising ? 'rising' : 'fixed'));
-
+  if (isConcentricObstacleMode) {
+    scriptPlaybackMechanic = 'fixed';
+  }
   scriptPlaybackAdvanceMode = scriptPlaybackMechanic === 'falling' ? 'fixed' : scriptPlaybackMechanic;
-
-
+  if (isConcentricObstacleMode) {
+    scriptPlaybackAdvanceMode = 'fixed';
+  }
 
   syncBoardAdvanceFlags(scriptPlaybackAdvanceMode);
 
@@ -10445,8 +11988,9 @@ function stopGameplayModeTimer() {
 
 
 function triggerGameOver(reason = 'unknown') {
-
-
+  if (isConcentricObstacleMode && (reason === 'continuous-scroll-top' || reason.includes('scroll') || reason.includes('rising'))) {
+    return;
+  }
 
   isGameStarted = false;
 
@@ -17571,6 +19115,9 @@ let recAudioDest: MediaStreamAudioDestinationNode | null = null;
 
 
 let audioSourcesInitialized = false;
+// Concentric rings can damage several bars in one wave.  Keep the shared
+// obstacle sound from being restarted repeatedly in the same instant.
+const concentricSoundLastPlayback = new WeakMap<HTMLAudioElement, number>();
 
 
 
@@ -17678,6 +19225,13 @@ function initAudioContext() {
 
 
 function playSound(audio: HTMLAudioElement) {
+
+  if (isConcentricObstacleMode && audio === (sounds as any).propElim) {
+    const now = Date.now();
+    const lastPlayback = concentricSoundLastPlayback.get(audio) || 0;
+    if (now - lastPlayback < 180) return;
+    concentricSoundLastPlayback.set(audio, now);
+  }
 
 
 
@@ -17800,13 +19354,14 @@ interface Block {
 
 
   isProp?: boolean;
-
-
-
   propType?: 'row-bomb' | 'peppermint';
-
-  propDir?: 'left' | 'right';
-
+  propDir?: PropDirection;
+  propOrientation?: PropOrientation;
+  concentricLayer?: number;
+  /** Temporary visual start position while a pre-generated row enters the board. */
+  concentricEntryFromY?: number;
+  /** Concentric mode: block was pre-generated in the hidden reserve above the board. */
+  concentricBuffer?: boolean;
   /** PASTURE_LAYER_MODE: current visual/clear layer, absent for ordinary blocks. */
   pastureStage?: PastureLayerStage;
   isJewelryBox?: boolean;
@@ -17863,9 +19418,7 @@ function ensureContinuousScrollSupplyRow() {
 
 
 function advanceContinuousScroll(deltaSec: number) {
-
-
-
+  if (isConcentricObstacleMode) return;
   if (!worldContainer || !isGameStarted || getActiveBoardMechanic() !== 'scroll') return;
 
 
@@ -18751,6 +20304,11 @@ let boardBorderGraphics: PIXI.Graphics;
 
 
 let isAnimating = false;
+
+// A concentric clear is a two-phase beat: one fixed elimination phase followed
+// by one fixed gravity phase.  Keeping this independent of row count prevents
+// a no-drop cascade from immediately checking the next row in the same frame.
+const CONCENTRIC_CASCADE_PHASE_SECONDS = 0.5;
 
 
 
@@ -20413,9 +21971,8 @@ async function init() {
 
 
   blocksContainer = new PIXI.Container();
-
-
-
+  blocksContainer.sortableChildren = true;
+  blocksContainer.zIndex = 10;
   worldContainer.addChild(blocksContainer);
 
 
@@ -20425,10 +21982,9 @@ async function init() {
 
 
   boardBorderGraphics = new PIXI.Graphics();
-
-
-
+  boardBorderGraphics.zIndex = 20;
   worldContainer.addChild(boardBorderGraphics);
+  worldContainer.sortableChildren = true;
 
 
 
@@ -22314,51 +23870,27 @@ function getGridOccupancy(ignoreBlockId: number = -1): number[][] {
 
 
       if (b.isProp) {
-
-
-
-        // 道具占据全部 length 列（含机器头），确保消除判断正确
-
-        // getPropOccupiedColumns 只返回糖果列，漏掉机器头导致满行永远判断失败
-
-
-
-        for (let c = 0; c < b.length; c++) {
-
-
-
-          if (b.col + c >= 0 && b.col + c < PARAMS.gridCols) grid[b.row][b.col + c] = 1;
-
-
-
+        // 道具占据全部 length 格（含机器头），确保消除判断与阻挡正确
+        if (b.propDir === 'up' || b.propDir === 'down' || b.propOrientation === 'vertical') {
+          for (let r = 0; r < b.length; r++) {
+            if (b.row + r >= 0 && b.row + r < PARAMS.totalRows && b.col >= 0 && b.col < PARAMS.gridCols) {
+              grid[b.row + r][b.col] = 1;
+            }
+          }
+        } else {
+          for (let c = 0; c < b.length; c++) {
+            if (b.col + c >= 0 && b.col + c < PARAMS.gridCols) grid[b.row][b.col + c] = 1;
+          }
         }
-
-
-
         return;
-
-
-
       }
 
 
 
       for (let c = 0; c < b.length; c++) {
-
-
-
         if (b.col + c >= 0 && b.col + c < PARAMS.gridCols) {
-
-
-
           grid[b.row][b.col + c] = 1;
-
-
-
         }
-
-
-
       }
 
 
@@ -22392,9 +23924,6 @@ function getHorizontalMoveBounds(block: Block): { minCol: number; maxCol: number
 
 
   let minCol = 0;
-
-
-
   let maxCol = PARAMS.gridCols - block.length;
 
 
@@ -22491,70 +24020,55 @@ function canMoveBlockHorizontallyTo(block: Block, targetCol: number): boolean {
 
 
 
-function getBlockOverlapPairs(): Array<{ first: Block; second: Block }> {
-
-
-
-  const overlaps: Array<{ first: Block; second: Block }> = [];
-
-
-
-  for (let i = 0; i < blocks.length; i++) {
-
-
-
-    for (let j = i + 1; j < blocks.length; j++) {
-
-
-
-      const first = blocks[i];
-
-
-
-      const second = blocks[j];
-
-
-
-      if (
-
-
-
-        first.row === second.row &&
-
-
-
-        first.col < second.col + second.length &&
-
-
-
-        first.col + first.length > second.col
-
-
-
-      ) {
-
-
-
-        overlaps.push({ first, second });
-
-
-
-      }
-
-
-
+function getBlockCells(b: Block): Array<{ col: number; row: number }> {
+  if (b.isProp) {
+    return getPropOccupiedCells(b as any, true);
+  }
+  const isVert = b.propOrientation === 'vertical' || b.propDir === 'up' || b.propDir === 'down';
+  const cells: Array<{ col: number; row: number }> = [];
+  if (isVert) {
+    for (let r = 0; r < b.length; r++) {
+      cells.push({ col: b.col, row: b.row + r });
     }
+  } else {
+    for (let c = 0; c < b.length; c++) {
+      cells.push({ col: b.col + c, row: b.row });
+    }
+  }
+  return cells;
+}
 
+function getBlockOverlapPairs(): Array<{ first: Block; second: Block }> {
+  const overlaps: Array<{ first: Block; second: Block }> = [];
+  const activeBlocks = blocks.filter(b => {
+    if (!b || b.length <= 0) return false;
+    if (b.row < 0) return false;
+    return true;
+  });
 
+  const cellOccupants = new Map<string, Block>();
+  const reportedPairs = new Set<string>();
 
+  for (const block of activeBlocks) {
+    const cells = getBlockCells(block);
+    for (const cell of cells) {
+      const key = `${cell.row},${cell.col}`;
+      const occupant = cellOccupants.get(key);
+      if (occupant && occupant !== block && occupant.id !== block.id) {
+        const first = occupant.id !== undefined && block.id !== undefined && occupant.id > block.id ? block : occupant;
+        const second = first === occupant ? block : occupant;
+        const pairKey = `${first.id ?? first.col + ',' + first.row}-${second.id ?? second.col + ',' + second.row}`;
+        if (!reportedPairs.has(pairKey)) {
+          reportedPairs.add(pairKey);
+          overlaps.push({ first, second });
+        }
+      } else {
+        cellOccupants.set(key, block);
+      }
+    }
   }
 
-
-
   return overlaps;
-
-
-
 }
 
 
@@ -22594,6 +24108,14 @@ function canPlaceBlock(col: number, row: number, length: number): boolean {
   }
 
 
+
+  if (isConcentricObstacleMode) {
+    const activeProps = blocks.filter(p => p.isProp && p.length > 0);
+    for (let c = col; c < col + length; c++) {
+      if (isCellCoveredByProps(activeProps, c, row)) return false;
+    }
+    return !blocks.some(b => !b.isProp && b.row === row && !(b.col + b.length <= col || b.col >= col + length));
+  }
 
   return !blocks.some(b => b.row === row && !(b.col + b.length <= col || b.col >= col + length));
 
@@ -23236,7 +24758,7 @@ function rebuildMachineTextures(): void {
   }
 }
 
-function getPropAnimationTextures(length: number, dir: 'left' | 'right', state: 'idle' | 'attack'): PIXI.Texture[] {
+function getPropAnimationTextures(length: number, dir: PropDirection, state: 'idle' | 'attack'): PIXI.Texture[] {
   const images = state === 'attack' ? customPropMachineAttackFrameImages : customPropMachineFrameImages;
   if (images.length === 0) return [getPropTexture(length, dir)];
   const key = `peppermint_anim_${state}_${length}_${dir}_${PARAMS.cellSize}_${images.length}`;
@@ -24111,6 +25633,7 @@ function playPropMachineHeadShatter(row: number, col: number) {
     if (anim.parent) anim.parent.removeChild(anim);
     anim.destroy();
   };
+  anim.zIndex = 1000;
   blocksContainer.addChild(anim);
   anim.play();
 }
@@ -24340,6 +25863,8 @@ function animatePropShrink(
   // row cleanup may remove/reorder block sprites, but must not interrupt this
   // independent shrink animation.
   const animationLayer = sprite.parent.parent || sprite.parent;
+  // Keep the temporary generic obstacle animation above board blocks.
+  container.zIndex = 110;
   animationLayer.addChild(container);
 
   sprite.visible = false;
@@ -24412,20 +25937,160 @@ function animatePropShrink(
   requestAnimationFrame(stepLast);
 }
 
+function animateConcentricPropShrink(
+  b: Block,
+  dir: PropDirection,
+  oldRow: number,
+  oldCol: number,
+  oldLen: number,
+  newRow: number,
+  newCol: number,
+  newLen: number,
+  onComplete?: () => void
+) {
+  const sprite = b.sprite;
+  if (!sprite || !sprite.parent) {
+    if (newLen <= 0) {
+      const headCell = getPropMachineHeadCell({ row: oldRow, col: oldCol, length: oldLen, propDir: dir });
+      playPropMachineHeadShatter(headCell.row, headCell.col);
+    }
+    if (onComplete) onComplete();
+    return;
+  }
 
+  const cellSz = PARAMS.cellSize || 50;
+  const isHoriz = dir === 'left' || dir === 'right';
+  const head = getPropMachineHeadCell({ row: oldRow, col: oldCol, length: oldLen, propDir: dir });
+  const bodyLength = Math.max(0, oldLen - 1) * cellSz;
+  const targetBodyLength = Math.max(0, newLen - 1) * cellSz;
+  if (bodyLength === 0) {
+    if (newLen <= 0) playPropMachineHeadShatter(head.row, head.col);
+    if (onComplete) onComplete();
+    return;
+  }
+  const bodyFrame = isHoriz
+    ? new PIXI.Rectangle(dir === 'right' ? cellSz : 0, 0, bodyLength, cellSz)
+    : new PIXI.Rectangle(0, dir === 'down' ? cellSz : 0, cellSz, bodyLength);
+  const bodyTexture = new PIXI.Texture({ source: sprite.texture.source, frame: bodyFrame });
+  const bodySprite = new PIXI.Sprite(bodyTexture);
+  const headSprite = new PIXI.Sprite(getConcentricPropTexture(1, dir));
+  headSprite.x = head.col * cellSz;
+  headSprite.y = head.row * cellSz;
+  headSprite.width = cellSz;
+  headSprite.height = cellSz;
+  bodySprite.x = dir === 'right' ? headSprite.x + cellSz : oldCol * cellSz;
+  bodySprite.y = dir === 'down' ? headSprite.y + cellSz : oldRow * cellSz;
+  bodySprite.scale.set(1, 1);
 
-function getPropTexture(length: number, dir: 'left' | 'right' = 'left', machineImgOverride: HTMLImageElement | null = null, cacheTag = ''): PIXI.Texture {
+  const animation = new PIXI.Container();
+  animation.zIndex = 110;
+  animation.addChild(bodySprite, headSprite);
+  sprite.parent.addChild(animation);
+  sprite.visible = false;
 
+  const totalDur = 400;
+  const startTime = performance.now();
 
+  function step(now: number) {
+    const progress = Math.min(1, Math.max(0, (now - startTime) / totalDur));
+    const distanceIntoHead = (bodyLength - targetBodyLength) * progress;
+    const remainingLength = Math.max(0.01, bodyLength - distanceIntoHead);
+
+    // Keep the entire bar at strictly constant 1:1 scale without compression/squashing.
+    // Slide the body towards the fixed obstacle head.
+    if (isHoriz) {
+      bodyTexture.frame.x = dir === 'right' ? cellSz + distanceIntoHead : 0;
+      bodyTexture.frame.width = remainingLength;
+      (bodyTexture as any).orig.width = remainingLength;
+      bodySprite.x = (dir === 'left' ? oldCol * cellSz + distanceIntoHead : headSprite.x + cellSz);
+    } else {
+      bodyTexture.frame.y = dir === 'down' ? cellSz + distanceIntoHead : 0;
+      bodyTexture.frame.height = remainingLength;
+      (bodyTexture as any).orig.height = remainingLength;
+      bodySprite.y = (dir === 'up' ? oldRow * cellSz + distanceIntoHead : headSprite.y + cellSz);
+    }
+    bodyTexture.updateUvs();
+    bodySprite.scale.set(1, 1);
+    if (typeof (bodySprite as any).onViewUpdate === 'function') {
+      (bodySprite as any).onViewUpdate();
+    }
+    bodySprite.visible = remainingLength > 0.5;
+
+    if (progress < 1) {
+      requestAnimationFrame(step);
+      return;
+    }
+
+    if (newLen > 0) {
+      sprite.texture = getConcentricPropTexture(newLen, dir);
+      sprite.width = isHoriz ? newLen * cellSz : cellSz;
+      sprite.height = isHoriz ? cellSz : newLen * cellSz;
+      sprite.x = newCol * cellSz;
+      sprite.y = newRow * cellSz;
+      sprite.visible = true;
+    } else {
+      playPropMachineHeadShatter(head.row, head.col);
+    }
+    animation.destroy({ children: true });
+    bodyTexture.destroy();
+    if (onComplete) onComplete();
+  }
+  requestAnimationFrame(step);
+}
+
+function getPropTexture(length: number, dir: PropDirection = 'left', machineImgOverride: HTMLImageElement | null = null, cacheTag = ''): PIXI.Texture {
 
   const cellSize = PARAMS.cellSize || 50;
-
-
 
   const machineImg = machineImgOverride || customPropMachineImg;
   const customParts = `${customPropCandyImg ? 'candy' : ''}_${machineImg ? 'machine' : ''}`;
   const key = `peppermint_${length}_${dir}_${cellSize}_${customParts || 'default'}_${cacheTag}`;
   if (propTextureCache[key]) return propTextureCache[key];
+
+  if (dir === 'up' || dir === 'down') {
+    const horizDir: PropDirection = dir === 'down' ? 'right' : 'left';
+    const horizTex = getPropTexture(length, horizDir, machineImgOverride, cacheTag ? `${cacheTag}_base` : 'base');
+    const vCanvas = document.createElement('canvas');
+    vCanvas.width = cellSize;
+    vCanvas.height = length * cellSize;
+    const vCtx = vCanvas.getContext('2d')!;
+    vCtx.imageSmoothingEnabled = true;
+    vCtx.imageSmoothingQuality = 'high';
+
+    const horizSource = (horizTex.source as any)?.resource || (horizTex.baseTexture as any)?.resource?.source || (horizTex as any).source;
+    let imgSource: CanvasImageSource | null = null;
+    if (horizSource && ((typeof HTMLCanvasElement !== 'undefined' && horizSource instanceof HTMLCanvasElement) || (typeof Image !== 'undefined' && horizSource instanceof Image) || (typeof HTMLImageElement !== 'undefined' && horizSource instanceof HTMLImageElement))) {
+      imgSource = horizSource;
+    }
+
+    if (imgSource) {
+      vCtx.save();
+      if (dir === 'down') {
+        vCtx.translate(cellSize, 0);
+        vCtx.rotate(Math.PI / 2);
+        vCtx.drawImage(imgSource, 0, 0);
+      } else {
+        vCtx.translate(0, length * cellSize);
+        vCtx.rotate(-Math.PI / 2);
+        vCtx.drawImage(imgSource, 0, 0);
+      }
+      vCtx.restore();
+
+      if (machineImg && machineImg.naturalWidth > 0 && machineImg.naturalHeight > 0) {
+        const headY = dir === 'down' ? 0 : (length - 1) * cellSize;
+        vCtx.clearRect(0, headY, cellSize, cellSize);
+        const scale = Math.min(cellSize / machineImg.naturalWidth, cellSize / machineImg.naturalHeight);
+        const drawW = machineImg.naturalWidth * scale;
+        const drawH = machineImg.naturalHeight * scale;
+        const drawX = (cellSize - drawW) / 2;
+        const drawY = headY + (cellSize - drawH) / 2;
+        vCtx.drawImage(machineImg, drawX, drawY, drawW, drawH);
+      }
+    }
+    const texture = PIXI.Texture.from(vCanvas);
+    propTextureCache[key] = texture;
+    return texture;
+  }
 
   const w = length * cellSize;
 
@@ -25075,14 +26740,21 @@ function isPastureLayerGravityLocked(block: Pick<Block, 'pastureStage'>): boolea
   return block.pastureStage === 'grass';
 }
 
-function fitBlockSpriteToGrid(block: Pick<Block, 'sprite' | 'length'>): void {
+function fitBlockSpriteToGrid(block: Pick<Block, 'sprite' | 'length' | 'isProp' | 'propDir' | 'propOrientation'>): void {
   if (!block || !block.sprite) return;
   const tex = block.sprite.texture;
   const texW = tex?.orig?.width || tex?.width || 0;
   const texH = tex?.orig?.height || tex?.height || 0;
+  const isVertical = block.isProp && (block.propDir === 'up' || block.propDir === 'down' || block.propOrientation === 'vertical');
+  const targetW = isVertical ? PARAMS.cellSize : block.length * PARAMS.cellSize;
+  const targetH = isVertical ? block.length * PARAMS.cellSize : PARAMS.cellSize;
   if (tex && (texW <= 0 || texH <= 0)) {
     block.sprite.width = block.length * PARAMS.cellSize;
     block.sprite.height = PARAMS.cellSize;
+    if (isVertical) {
+      block.sprite.width = targetW;
+      block.sprite.height = targetH;
+    }
     block.sprite.scale.set(1);
     tex.once('update', () => {
       if (block.sprite && block.sprite.texture === tex) {
@@ -25091,14 +26763,16 @@ function fitBlockSpriteToGrid(block: Pick<Block, 'sprite' | 'length'>): void {
     });
     return;
   }
-  const targetW = block.length * PARAMS.cellSize;
-  const targetH = PARAMS.cellSize;
   if (texW > 0 && texH > 0 && Number.isFinite(texW) && Number.isFinite(texH)) {
     block.sprite.scale.set(targetW / texW, targetH / texH);
   } else {
     block.sprite.scale.set(1);
     block.sprite.width = block.length * PARAMS.cellSize;
     block.sprite.height = PARAMS.cellSize;
+    if (isVertical) {
+      block.sprite.width = targetW;
+      block.sprite.height = targetH;
+    }
   }
 }
 
@@ -25287,10 +26961,9 @@ function advancePastureLayer(block: Block): number {
   return .05;
 }
 
-function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: 'left' | 'right' = 'left', collectibleId?: string, pastureStage?: PastureLayerStage, isJewelryBox?: boolean, jewelryBoxState?: 'closed' | 'open') {
+function spawnBlock(col: number, row: number, length: number, color: string, id?: number, noGravity?: boolean, isCollectible?: boolean, isProp?: boolean, propType?: 'row-bomb' | 'peppermint', propDir: PropDirection = 'left', collectibleId?: string, pastureStage?: PastureLayerStage, isJewelryBox?: boolean, jewelryBoxState?: 'closed' | 'open') {
 
   if (isProp && !isValidPropLength(length)) return null;
-
   // A normal board block must always use one of the five real gem aliases.
   // Previously an unexpected colour key fell into a flat red debug rectangle;
   // that made missing textures look like real red blocks in the board.
@@ -25406,11 +27079,14 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-  sprite.width = length * PARAMS.cellSize;
-
-
-
-  sprite.height = PARAMS.cellSize;
+  const isVerticalProp = isProp && (propDir === 'up' || propDir === 'down');
+  if (isVerticalProp) {
+    sprite.width = PARAMS.cellSize;
+    sprite.height = length * PARAMS.cellSize;
+  } else {
+    sprite.width = length * PARAMS.cellSize;
+    sprite.height = PARAMS.cellSize;
+  }
 
 
 
@@ -25487,6 +27163,20 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
     if (currentMode !== 'play' || isAnimating) return;
+    if (isConcentricObstacleMode) {
+      const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+      // A multi-cell block is draggable when any part of it is visible. The
+      // old check rejected the whole block when only its first cell was under
+      // an obstacle, which made the visible part appear immovable.
+      let allCellsCovered = true;
+      for (let c = 0; c < block.length; c++) {
+        if (!isCellCoveredByProps(activeProps, block.col + c, block.row)) {
+          allCellsCovered = false;
+          break;
+        }
+      }
+      if (allCellsCovered) return;
+    }
 
 
 
@@ -25635,10 +27325,22 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
       block.col = newCol;
-
-
-
       block.noGravity = false;
+
+      // In concentric mode, clean up any invisible ghost blocks in the cells the moved block now occupies
+      if (isConcentricObstacleMode) {
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const other = blocks[i];
+          if (other.id !== block.id && !other.isProp && other.row === block.row) {
+            if (other.col >= block.col && other.col < block.col + block.length) {
+              if (!other.sprite || !other.sprite.visible || (other.sprite as any).destroyed) {
+                if (other.sprite && other.sprite.parent) blocksContainer.removeChild(other.sprite);
+                blocks.splice(i, 1);
+              }
+            }
+          }
+        }
+      }
       
       // TRACK SWIPE FOR PLAYABLE
       playableSwipes++;
@@ -25870,7 +27572,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
   const resolvedPastureStage = pastureStage || (isPastureLayerMode && isPastureLayerCandidate({ color, isProp, isCollectible }) ? 'framed-grass' : undefined);
-  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, collectibleId, isProp, propType, propDir, pastureStage: resolvedPastureStage, isJewelryBox: resolvedIsJewelryBox, jewelryBoxState: resolvedJewelryBoxState };
+  const block: Block = { id: blockId, col, row, length, color, sprite, noGravity, isCollectible, collectibleId, isProp, propType, propDir, pastureStage: resolvedPastureStage, isJewelryBox: resolvedIsJewelryBox, jewelryBoxState: resolvedJewelryBoxState, propOrientation: isVerticalProp ? 'vertical' : (isProp ? 'horizontal' : undefined) };
   if (resolvedPastureStage) refreshPastureLayerSprite(block);
   if (resolvedIsJewelryBox) refreshJewelryBoxSprite(block);
 
@@ -26739,588 +28441,375 @@ function riseOneRow() {
 
 
 
-function afterGravityComplete(checkElim: boolean) {
-  isAnimating = false;
-  if (checkElim) {
-    checkEliminations();
+function afterGravityComplete(checkElim: boolean, gravityAnimated = false) {
+  if (isConcentricObstacleMode) {
+    const bounds = getActiveConcentricCorridorBounds();
+    blocks.forEach(b => {
+      if (b.isProp) return;
+      if (b.row < bounds.minRow || b.concentricBuffer) {
+        b.concentricBuffer = true;
+        if (b.row >= 0 && b.row < bounds.minRow) {
+          b.row = -1;
+        }
+        delete b.concentricEntryFromY;
+        if (b.sprite) {
+          b.sprite.visible = false;
+          b.sprite.eventMode = 'none';
+        }
+      } else {
+        b.concentricBuffer = false;
+        delete b.concentricEntryFromY;
+        if (b.sprite && !(b.sprite as any).destroyed) {
+          b.sprite.visible = true;
+          b.sprite.alpha = 1;
+          b.sprite.eventMode = 'static';
+        }
+      }
+    });
   }
+
+  const finish = () => {
+    isAnimating = false;
+    if (checkElim) checkEliminations();
+  };
+
+  // When no block moved, still consume the same gravity phase as a real drop.
+  // Without this pause the next full row is checked immediately and a combo
+  // can finish several waves in a fraction of a second.
+  if (isConcentricObstacleMode && !gravityAnimated) {
+    isAnimating = true;
+    window.setTimeout(finish, CONCENTRIC_CASCADE_PHASE_SECONDS * 1000);
+    return;
+  }
+  finish();
 }
 
-
-
-
-
-
-
 function applyGravity(checkElim: boolean = true) {
-
-
-
   if (isAnimating) return;
 
+  const gravityPhaseDuration = isConcentricObstacleMode
+    ? CONCENTRIC_CASCADE_PHASE_SECONDS
+    : PARAMS.gravityDuration;
 
+  blocks = blocks.filter(b => b && (!b.sprite || !(b.sprite as any).destroyed));
 
-
-
-
+  if (isConcentricObstacleMode) {
+    const bounds = getActiveConcentricCorridorBounds();
+    if (activeSimulatingStepIndex === null) {
+      const stagedRowCount = new Set(
+        blocks
+          .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
+          .map(b => b.row)
+      ).size;
+      const missingRows = Math.max(0, getConcentricMissingTopRowCount() - stagedRowCount);
+      if (missingRows > 0) {
+        stageConcentricReserveRowsForGravity(missingRows);
+      }
+    }
+    blocks.forEach(b => {
+      if (!b.isProp && b.row >= bounds.minRow && b.concentricBuffer) {
+        b.concentricBuffer = false;
+      }
+    });
+  }
 
   if (isNoGravityMode) resolveNoGravityStates(getActivePhysicsMaxRow());
 
-
-
-
-
-
-
   // In rising mode, only apply gravity to blocks within/above the visible viewport
-
-
-
   // Blocks below the viewport are waiting to scroll in and should stay in place
-
-
-
   const maxGravityRow = getActivePhysicsMaxRow();
-
-
-
-
-
-
 
   blocks.sort((a, b) => b.row - a.row);
 
-
-
-
-
-
-
   const simulatedRows: Record<number, number> = {};
 
-
-
-  
-
-
-
   blocks.forEach(b => {
-
-
-
     let targetRow = b.row;
 
-
-
     if (isNoGravityMode && b.noGravity) {
-
-
-
       simulatedRows[b.id] = targetRow;
-
-
-
       return;
-
-
-
     }
 
     if (isPastureLayerGravityLocked(b)) {
-
-
-
       simulatedRows[b.id] = targetRow;
-
-
-
       return;
-
-
-
     }
 
+    if (b.isProp) {
+      simulatedRows[b.id] = targetRow;
+      return;
+    }
 
+    // Keep the pre-generated reserve rows out of physics until the clear
+    // phase stages them at the entrance row.  Once staged, a negative-row
+    // block is allowed to fall naturally into the visible corridor.
+    if (isConcentricObstacleMode && b.concentricBuffer) {
+      simulatedRows[b.id] = targetRow;
+      return;
+    }
 
     if (b.row > maxGravityRow) {
-
-
-
       simulatedRows[b.id] = targetRow;
-
-
-
       return;
-
-
-
     }
-
-
 
     while (targetRow < maxGravityRow) {
-
-
-
       let canDrop = true;
-
-
-
       if (holeMask && holeMask[targetRow + 1]) {
-
-
-
         for (let c = b.col; c < b.col + b.length; c++) {
-
-
-
           if (holeMask[targetRow + 1][c]) { canDrop = false; break; }
-
-
-
         }
-
-
-
       }
-
-
 
       if (canDrop) {
-
-
-
         for (const other of blocks) {
-
-
-
           if (other.id === b.id) continue;
-
-
-
-          const otherRow = simulatedRows[other.id] !== undefined ? simulatedRows[other.id] : other.row;
-
-
-
-          if (otherRow === targetRow + 1) {
-
-
-
-            if (b.col < other.col + other.length && b.col + b.length > other.col) { canDrop = false; break; }
-
-
-
+          if (isConcentricObstacleMode && other.isProp && other.concentricLayer !== undefined) {
+            continue;
           }
-
-
-
+          // In concentric mode an ordinary block may be hidden by an obstacle
+          // prop, but it still occupies its grid cells.  It must remain a
+          // collision anchor during gravity; ignoring it lets upper blocks
+          // pass through and produces visible interleaving/floating pieces.
+          if (isConcentricObstacleMode && !other.isProp && other.concentricBuffer) {
+            continue;
+          }
+          const otherRow = simulatedRows[other.id] !== undefined ? simulatedRows[other.id] : other.row;
+          if (other.isProp && (other.propDir === 'up' || other.propDir === 'down' || other.propOrientation === 'vertical')) {
+            if (targetRow + 1 >= otherRow && targetRow + 1 < otherRow + other.length) {
+              if (b.col <= other.col && b.col + b.length > other.col) { canDrop = false; break; }
+            }
+          } else {
+            if (otherRow === targetRow + 1) {
+              if (b.col < other.col + other.length && b.col + b.length > other.col) { canDrop = false; break; }
+            }
+          }
         }
-
-
-
       }
 
-
+      if (canDrop && isConcentricObstacleMode) {
+        const bounds = getActiveConcentricCorridorBounds();
+        if (targetRow + 1 >= bounds.minRow) {
+          const activeProps = blocks.filter(p => p.isProp && p.length > 0);
+          for (let c = 0; c < b.length; c++) {
+            if (isCellCoveredByProps(activeProps, b.col + c, targetRow + 1)) {
+              canDrop = false;
+              break;
+            }
+          }
+        }
+      }
 
       if (canDrop) targetRow++;
-
-
-
       else break;
-
-
-
     }
 
-
-
     simulatedRows[b.id] = targetRow;
-
-
-
   });
-
-
-
-
-
-
 
   const simulatedOcc = Array.from({ length: PARAMS.totalRows }, () => Array(PARAMS.gridCols).fill(0));
 
-
-
   if (holeMask && holeMask.length > 0) {
-
-
-
     for (let r = 0; r < PARAMS.totalRows; r++) {
-
-
-
       if (!holeMask[r]) continue;
-
-
-
       let hasValidCell = false;
-
-
-
       for (let c = 0; c < PARAMS.gridCols; c++) {
-
-
-
         if (!holeMask[r][c]) { hasValidCell = true; break; }
-
-
-
       }
-
-
-
       if (!hasValidCell) continue;
 
-
-
       for (let c = 0; c < PARAMS.gridCols; c++) {
-
-
-
         if (holeMask[r][c]) simulatedOcc[r][c] = 1;
-
-
-
       }
-
-
-
     }
-
-
-
   }
 
-
-
   blocks.forEach(b => {
-
-
-
     const row = simulatedRows[b.id];
-
-
-
     if (row < 0 || row >= PARAMS.totalRows) return;
+    if (isConcentricObstacleMode && !b.isProp) {
+      const bounds = getActiveConcentricCorridorBounds();
+      if (row < bounds.minRow || row > bounds.maxRow) return;
+    }
 
+    if (b.isProp) {
+      if (b.propDir === 'up' || b.propDir === 'down' || b.propOrientation === 'vertical') {
+        for (let r = 0; r < b.length; r++) {
+          if (row + r >= 0 && row + r < PARAMS.totalRows && b.col >= 0 && b.col < PARAMS.gridCols) {
+            simulatedOcc[row + r][b.col] = 1;
+          }
+        }
+      } else {
+        for (let c = 0; c < b.length; c++) {
+          if (b.col + c >= 0 && b.col + c < PARAMS.gridCols) {
+            simulatedOcc[row][b.col + c] = 1;
+          }
+        }
+      }
+      return;
+    }
+
+    if (b.sprite && (b.sprite as any).destroyed) return;
 
 
     for (let c = 0; c < b.length; c++) {
-
-
-
       if (b.col + c >= 0 && b.col + c < PARAMS.gridCols) {
-
-
-
         simulatedOcc[row][b.col + c] = 1;
-
-
-
       }
-
-
-
     }
-
-
-
   });
-
-
-
-
-
-
 
   let willEliminate = false;
 
-
-
   if (activeSimulatingStepIndex !== null && !isRepairingScript) {
-
-
-
     const step = scriptSteps[activeSimulatingStepIndex];
-
-
-
     willEliminate = getPlaybackFullRowsFromOccupancy(simulatedOcc, step).length > 0;
-
-
-
   } else {
-
-
-
     const visibleRange = getEliminationVisibleRowRangeForWorldY(worldContainer.y);
-
-
-
     const minRow = visibleRange.minRow;
-
-
-
     const maxRow = visibleRange.maxRow;
 
-
-
-
-
-
-
-    for (let r = minRow; r <= maxRow; r++) {
-
-
-
-      let isFull = true;
-
-
-
-      for (let c = 0; c < PARAMS.gridCols; c++) {
-
-
-
-        if (simulatedOcc[r][c] === 0) { isFull = false; break; }
-
-
-
+    if (isConcentricObstacleMode) {
+      const bounds = getConcentricEliminationRowBounds();
+      const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+      for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
+        const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r);
+        if (openCols.length === 0) continue;
+        let isFull = true;
+        for (const c of openCols) {
+          if (simulatedOcc[r][c] === 0) { isFull = false; break; }
+        }
+        if (isFull) {
+          willEliminate = true;
+          break;
+        }
       }
-
-
-
-      if (isFull) {
-
-
-
-        willEliminate = true;
-
-
-
-        break;
-
-
-
+    } else {
+      for (let r = minRow; r <= maxRow; r++) {
+        let isFull = true;
+        for (let c = 0; c < PARAMS.gridCols; c++) {
+          if (simulatedOcc[r][c] === 0) { isFull = false; break; }
+        }
+        if (isFull) {
+          willEliminate = true;
+          break;
+        }
       }
-
-
-
     }
-
-
-
   }
 
-
-
-
-
-
-
   // Calculate if any blocks actually fell
-
-
-
   const droppedAny = blocks.some(b => simulatedRows[b.id] !== b.row);
+  const pendingConcentricEntries = isConcentricObstacleMode && blocks.some(
+    b => Number.isFinite(b.concentricEntryFromY),
+  );
 
-
-
-
-
-
-
-  if (droppedAny) {
-
-
-
+  if (droppedAny || pendingConcentricEntries) {
     // Re-sort and actually apply drops with animation
-
-
-
     blocks.sort((a, b) => b.row - a.row);
-
-
 
     isAnimating = true;
 
-
-
-
-
-
-
-    const tl = gsap.timeline({
-
-
-
-      onComplete: () => {
-
-
-
-        afterGravityComplete(checkElim);
-
-
-
-      }
-
-
-
-    });
-
-
-
-
-
-
-
-    blocks.forEach(b => {
-
-
-
-      const targetR = simulatedRows[b.id];
-
-
-
-      if (targetR !== undefined && targetR !== b.row) {
-
-
-
-        b.row = targetR;
-
-
-
-        blocksThatFell.add(b.id);
-
-
-
-        tl.to(b.sprite, {
-
-
-
-          y: targetR * PARAMS.cellSize,
-
-
-
-          duration: PARAMS.gravityDuration,
-
-
-
-          ease: 'power2.in',
-
-
-
-          onComplete: () => {
-
-
-
-            if (isRainbowFixedMode) {
-
-
-
-              const newColor = rowColors[targetR];
-
-
-
-              if (b.color !== newColor) {
-
-
-
-                b.color = newColor;
-
-
-
-                const texture = PIXI.Assets.get(`${newColor}-${b.length}`);
-
-
-
-                if (texture) b.sprite.texture = texture;
-
-
-
-              }
-
-
-
+    try {
+      const tl = gsap.timeline({
+        onComplete: () => {
+            afterGravityComplete(checkElim, true);
+        }
+      });
+
+      blocks.forEach(b => {
+        const targetR = simulatedRows[b.id];
+        const pendingEntryY = b.concentricEntryFromY;
+        const hasPendingEntry =
+          pendingConcentricEntries &&
+          Number.isFinite(pendingEntryY) &&
+          b.sprite &&
+          !(b.sprite as any).destroyed;
+        if (!b.sprite || (b.sprite as any).destroyed) {
+          if (targetR !== undefined && targetR !== b.row) {
+            b.row = targetR;
+            blocksThatFell.add(b.id);
+          }
+          return;
+        }
+
+        if (hasPendingEntry) {
+          gsap.killTweensOf(b.sprite);
+          b.sprite.y = pendingEntryY as number;
+          const bounds = isConcentricObstacleMode ? getActiveConcentricCorridorBounds() : null;
+          if (bounds && (targetR === undefined || targetR < bounds.minRow)) {
+            b.concentricBuffer = true;
+            b.row = -1;
+            delete b.concentricEntryFromY;
+            if (b.sprite) {
+              b.sprite.visible = false;
+              b.sprite.eventMode = 'none';
             }
+          } else {
+            if (targetR !== undefined && targetR !== b.row) {
+              b.row = targetR;
+              blocksThatFell.add(b.id);
+            }
+            tl.to(b.sprite, {
+              y: (targetR ?? b.row) * PARAMS.cellSize,
+              duration: gravityPhaseDuration,
+              ease: 'power2.in',
+              onUpdate: () => {
+                updateConcentricFallingVisibility(b, b.sprite.y);
+              },
+              onComplete: () => {
+                delete b.concentricEntryFromY;
+                updateConcentricBlockVisibility();
+              },
+            }, 0);
+          }
+        } else if (targetR !== undefined && targetR !== b.row) {
+          b.row = targetR;
+          blocksThatFell.add(b.id);
 
-
-
+          if (isConcentricObstacleMode && b.sprite && !b.isProp) {
+            updateConcentricFallingVisibility(b, b.sprite.y);
           }
 
+          gsap.killTweensOf(b.sprite);
 
+          tl.to(b.sprite, {
+            y: targetR * PARAMS.cellSize,
+            duration: gravityPhaseDuration,
+            ease: 'power2.in',
+            onUpdate: () => {
+              updateConcentricFallingVisibility(b, b.sprite.y);
+            },
+            onComplete: () => {
+              if (isRainbowFixedMode && b.sprite && !(b.sprite as any).destroyed) {
+                const newColor = rowColors[targetR];
+                if (b.color !== newColor) {
+                  b.color = newColor;
+                  const texture = PIXI.Assets.get(`${newColor}-${b.length}`);
+                  if (texture) b.sprite.texture = texture;
+                }
+              }
+            }
+          }, 0);
+        }
+      });
 
-        }, 0);
-
-
-
+      if (!willEliminate) {
+        const soundDelay = Math.max(0, gravityPhaseDuration - 0.15);
+        tl.call(() => {
+          playSound(sounds.fall);
+        }, [], soundDelay);
       }
-
-
-
-    });
-
-
-
-
-
-
-
-    if (!willEliminate) {
-
-
-
-      const soundDelay = Math.max(0, PARAMS.gravityDuration - 0.15);
-
-
-
-      tl.call(() => {
-
-
-
-        playSound(sounds.fall);
-
-
-
-      }, [], soundDelay);
-
-
-
+    } catch (err) {
+      console.error('[APPLY_GRAVITY_ERROR]', err);
+      afterGravityComplete(checkElim);
     }
-
-
-
   } else {
-
-
-
-    // No blocks dropped ?handle post-gravity directly (no timeline created)
-
-
-
+    // No blocks dropped - handle post-gravity directly (no timeline created)
     afterGravityComplete(checkElim);
-
-
-
   }
-
-
-
 }
-
-
-
-
-
-
 
 function playRowShatterEffect(
   row: number,
@@ -27732,6 +29221,8 @@ function playRowShatterEffect(
 
 
 
+        cellAnim.zIndex = 1000;
+
         worldContainer.addChild(cellAnim);
 
 
@@ -27948,6 +29439,8 @@ function playRowShatterEffect(
 
 
 
+        clipMask.zIndex = 999;
+
         worldContainer.addChild(clipMask);
 
 
@@ -27963,6 +29456,8 @@ function playRowShatterEffect(
 
 
 
+
+      anim.zIndex = 1000;
 
       worldContainer.addChild(anim);
 
@@ -28083,6 +29578,7 @@ function playRowShatterEffect(
         effectMask!.rect(col * PARAMS.cellSize, row * PARAMS.cellSize, PARAMS.cellSize, PARAMS.cellSize);
       });
       effectMask.fill({ color: 0xffffff });
+      effectMask.zIndex = 999;
       worldContainer.addChild(effectMask);
       anim.mask = effectMask;
     }
@@ -28092,6 +29588,8 @@ function playRowShatterEffect(
     
 
 
+
+    anim.zIndex = 1000;
 
     worldContainer.addChild(anim);
 
@@ -28617,6 +30115,8 @@ function playRowShatterEffect(
 
 
 
+        cellAnim.zIndex = 1000;
+
         worldContainer.addChild(cellAnim);
 
 
@@ -28888,6 +30388,7 @@ function checkEliminations() {
 
 
   let fullRows: number[] = [];
+  const concentricOpenColsByRow = new Map<number, Set<number>>();
   let lockedSequentialBlockIds: number[] | null = null;
 
   const startLockedSequentialClear = (rows: number[]) => {
@@ -28895,6 +30396,15 @@ function checkEliminations() {
       .sort((a, b) => b - a)
       .map(row => blocks
         .filter(block => !block.isProp && block.row === row)
+        .filter(block => {
+          if (!isConcentricObstacleMode) return true;
+          if (block.sprite && block.sprite.visible) return true;
+          const activeProps = blocks.filter(p => p.isProp && p.length > 0);
+          for (let c = 0; c < block.length; c++) {
+            if (isCellCoveredByProps(activeProps, block.col + c, block.row)) return false;
+          }
+          return true;
+        })
         .map(block => block.id)
       )
       .filter(ids => ids.length > 0);
@@ -28908,7 +30418,7 @@ function checkEliminations() {
 
 
 
-  if (pendingSequentialClearBlockIds.length > 0) {
+  if (!isConcentricObstacleMode && pendingSequentialClearBlockIds.length > 0) {
     lockedSequentialBlockIds = pendingSequentialClearBlockIds.shift() || null;
     fullRows = getRowsForLockedSequentialBlocks(lockedSequentialBlockIds);
   } else if (forcedPlaybackFullRows && forcedPlaybackFullRows.length > 0) {
@@ -28951,31 +30461,30 @@ function checkEliminations() {
 
 
 
-    for (let r = minRow; r <= maxRow; r++) {
-
-
-
-      let isFull = true;
-
-
-
-      for (let c = 0; c < PARAMS.gridCols; c++) { if (occ[r][c] === 0) { isFull = false; break; } }
-
-
-
-      if (isFull) fullRows.push(r);
-
-
-
+    if (isConcentricObstacleMode) {
+      fullRows = [];
+      const bounds = getConcentricEliminationRowBounds();
+      const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+      for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
+        const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r);
+        if (openCols.length === 0) continue;
+        let isFull = true;
+        for (const c of openCols) {
+          if (occ[r][c] === 0) { isFull = false; break; }
+        }
+        if (isFull) {
+          fullRows.push(r);
+          concentricOpenColsByRow.set(r, new Set(openCols));
+        }
+      }
+    } else {
+      for (let r = minRow; r <= maxRow; r++) {
+        let isFull = true;
+        for (let c = 0; c < PARAMS.gridCols; c++) { if (occ[r][c] === 0) { isFull = false; break; } }
+        if (isFull) fullRows.push(r);
+      }
     }
-
   }
-
-
-
-
-
-
 
   if (
     lockedSequentialBlockIds === null &&
@@ -28992,27 +30501,41 @@ function checkEliminations() {
     playableRows += fullRows.length;
     if (typeof (window as any).checkPlayableLimits === 'function') (window as any).checkPlayableLimits();
 
+    if (isConcentricObstacleMode) {
+      concentricRecentEliminatedRowCount += fullRows.length;
+      const activePropsBeforeElim = blocks.filter(b => b.isProp && b.length > 0);
+      fullRows.forEach(r => {
+        if (!concentricOpenColsByRow.has(r)) {
+          const openCols = getOpenColumnsForRow(activePropsBeforeElim, PARAMS.gridCols, r);
+          concentricOpenColsByRow.set(r, new Set(openCols));
+        }
+      });
+      damageConcentricActiveLayer();
+    }
+
     // PRE-CALCULATE prop columns before they take damage (to prevent particle shatter on props)
     const initialPropColsByRow = new Map<number, Set<number>>();
     fullRows.forEach(r => initialPropColsByRow.set(r, new Set<number>()));
-    blocks.forEach(b => {
-      if (b.isProp && initialPropColsByRow.has(b.row)) {
-        const skipSet = initialPropColsByRow.get(b.row)!;
-        for (let c = 0; c < b.length; c++) skipSet.add(b.col + c);
+    const activePropsBeforeDamage = blocks.filter(b => b.isProp && b.length > 0);
+    fullRows.forEach(r => {
+      const skipSet = initialPropColsByRow.get(r)!;
+      for (let c = 0; c < PARAMS.gridCols; c++) {
+        if (isCellCoveredByProps(activePropsBeforeDamage, c, r)) {
+          skipSet.add(c);
+        }
       }
     });
 
     // Props take one hit when their row or an adjacent row clears.
     let anyPropDamaged = false;
     blocks.forEach(b => {
-
-      if (!b.isProp) return;
+      if (!b.isProp || b.concentricLayer !== undefined) return;
 
       const damage = damagePropForClearedRows(b, fullRows);
 
       if (damage.triggered) {
         anyPropDamaged = true;
-        const dir = b.propDir || 'left';
+        const dir: 'left' | 'right' = (b.propDir === 'right') ? 'right' : 'left';
         const oldCol = b.col;
         const oldLen = b.length;
         const targetRow = b.row;
@@ -29381,10 +30904,15 @@ function checkEliminations() {
 
 
 
-          const propWaitTime = typeof anyPropDamaged !== "undefined" && anyPropDamaged ? (obstacleEaterEnabled ? 800 : 500) : 0;
-          setTimeout(() => {
+          const propWaitTime = isConcentricObstacleMode ? 0 : (typeof anyPropDamaged !== "undefined" && anyPropDamaged ? (obstacleEaterEnabled ? 800 : 500) : 0);
+          const elimDelay = isConcentricObstacleMode ? 0 : Math.max(customElimDelay * 1000, propWaitTime);
+          if (elimDelay > 0) {
+            setTimeout(() => {
+              continueGravityAfterElimination();
+            }, elimDelay);
+          } else {
             continueGravityAfterElimination();
-          }, Math.max(customElimDelay * 1000, propWaitTime));
+          }
 
 
 
@@ -29436,10 +30964,15 @@ function checkEliminations() {
 
 
 
-          const propWaitTime = typeof anyPropDamaged !== "undefined" && anyPropDamaged ? (obstacleEaterEnabled ? 800 : 500) : 0;
-          setTimeout(() => {
+          const propWaitTime = isConcentricObstacleMode ? 0 : (typeof anyPropDamaged !== "undefined" && anyPropDamaged ? (obstacleEaterEnabled ? 800 : 500) : 0);
+          const elimDelay = isConcentricObstacleMode ? 0 : Math.max(customElimDelay * 1000, propWaitTime);
+          if (elimDelay > 0) {
+            setTimeout(() => {
+              continueGravityAfterElimination();
+            }, elimDelay);
+          } else {
             continueGravityAfterElimination();
-          }, Math.max(customElimDelay * 1000, propWaitTime));
+          }
 
 
 
@@ -29459,15 +30992,22 @@ function checkEliminations() {
 
 
 
+    if (isConcentricObstacleMode) {
+      // Keep the elimination phase at the same fixed length even when the
+      // row has only a few blocks or no visible shatter effect.
+      tl.to({}, { duration: CONCENTRIC_CASCADE_PHASE_SECONDS }, 0);
+    }
+
     lastShatterCellColors = [];
 
-    // In sequential mode, the bottom-most cleared row owns the first timeline slot.
+    // Normal bottom-up mode can stagger rows. Concentric mode clears every
+    // detected row in one shared timeline, then gravity runs once.
     const rowsForPlayback = PARAMS.rowClearOrder === 'bottom-up'
       ? [...fullRows].sort((a, b) => b - a)
       : fullRows;
-    const rowPlaybackGap = PARAMS.rowClearOrder === 'bottom-up' && rowsForPlayback.length > 1
-      ? 0.8
-      : 0;
+    const rowPlaybackGap = isConcentricObstacleMode
+      ? 0
+      : (rowsForPlayback.length > 1 && PARAMS.rowClearOrder === 'bottom-up' ? 0.8 : 0);
 
     rowsForPlayback.forEach((r, rowPlaybackIndex) => {
       const rowPlaybackOffset = rowPlaybackIndex * rowPlaybackGap;
@@ -29690,8 +31230,10 @@ function checkEliminations() {
           }, [], rowPlaybackOffset + delay);
         }
 
-        tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, rowPlaybackOffset + delay);
-        tl.to(b.sprite, { alpha: 0, duration: 0.1 }, rowPlaybackOffset + delay);
+        if (b.sprite && !(b.sprite as any).destroyed) {
+          tl.to(b.sprite.scale, { y: 0, duration: 0.1, ease: 'power2.in' }, rowPlaybackOffset + delay);
+          tl.to(b.sprite, { alpha: 0, duration: 0.1 }, rowPlaybackOffset + delay);
+        }
 
         if (PARAMS.effectType === 'gem-shatter' && !b.isJewelryBox) {
           tl.call(() => {
@@ -29729,6 +31271,7 @@ function checkEliminations() {
                   if (anim.parent) anim.parent.removeChild(anim);
                   anim.destroy();
                 };
+                anim.zIndex = 1000;
                 blocksContainer.addChild(anim);
                 anim.play();
               }
@@ -30510,7 +32053,6 @@ function spawnFallingSupplyRow(row: number, templateRowOverride?: number) {
 function maybeRefillFallingTopArea(): boolean {
 
 
-
   const isFallingScriptPlayback = isPlayingScript && getActiveBoardMechanic() === 'falling';
 
   if (getActiveBoardMechanic() !== 'falling' || (!isFallingScriptPlayback && currentMode !== 'play') || isSpawningFallingPage) return false;
@@ -30642,7 +32184,6 @@ function maybeRefillFallingTopArea(): boolean {
 
 
 function spawnFallingTopPage() {
-
 
 
   if (isSpawningFallingPage) return;
@@ -31186,7 +32727,6 @@ function settleFallingTopPageWithoutEliminations() {
 
 
 function maybeSpawnFallingTopPage(): boolean {
-
 
 
   const isFallingScriptPlayback = isPlayingScript && getActiveBoardMechanic() === 'falling';
@@ -32140,8 +33680,9 @@ function setupInteraction() {
 
 
         if (existing) {
-
-
+          if (isConcentricObstacleMode && existing.isProp) {
+            return;
+          }
 
           playSound(sounds.fall);
 
@@ -35547,6 +37088,19 @@ function setupDOMUI() {
 
     }
 
+    if (!isSyncingConcentricGrid && isConcentricObstacleMode && e && (
+      (e.target as HTMLElement)?.id?.includes('cols') ||
+      (e.target as HTMLElement)?.id?.includes('rows') ||
+      (e.target as HTMLElement)?.id?.includes('vprows')
+    )) {
+      concentricConfig.cols = PARAMS.gridCols;
+      concentricConfig.rows = PARAMS.viewportRows;
+      concentricConfig.centerCols = Math.max(2, concentricConfig.cols - 2 * concentricConfig.layers);
+      concentricConfig.centerRows = Math.max(2, concentricConfig.rows - 2 * concentricConfig.layers);
+      syncConcentricSettingsUI();
+      generateConcentricObstacleBoard();
+    }
+
 
 
 
@@ -35618,12 +37172,8 @@ function setupDOMUI() {
 
 
       const cellW = maxW / PARAMS.gridCols;
-
-
-
-      const autoCellSize = Math.max(10, Math.floor(cellW));
-
-
+      const cellH = maxH / (isConcentricObstacleMode ? PARAMS.viewportRows : (PARAMS.viewportRows || 20));
+      const autoCellSize = Math.max(10, Math.floor(isConcentricObstacleMode ? Math.min(cellW, cellH) : cellW));
 
       PARAMS.cellSize = autoCellSize;
 
@@ -35690,6 +37240,8 @@ function setupDOMUI() {
 
 
     const targetW = PARAMS.gridCols * PARAMS.cellSize + PADDING * 2;
+    const targetRows = isConcentricObstacleMode ? PARAMS.viewportRows : (PARAMS.viewportRows || 20);
+    const targetH = targetRows * PARAMS.cellSize + PADDING * 2;
 
 
 
@@ -35725,7 +37277,11 @@ function setupDOMUI() {
 
 
 
-      const rawScale = Math.min(1, maxW / targetW);
+      const boardClipBorderPx = 5;
+      const availH = Math.max(1, boardFrameH - boardClipBorderPx * 2);
+      const rawScale = isConcentricObstacleMode
+        ? Math.min(1, maxW / targetW, availH / targetH)
+        : Math.min(1, maxW / targetW);
 
 
 
@@ -35749,7 +37305,7 @@ function setupDOMUI() {
 
 
 
-    // 鐢ㄩ€傞厤鍚庣殑灏哄鐩存帴 resize canvas锛岀‘淇濆叾鍒氬ソ绛変簬鏍兼暟涔樹互鏁存暟鍗曟牸灏哄鍔犱笂 Padding
+    // 鐢ㄩ€傞厤鍚庣殑灏哄鐩存帴 resize canvas锛岀‘淇濆叾鍒氬ソ绛変簬鏍兼暟涔樹互鏁存暟鍗牸灏哄鍔犱笂 Padding
 
 
 
@@ -35758,13 +37314,15 @@ function setupDOMUI() {
     const boardClipBorderPx = 5;
     const boardFrameInnerW = Math.max(1, boardFrameW - boardClipBorderPx * 2);
     const boardFrameInnerH = Math.max(1, boardFrameH - boardClipBorderPx * 2);
-    if (boardFrameInnerH > 0) {
+    if (isConcentricObstacleMode) {
+      previewRenderRows = PARAMS.viewportRows;
+    } else if (boardFrameInnerH > 0) {
       const rowsToCoverFrame = Math.ceil(boardFrameInnerH / displayCellSize) + 1;
       previewRenderRows = Math.max(PARAMS.viewportRows, Math.min(PARAMS.totalRows, rowsToCoverFrame));
     }
     const previewGameHeight = getPreviewRendererGameHeight();
     const contentDisplayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
-    const frameDisplayH = boardFrameInnerW > 0 && boardFrameInnerH > 0
+    const frameDisplayH = boardFrameInnerW > 0 && boardFrameInnerW > 0 && !isConcentricObstacleMode
       ? Math.ceil(boardFrameInnerH * (displayW / boardFrameInnerW))
       : 0;
     const displayH = Math.max(contentDisplayH, frameDisplayH);
@@ -35820,25 +37378,17 @@ function setupDOMUI() {
 
 
     blocks.forEach(b => {
-
-
-
+      if (!b.sprite) return;
       b.sprite.x = b.col * PARAMS.cellSize;
-
-
-
       b.sprite.y = b.row * PARAMS.cellSize;
-
-
-
-      b.sprite.width = b.length * PARAMS.cellSize;
-
-
-
-      b.sprite.height = PARAMS.cellSize;
-
-
-
+      const isVert = b.isProp && (b.propDir === 'up' || b.propDir === 'down' || b.propOrientation === 'vertical');
+      if (isVert) {
+        b.sprite.width = PARAMS.cellSize;
+        b.sprite.height = b.length * PARAMS.cellSize;
+      } else {
+        b.sprite.width = b.length * PARAMS.cellSize;
+        b.sprite.height = PARAMS.cellSize;
+      }
     });
 
 
@@ -37203,17 +38753,12 @@ function setupDOMUI() {
 
 
       isProp: b.isProp,
-
-
-
       propType: b.propType,
-
-        propDir: b.propDir,
-        collectibleId: b.collectibleId,
-        pastureStage: b.pastureStage
-
-
-
+      propDir: b.propDir,
+      collectibleId: b.collectibleId,
+      pastureStage: b.pastureStage,
+      concentricLayer: b.concentricLayer,
+      propOrientation: b.propOrientation
     })));
 
 
@@ -37447,13 +38992,16 @@ function setupDOMUI() {
 
 
   btnManualClear.onclick = () => {
-
-
-
-    clearAllBlocks();
-
-
-
+    if (isConcentricObstacleMode) {
+      const nonProps = blocks.filter(b => !b.isProp);
+      nonProps.forEach(b => {
+        if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+        if (b.sprite) b.sprite.destroy();
+      });
+      blocks = blocks.filter(b => b.isProp);
+    } else {
+      clearAllBlocks();
+    }
   };
 
 
@@ -37528,6 +39076,13 @@ function setupDOMUI() {
 
 
     comboCount = 0; hasAnyEliminationThisStep = false;
+
+
+
+    if (isConcentricObstacleMode) {
+      generateConcentricObstacleBoard();
+      return;
+    }
 
 
 
@@ -38889,9 +40444,11 @@ function setupDOMUI() {
 
   const btnNoGravityMode = document.getElementById('btn-nogravity-mode')!;
   const btnObstacleMode = document.getElementById('btn-obstacle-mode');
+  const btnConcentricMode = document.getElementById('btn-concentric-mode');
 
   const disablePastureLayerMode = () => setPastureLayerMode(false);
   const disableJewelryBoxMode = () => setJewelryBoxMode(false);
+  const disableConcentricObstacleMode = () => setConcentricObstacleMode(false);
 
   // PASTURE_LAYER_MODE is intentionally exclusive. Existing buttons keep their
   // own behaviour; this small boundary prevents hidden combinations with colour,
@@ -38901,6 +40458,7 @@ function setupDOMUI() {
     btnMultiCollectMode, btnNoGravityMode].forEach(button => {
       button.addEventListener('click', disablePastureLayerMode);
       button.addEventListener('click', disableJewelryBoxMode);
+      button.addEventListener('click', disableConcentricObstacleMode);
     });
 
 
@@ -39130,77 +40688,40 @@ function setupDOMUI() {
 
 
     const isNormal = !isCollectMode && !isColorChangingMode && !isSingleColorMode && 
-
-
-
                       !isCustomTwoColorMode && !isRainbowMode && !isRainbowFixedMode && 
-
-
-
-                      !isMaterialChangingMode && !isPastureLayerMode && !isJewelryBoxMode;
-
-
-
-
-
-
+                      !isMaterialChangingMode && !isPastureLayerMode && !isJewelryBoxMode &&
+                      !isConcentricObstacleMode;
 
     setBtnActive(btnNormalMode, isNormal);
 
-
-
     const activeMechanic = getActiveBoardMechanic();
-
-
 
     setBtnActive(btnFixedMechanic, activeMechanic === 'fixed');
 
-
-
     setBtnActive(btnRisingMechanic, activeMechanic === 'rising');
-
-
 
     setBtnActive(btnScrollMechanic, activeMechanic === 'scroll');
 
-
-
     setBtnActive(btnFallingMode, activeMechanic === 'falling');
-
-
 
     setBtnActive(btnColorMode, isColorChangingMode);
 
-
-
     setBtnActive(btnCustomTwoColorMode, isCustomTwoColorMode);
-
-
 
     setBtnActive(btnRainbowMode, isRainbowMode);
 
-
-
     setBtnActive(btnRainbowFixedMode, isRainbowFixedMode);
-
-
 
     setBtnActive(btnMaterialMode, isMaterialChangingMode);
 
-
-
     setBtnActive(btnSingleColorMode, isSingleColorMode);
 
-
-
     setBtnActive(btnCollectMode, isCollectMode && !multiCollectibleModeEnabled);
-
     setBtnActive(btnMultiCollectMode, isCollectMode && multiCollectibleModeEnabled);
-
-
 
     setBtnActive(btnNoGravityMode, isNoGravityMode);
     setBtnActive(btnObstacleMode, obstacleEaterEnabled);
+    setBtnActive(btnConcentricMode, isConcentricObstacleMode);
 
     setBtnActive(btnDrawCollect, isCollectMode);
 
@@ -40951,6 +42472,13 @@ function setupDOMUI() {
     };
   }
 
+  if (btnConcentricMode) {
+    btnConcentricMode.onclick = () => {
+      setConcentricObstacleMode(!isConcentricObstacleMode);
+    };
+    initConcentricSettingsUIListeners();
+  }
+
 
   btnCollectMode.onclick = async () => {
 
@@ -41563,6 +43091,13 @@ function setupDOMUI() {
 
       boardHoleMask: savedBoardHoleMask,
 
+      // Normal layout saves also need to retain a concentric board when the
+      // player uses this save slot instead of the fixed-layout slot.
+      concentricBlocks: isConcentricObstacleMode ? captureCurrentBoardBlockStates() : undefined,
+      isConcentricObstacleMode,
+      concentricConfig: isConcentricObstacleMode ? { ...concentricConfig } : undefined,
+      currentConcentricLayerIndex: isConcentricObstacleMode ? currentConcentricLayerIndex : undefined,
+
 
 
       isFixedBoardMode: isFixedBoardMode,
@@ -41719,6 +43254,14 @@ function setupDOMUI() {
 
       Object.assign(PARAMS, normalizeSavedParams(saveData.params));
 
+      isConcentricObstacleMode = saveData.isConcentricObstacleMode === true;
+      if (isConcentricObstacleMode && saveData.concentricConfig) {
+        Object.assign(concentricConfig, saveData.concentricConfig);
+      }
+      if (isConcentricObstacleMode && Number.isFinite(Number(saveData.currentConcentricLayerIndex))) {
+        currentConcentricLayerIndex = Number(saveData.currentConcentricLayerIndex);
+      }
+
 
 
       PARAMS.shatterMode = PARAMS.shatterMode || 1;
@@ -41798,6 +43341,31 @@ function setupDOMUI() {
 
 
       layoutDrawMask = normalizeBooleanMask(savedLayoutMask);
+
+      if (isConcentricObstacleMode) {
+        concentricLayers = [];
+        const concentricBlocks = Array.isArray(saveData.concentricBlocks) ? saveData.concentricBlocks : [];
+        concentricBlocks.forEach((blockState: BoardBlockState) => spawnRecordedBlockState(blockState));
+        syncActiveConcentricCorridorBounds();
+        ensureConcentricTopBuffer();
+        ensureConcentricCorridorFilled(true);
+        finalizeConcentricPendingEntriesInstant();
+        updateConcentricBlockVisibility();
+        updateConcentricPropTextures();
+        syncConcentricSettingsUI();
+
+        currentMode = 'play';
+        bottomMenu.classList.remove('hidden');
+        manualMenu.classList.add('hidden');
+        boardEditorMenu.classList.add('hidden');
+        drawMenu.classList.add('hidden');
+        resetAndApplyActiveModeStyle();
+        captureBoardState();
+        setWorldY(0);
+        positionPreviewCanvasInMaster();
+        alert(`成功读取同心模式存档?{name}`);
+        return;
+      }
 
 
 
@@ -42285,9 +43853,12 @@ function setupDOMUI() {
 
       propType: b.propType,
 
-        propDir: b.propDir,
-        collectibleId: b.collectibleId,
-        pastureStage: b.pastureStage
+      propDir: b.propDir,
+      propOrientation: b.propOrientation,
+      concentricLayer: b.concentricLayer,
+      concentricBuffer: b.concentricBuffer,
+      collectibleId: b.collectibleId,
+      pastureStage: b.pastureStage
 
 
 
@@ -42303,11 +43874,15 @@ function setupDOMUI() {
 
 
 
-      params: PARAMS,
+      params: { ...PARAMS },
 
 
 
       blocks: savedBlocks,
+
+      isConcentricObstacleMode,
+      concentricConfig: isConcentricObstacleMode ? { ...concentricConfig } : undefined,
+      currentConcentricLayerIndex: isConcentricObstacleMode ? currentConcentricLayerIndex : undefined,
 
 
 
@@ -42433,6 +44008,14 @@ function setupDOMUI() {
 
       Object.assign(PARAMS, normalizeSavedParams(saveData.params));
 
+      isConcentricObstacleMode = saveData.isConcentricObstacleMode === true;
+      if (isConcentricObstacleMode && saveData.concentricConfig) {
+        Object.assign(concentricConfig, saveData.concentricConfig);
+      }
+      if (isConcentricObstacleMode && Number.isFinite(Number(saveData.currentConcentricLayerIndex))) {
+        currentConcentricLayerIndex = Number(saveData.currentConcentricLayerIndex);
+      }
+
 
 
       syncAllInputsFromParams();
@@ -42460,6 +44043,7 @@ function setupDOMUI() {
 
 
       clearAllBlocks();
+      concentricLayers = [];
 
 
 
@@ -42541,6 +44125,16 @@ function setupDOMUI() {
 
       });
 
+      if (isConcentricObstacleMode) {
+        syncActiveConcentricCorridorBounds();
+        ensureConcentricTopBuffer();
+        ensureConcentricCorridorFilled(true);
+        finalizeConcentricPendingEntriesInstant();
+        updateConcentricBlockVisibility();
+        updateConcentricPropTextures();
+        syncConcentricSettingsUI();
+      }
+
 
 
 
@@ -42575,11 +44169,13 @@ function setupDOMUI() {
 
 
 
-      preventFullRows();
-
-
-
-      runPhysicsInstant();
+      // A fixed concentric layout already contains its saved ring state.
+      // Running instant physics here would apply an extra obstacle hit during
+      // load and make the restored board differ from the saved board.
+      if (!isConcentricObstacleMode) {
+        preventFullRows();
+        runPhysicsInstant();
+      }
 
 
 
@@ -43138,6 +44734,9 @@ function setupDOMUI() {
 
         isPastureLayerMode,
         isJewelryBoxMode,
+        isConcentricObstacleMode,
+        concentricConfig: isConcentricObstacleMode ? concentricConfig : undefined,
+        initialConcentricLayerIndex: isConcentricObstacleMode ? initialConcentricLayerIndex : undefined,
 
 
 
@@ -43348,6 +44947,16 @@ function setupDOMUI() {
       isPastureLayerMode = !!modes.isPastureLayerMode;
       isJewelryBoxMode = !!modes.isJewelryBoxMode;
       applyPastureLayerAssetPayload(saveData.pastureLayer?.assets ?? modes.pastureLayerAssets);
+
+      isConcentricObstacleMode = !!modes.isConcentricObstacleMode;
+      if (modes.concentricConfig) {
+        Object.assign(concentricConfig, modes.concentricConfig);
+      }
+      if (modes.initialConcentricLayerIndex !== undefined) {
+        initialConcentricLayerIndex = modes.initialConcentricLayerIndex;
+        currentConcentricLayerIndex = initialConcentricLayerIndex;
+      }
+      syncConcentricSettingsUI();
 
 
 
@@ -46113,6 +47722,9 @@ Object.defineProperty(window, 'worldContainer', { get: () => worldContainer, con
 (window as any).getBlocks = () => blocks;
 (window as any).PIXI = PIXI;
 Object.defineProperty(window, 'isJewelryBoxMode', { get: () => isJewelryBoxMode, set: (v) => setJewelryBoxMode(v), configurable: true });
+Object.defineProperty(window, 'isConcentricObstacleMode', { get: () => isConcentricObstacleMode, set: (v) => setConcentricObstacleMode(v), configurable: true });
+(window as any).setConcentricObstacleMode = setConcentricObstacleMode;
+(window as any).generateConcentricObstacleBoard = generateConcentricObstacleBoard;
 (window as any).checkEliminations = checkEliminations;
 (window as any).advanceJewelryBox = advanceJewelryBox;
 (window as any).spawnBlock = spawnBlock;
@@ -46559,7 +48171,8 @@ interface SimBlock {
 
   propType?: 'row-bomb' | 'peppermint';
 
-  propDir?: 'left' | 'right';
+  propDir?: PropDirection;
+  propOrientation?: PropOrientation;
 
 
 
@@ -46720,7 +48333,9 @@ function getSimOccupancy(simBlocks: SimBlock[], ignoreId: number = -1): number[]
 
       }
 
-
+      if (isConcentricObstacleMode && ((b as any).visible === false || ((b as any).sprite && (!(b as any).sprite.visible || (b as any).sprite.alpha <= 0.05)))) {
+        return;
+      }
 
       for (let c = 0; c < b.length; c++) {
 
@@ -49548,6 +51163,26 @@ function getSimFullRows(simBlocks: SimBlock[], minRow = 0, maxRow = PARAMS.total
   const start = Math.max(0, minRow);
   const end = Math.min(PARAMS.totalRows - 1, maxRow);
 
+  if (isConcentricObstacleMode) {
+    const bounds = getConcentricEliminationRowBounds();
+    const activeProps = simBlocks.filter(b => b.isProp && b.length > 0);
+    const rStart = Math.max(bounds.minRow, start);
+    const rEnd = Math.min(bounds.maxRow, end);
+    for (let r = rStart; r <= rEnd; r++) {
+      const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r);
+      if (openCols.length === 0) continue;
+      let isFull = true;
+      for (const c of openCols) {
+        if (!occ[r] || occ[r][c] === 0) {
+          isFull = false;
+          break;
+        }
+      }
+      if (isFull) fullRows.push(r);
+    }
+    return fullRows;
+  }
+
   for (let r = start; r <= end; r++) {
     let isFull = true;
     for (let c = 0; c < PARAMS.gridCols; c++) {
@@ -49582,7 +51217,7 @@ function syncBoardFrameToGrid() {
 
 
 function getActiveBoardMechanic(): BoardMechanic {
-
+  if (isConcentricObstacleMode) return 'fixed';
   if (scriptPlaybackMechanic) return scriptPlaybackMechanic;
 
 

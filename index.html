@@ -817,6 +817,62 @@
           <button id="btn-obstacle-mode" class="menu-btn gray">
             <span class="icon">🍬</span>障碍物模式
           </button>
+          <button id="btn-concentric-mode" class="menu-btn gray">
+            <span class="icon">🌀</span>回型障碍
+          </button>
+          <div id="concentric-obstacle-settings-section" class="concentric-menu-panel" style="display: none; grid-column: 1 / -1;">
+            <div class="concentric-menu-title">🔲 回型障碍配置</div>
+            <div class="concentric-menu-item">
+              <div class="concentric-menu-label"><span>圈数</span><span id="val-concentric-layers" class="concentric-menu-val">1</span></div>
+              <input type="range" id="slider-concentric-layers" min="1" max="4" value="1">
+            </div>
+            <div class="concentric-menu-item">
+              <div class="concentric-menu-label"><span>总列数</span><span id="val-concentric-cols" class="concentric-menu-val">11</span></div>
+              <input type="range" id="slider-concentric-cols" min="4" max="20" value="11">
+            </div>
+            <div class="concentric-menu-item">
+              <div class="concentric-menu-label"><span>总行数</span><span id="val-concentric-rows" class="concentric-menu-val">20</span></div>
+              <input type="range" id="slider-concentric-rows" min="6" max="30" value="20">
+            </div>
+            <div class="concentric-menu-item">
+              <div class="concentric-menu-label"><span>中央宽</span><span id="val-concentric-center-w" class="concentric-menu-val">9</span></div>
+              <input type="range" id="slider-concentric-center-w" min="2" max="18" value="9">
+            </div>
+            <div class="concentric-menu-item">
+              <div class="concentric-menu-label"><span>中央高</span><span id="val-concentric-center-h" class="concentric-menu-val">18</span></div>
+              <input type="range" id="slider-concentric-center-h" min="2" max="28" value="18">
+            </div>
+            <div class="concentric-menu-item" style="margin-top: 4px;">
+              <div class="concentric-menu-label"><span>消除顺序</span></div>
+              <select id="select-concentric-order" style="width: 100%; background: #141420; border: 1px solid #444; color: #fff; padding: 3px 4px; border-radius: 4px; font-size: 11px; cursor: pointer; outline: none;">
+                <option value="inner-to-outer">从内向外 (推荐)</option>
+                <option value="outer-to-inner">从外向内</option>
+              </select>
+            </div>
+            <div class="concentric-menu-item" style="margin-top: 8px; border-top: 1px solid #333; padding-top: 6px;">
+              <div class="concentric-menu-label"><span>周边障碍外观</span><span id="concentric-custom-badge" style="display: none; font-size: 9px; background: #7c3aed; color: #fff; padding: 1px 4px; border-radius: 4px; font-weight: 600;">自定义</span></div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px;">
+                <div id="concentric-bar-slot" style="background: #141420; border: 1px dashed #555; border-radius: 4px; padding: 5px; text-align: center; cursor: pointer; transition: border-color .2s;">
+                  <div style="font-size: 10px; color: #bbb; margin-bottom: 3px;">障碍条</div>
+                  <img id="concentric-bar-thumb" style="display: none; width: 100%; height: 32px; object-fit: contain; border-radius: 3px;" />
+                  <div id="concentric-bar-placeholder" style="font-size: 9px; color: #888;">点击上传</div>
+                </div>
+                <div id="concentric-head-slot" style="background: #141420; border: 1px dashed #555; border-radius: 4px; padding: 5px; text-align: center; cursor: pointer; transition: border-color .2s;">
+                  <div style="font-size: 10px; color: #bbb; margin-bottom: 3px;">障碍头</div>
+                  <img id="concentric-head-thumb" style="display: none; width: 100%; height: 32px; object-fit: contain; border-radius: 3px;" />
+                  <div id="concentric-head-placeholder" style="font-size: 9px; color: #888;">点击上传</div>
+                </div>
+              </div>
+              <input id="input-concentric-bar" type="file" accept="image/*" hidden />
+              <input id="input-concentric-head" type="file" accept="image/*" hidden />
+              <button id="btn-clear-concentric-style" style="display: none; width: 100%; margin-top: 6px; padding: 4px; background: #3d1a1a; border: 1px solid #7c2d2d; color: #fca5a5; border-radius: 4px; cursor: pointer; font-size: 10px;">
+                恢复默认外观
+              </button>
+            </div>
+            <button id="btn-concentric-regenerate" class="menu-btn green wide" style="margin-top: 6px; padding: 6px; font-size: 11px; width: 100%;">
+              🔄 重新生成关卡
+            </button>
+          </div>
           <div class="custom-two-color-row">
           <button id="btn-custom-twocolor-mode" class="menu-btn gray">
             <span class="icon">🔮</span>自选双色
