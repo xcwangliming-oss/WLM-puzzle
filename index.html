@@ -851,20 +851,26 @@
             </div>
             <div class="concentric-menu-item" style="margin-top: 8px; border-top: 1px solid #333; padding-top: 6px;">
               <div class="concentric-menu-label"><span>周边障碍外观</span><span id="concentric-custom-badge" style="display: none; font-size: 9px; background: #7c3aed; color: #fff; padding: 1px 4px; border-radius: 4px; font-weight: 600;">自定义</span></div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px;">
-                <div id="concentric-bar-slot" style="background: #141420; border: 1px dashed #555; border-radius: 4px; padding: 5px; text-align: center; cursor: pointer; transition: border-color .2s;">
-                  <div style="font-size: 10px; color: #bbb; margin-bottom: 3px;">障碍条</div>
-                  <img id="concentric-bar-thumb" style="display: none; width: 100%; height: 32px; object-fit: contain; border-radius: 3px;" />
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-top: 4px;">
+                <div id="concentric-bar-slot" style="background: #141420; border: 1px dashed #555; border-radius: 4px; padding: 4px; text-align: center; cursor: pointer; transition: border-color .2s;">
+                  <div style="font-size: 10px; color: #bbb; margin-bottom: 2px;">障碍条</div>
+                  <img id="concentric-bar-thumb" style="display: none; width: 100%; height: 30px; object-fit: contain; border-radius: 3px;" />
                   <div id="concentric-bar-placeholder" style="font-size: 9px; color: #888;">点击上传</div>
                 </div>
-                <div id="concentric-head-slot" style="background: #141420; border: 1px dashed #555; border-radius: 4px; padding: 5px; text-align: center; cursor: pointer; transition: border-color .2s;">
-                  <div style="font-size: 10px; color: #bbb; margin-bottom: 3px;">障碍头</div>
-                  <img id="concentric-head-thumb" style="display: none; width: 100%; height: 32px; object-fit: contain; border-radius: 3px;" />
+                <div id="concentric-head-slot" style="background: #141420; border: 1px dashed #555; border-radius: 4px; padding: 4px; text-align: center; cursor: pointer; transition: border-color .2s;">
+                  <div style="font-size: 10px; color: #bbb; margin-bottom: 2px;">障碍头</div>
+                  <img id="concentric-head-thumb" style="display: none; width: 100%; height: 30px; object-fit: contain; border-radius: 3px;" />
                   <div id="concentric-head-placeholder" style="font-size: 9px; color: #888;">点击上传</div>
+                </div>
+                <div id="concentric-tip-slot" style="background: #141420; border: 1px dashed #555; border-radius: 4px; padding: 4px; text-align: center; cursor: pointer; transition: border-color .2s;">
+                  <div style="font-size: 10px; color: #bbb; margin-bottom: 2px;">顶梢道具</div>
+                  <img id="concentric-tip-thumb" style="display: none; width: 100%; height: 30px; object-fit: contain; border-radius: 3px;" />
+                  <div id="concentric-tip-placeholder" style="font-size: 9px; color: #888;">小鸭(上传)</div>
                 </div>
               </div>
               <input id="input-concentric-bar" type="file" accept="image/*" hidden />
               <input id="input-concentric-head" type="file" accept="image/*" hidden />
+              <input id="input-concentric-tip" type="file" accept="image/*" hidden />
               <button id="btn-clear-concentric-style" style="display: none; width: 100%; margin-top: 6px; padding: 4px; background: #3d1a1a; border: 1px solid #7c2d2d; color: #fca5a5; border-radius: 4px; cursor: pointer; font-size: 10px;">
                 恢复默认外观
               </button>

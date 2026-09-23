@@ -15,6 +15,7 @@ import soundShatterUrl from '../assets/playable-audio/shatter.mp3'
 import soundPropElimUrl from '../assets/audio/prop_elim.ogg'
 import concentricHeadUrl from '../assets/concentric/concentric_head.png'
 import concentricBarUrl from '../assets/concentric/concentric_bar.png'
+import concentricDuckUrl from '../assets/concentric/concentric_duck.png'
 
 const playableBlockAssetsMap = import.meta.glob('../assets/playable-blocks/*.webp', { eager: true, import: 'default' }) as Record<string, string>;
 const isStandalonePlayable = Boolean((window as any).PLAYABLE_CONFIG);
@@ -2453,8 +2454,12 @@ let concentricConfig: ConcentricObstacleConfig = {
 
 const CONCENTRIC_STORAGE_BAR = 'concentric_custom_bar_b64';
 const CONCENTRIC_STORAGE_HEAD = 'concentric_custom_head_b64';
+const CONCENTRIC_STORAGE_TIP = 'concentric_custom_tip_b64';
 let concentricCustomBarImg: HTMLImageElement | null = null;
 let concentricCustomHeadImg: HTMLImageElement | null = null;
+let concentricCustomTipImg: HTMLImageElement | null = null;
+let concentricDuckImg: HTMLImageElement | null = null;
+let concentricDuckDefaultTexture: PIXI.Texture | null = null;
 const concentricTextureCache: Record<string, PIXI.Texture> = {};
 
 function invalidateConcentricTextureCache(): void {
@@ -2462,6 +2467,135 @@ function invalidateConcentricTextureCache(): void {
     concentricTextureCache[k].destroy(true);
     delete concentricTextureCache[k];
   }
+  if (concentricDuckDefaultTexture) {
+    concentricDuckDefaultTexture.destroy(true);
+    concentricDuckDefaultTexture = null;
+  }
+}
+
+function renderCanonicalDuckCanvas(size: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const scale = size / 128;
+  ctx.save();
+  ctx.scale(scale, scale);
+
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 4;
+
+  // Tail
+  ctx.beginPath();
+  ctx.moveTo(22, 72);
+  ctx.quadraticCurveTo(12, 60, 16, 50);
+  ctx.quadraticCurveTo(26, 62, 33, 68);
+  ctx.closePath();
+  ctx.fillStyle = '#fbc02d';
+  ctx.fill();
+
+  // Body
+  const bodyGrad = ctx.createRadialGradient(58, 80, 5, 58, 80, 45);
+  bodyGrad.addColorStop(0, '#fff59d');
+  bodyGrad.addColorStop(0.5, '#fdd835');
+  bodyGrad.addColorStop(1, '#f57f17');
+
+  ctx.beginPath();
+  ctx.moveTo(28, 72);
+  ctx.bezierCurveTo(22, 92, 52, 106, 82, 100);
+  ctx.bezierCurveTo(106, 95, 112, 78, 106, 66);
+  ctx.bezierCurveTo(100, 55, 78, 60, 64, 63);
+  ctx.bezierCurveTo(48, 65, 33, 60, 28, 72);
+  ctx.closePath();
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#d97706';
+  ctx.stroke();
+
+  // Wing
+  ctx.beginPath();
+  ctx.moveTo(42, 74);
+  ctx.bezierCurveTo(36, 84, 52, 95, 68, 89);
+  ctx.bezierCurveTo(75, 86, 78, 78, 72, 73);
+  ctx.bezierCurveTo(65, 68, 48, 68, 42, 74);
+  ctx.closePath();
+  ctx.fillStyle = '#fbc02d';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#d97706';
+  ctx.stroke();
+
+  // Head
+  const headGrad = ctx.createRadialGradient(80, 38, 3, 84, 44, 26);
+  headGrad.addColorStop(0, '#fff9c4');
+  headGrad.addColorStop(0.5, '#fbc02d');
+  headGrad.addColorStop(1, '#f57f17');
+
+  ctx.beginPath();
+  ctx.arc(84, 44, 26, 0, Math.PI * 2);
+  ctx.fillStyle = headGrad;
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#d97706';
+  ctx.stroke();
+
+  // Blush
+  ctx.beginPath();
+  ctx.ellipse(76, 54, 6, 4, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 138, 128, 0.6)';
+  ctx.fill();
+
+  // Beak
+  const beakGrad = ctx.createLinearGradient(102, 43, 124, 54);
+  beakGrad.addColorStop(0, '#ff9800');
+  beakGrad.addColorStop(1, '#e65100');
+
+  ctx.beginPath();
+  ctx.moveTo(104, 43);
+  ctx.bezierCurveTo(118, 44, 124, 49, 116, 54);
+  ctx.bezierCurveTo(108, 58, 102, 53, 102, 47);
+  ctx.closePath();
+  ctx.fillStyle = beakGrad;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#b45309';
+  ctx.stroke();
+
+  // Eye
+  ctx.beginPath();
+  ctx.ellipse(88, 38, 5.5, 7, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#1c1917';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(90, 35.5, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(86, 40.5, 1.2, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  // Head tuft
+  ctx.beginPath();
+  ctx.moveTo(80, 18);
+  ctx.quadraticCurveTo(84, 10, 88, 16);
+  ctx.quadraticCurveTo(84, 14, 80, 18);
+  ctx.closePath();
+  ctx.fillStyle = '#fdd835';
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#d97706';
+  ctx.stroke();
+
+  ctx.restore();
+  return canvas;
 }
 
 function renderCanonicalUpCanvas(length: number, cellSize: number): HTMLCanvasElement {
@@ -2667,6 +2801,81 @@ function getConcentricPropTexture(length: number, dir: PropDirection = 'left'): 
   return texture;
 }
 
+function getConcentricTipPropTexture(): PIXI.Texture {
+  if (concentricCustomTipImg && concentricCustomTipImg.naturalWidth > 0 && concentricCustomTipImg.naturalHeight > 0) {
+    const key = `concentric_custom_tip_${concentricCustomTipImg.src.slice(-32)}`;
+    if (concentricTextureCache[key]) return concentricTextureCache[key];
+    const tex = PIXI.Texture.from(concentricCustomTipImg);
+    concentricTextureCache[key] = tex;
+    return tex;
+  }
+  if (!concentricDuckDefaultTexture) {
+    if (concentricDuckImg && concentricDuckImg.naturalWidth > 0) {
+      concentricDuckDefaultTexture = PIXI.Texture.from(concentricDuckImg);
+    } else {
+      const cvs = renderCanonicalDuckCanvas(128);
+      concentricDuckDefaultTexture = PIXI.Texture.from(cvs);
+    }
+  }
+  return concentricDuckDefaultTexture;
+}
+
+function getConcentricPropTipCell(b: { row: number; col: number; length: number; propDir?: PropDirection }): { col: number; row: number } {
+  const dir = b.propDir || 'left';
+  if (dir === 'left') {
+    return { col: b.col, row: b.row };
+  } else if (dir === 'right') {
+    return { col: b.col + Math.max(0, b.length - 1), row: b.row };
+  } else if (dir === 'down') {
+    return { col: b.col, row: b.row + Math.max(0, b.length - 1) };
+  } else {
+    return { col: b.col, row: b.row };
+  }
+}
+
+function createConcentricTipSprite(dir: PropDirection = 'left'): PIXI.Sprite {
+  const cellSz = PARAMS.cellSize || 50;
+  const sprite = new PIXI.Sprite(getConcentricTipPropTexture());
+  sprite.anchor.set(0.5, 0.5);
+  const duckSize = cellSz * 0.88;
+  sprite.width = duckSize;
+  sprite.height = duckSize;
+  sprite.zIndex = 108;
+  if (dir === 'right' || dir === 'up') {
+    sprite.scale.x = -Math.abs(sprite.scale.x);
+  } else {
+    sprite.scale.x = Math.abs(sprite.scale.x);
+  }
+  return sprite;
+}
+
+function updateBlockTipPropPosition(b: Block): void {
+  if (!b.tipPropSprite || !isConcentricObstacleMode || b.length <= 0) return;
+  const cellSz = PARAMS.cellSize || 50;
+  const tip = getConcentricPropTipCell(b);
+  b.tipPropSprite.x = tip.col * cellSz + cellSz / 2;
+  b.tipPropSprite.y = tip.row * cellSz + cellSz / 2;
+  b.tipPropSprite.visible = !(b.sprite && !b.sprite.visible);
+}
+
+function updateConcentricTipProps(): void {
+  blocks.forEach(b => {
+    if (b.isProp && b.concentricLayer !== undefined && b.length > 0) {
+      if (!b.tipPropSprite || (b.tipPropSprite as any).destroyed) {
+        b.tipPropSprite = createConcentricTipSprite(b.propDir || 'left');
+        blocksContainer.addChild(b.tipPropSprite);
+      } else {
+        b.tipPropSprite.texture = getConcentricTipPropTexture();
+      }
+      updateBlockTipPropPosition(b);
+    } else if (b.tipPropSprite) {
+      if (b.tipPropSprite.parent) b.tipPropSprite.parent.removeChild(b.tipPropSprite);
+      b.tipPropSprite.destroy();
+      b.tipPropSprite = undefined;
+    }
+  });
+}
+
 function updateConcentricPropTextures(): void {
   invalidateConcentricTextureCache();
   blocks.forEach(b => {
@@ -2677,6 +2886,7 @@ function updateConcentricPropTextures(): void {
       b.sprite.height = isVert ? b.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
     }
   });
+  updateConcentricTipProps();
 }
 
 function refreshConcentricStyleUI(): void {
@@ -2684,11 +2894,14 @@ function refreshConcentricStyleUI(): void {
   const barPlaceholder = document.getElementById('concentric-bar-placeholder');
   const headThumb = document.getElementById('concentric-head-thumb') as HTMLImageElement | null;
   const headPlaceholder = document.getElementById('concentric-head-placeholder');
+  const tipThumb = document.getElementById('concentric-tip-thumb') as HTMLImageElement | null;
+  const tipPlaceholder = document.getElementById('concentric-tip-placeholder');
   const badge = document.getElementById('concentric-custom-badge');
   const btnClear = document.getElementById('btn-clear-concentric-style');
 
   const hasBar = !!(concentricCustomBarImg && concentricCustomBarImg.src);
   const hasHead = !!(concentricCustomHeadImg && concentricCustomHeadImg.src);
+  const hasTip = !!(concentricCustomTipImg && concentricCustomTipImg.src);
 
   if (barThumb) {
     barThumb.src = hasBar ? concentricCustomBarImg!.src : '';
@@ -2702,7 +2915,16 @@ function refreshConcentricStyleUI(): void {
   }
   if (headPlaceholder) headPlaceholder.style.display = hasHead ? 'none' : 'block';
 
-  const hasCustom = hasBar || hasHead;
+  if (tipThumb) {
+    tipThumb.src = hasTip ? concentricCustomTipImg!.src : '';
+    tipThumb.style.display = hasTip ? 'block' : 'none';
+  }
+  if (tipPlaceholder) {
+    tipPlaceholder.style.display = hasTip ? 'none' : 'block';
+    tipPlaceholder.textContent = '小鸭(默认)';
+  }
+
+  const hasCustom = hasBar || hasHead || hasTip;
   if (badge) badge.style.display = hasCustom ? 'inline-block' : 'none';
   if (btnClear) btnClear.style.display = hasCustom ? 'block' : 'none';
 }
@@ -2710,14 +2932,17 @@ function refreshConcentricStyleUI(): void {
 function initConcentricAppearanceUI(): void {
   const barSlot = document.getElementById('concentric-bar-slot');
   const headSlot = document.getElementById('concentric-head-slot');
+  const tipSlot = document.getElementById('concentric-tip-slot');
   const inputBar = document.getElementById('input-concentric-bar') as HTMLInputElement | null;
   const inputHead = document.getElementById('input-concentric-head') as HTMLInputElement | null;
+  const inputTip = document.getElementById('input-concentric-tip') as HTMLInputElement | null;
   const btnClear = document.getElementById('btn-clear-concentric-style');
 
   barSlot?.addEventListener('click', () => inputBar?.click());
   headSlot?.addEventListener('click', () => inputHead?.click());
+  tipSlot?.addEventListener('click', () => inputTip?.click());
 
-  const handleFile = (file: File, type: 'bar' | 'head') => {
+  const handleFile = (file: File, type: 'bar' | 'head' | 'tip') => {
     const reader = new FileReader();
     reader.onload = () => {
       const b64 = String(reader.result || '');
@@ -2726,9 +2951,12 @@ function initConcentricAppearanceUI(): void {
         if (type === 'bar') {
           concentricCustomBarImg = img;
           try { localStorage.setItem(CONCENTRIC_STORAGE_BAR, b64); } catch(e){}
-        } else {
+        } else if (type === 'head') {
           concentricCustomHeadImg = img;
           try { localStorage.setItem(CONCENTRIC_STORAGE_HEAD, b64); } catch(e){}
+        } else {
+          concentricCustomTipImg = img;
+          try { localStorage.setItem(CONCENTRIC_STORAGE_TIP, b64); } catch(e){}
         }
         invalidateConcentricTextureCache();
         refreshConcentricStyleUI();
@@ -2749,6 +2977,12 @@ function initConcentricAppearanceUI(): void {
     const file = inputHead.files?.[0];
     if (file) handleFile(file, 'head');
     inputHead.value = '';
+  });
+
+  inputTip?.addEventListener('change', () => {
+    const file = inputTip.files?.[0];
+    if (file) handleFile(file, 'tip');
+    inputTip.value = '';
   });
 
   const loadConcentricAppearanceAssets = () => {
@@ -2778,15 +3012,38 @@ function initConcentricAppearanceUI(): void {
         };
         img.src = headSrc;
       }
+
+      const savedTip = localStorage.getItem(CONCENTRIC_STORAGE_TIP);
+      if (savedTip) {
+        const img = new Image();
+        img.onload = () => {
+          concentricCustomTipImg = img;
+          invalidateConcentricTextureCache();
+          refreshConcentricStyleUI();
+          if (isConcentricObstacleMode) updateConcentricPropTextures();
+        };
+        img.src = savedTip;
+      }
+
+      const duckDefaultImg = new Image();
+      duckDefaultImg.onload = () => {
+        concentricDuckImg = duckDefaultImg;
+        if (!concentricCustomTipImg && isConcentricObstacleMode) {
+          updateConcentricPropTextures();
+        }
+      };
+      duckDefaultImg.src = concentricDuckUrl;
     } catch(e){}
   };
 
   btnClear?.addEventListener('click', () => {
     concentricCustomBarImg = null;
     concentricCustomHeadImg = null;
+    concentricCustomTipImg = null;
     try {
       localStorage.removeItem(CONCENTRIC_STORAGE_BAR);
       localStorage.removeItem(CONCENTRIC_STORAGE_HEAD);
+      localStorage.removeItem(CONCENTRIC_STORAGE_TIP);
     } catch(e){}
     loadConcentricAppearanceAssets();
     invalidateConcentricTextureCache();
@@ -3018,7 +3275,12 @@ function updateConcentricBlockVisibility(): void {
   const bounds = getActiveConcentricCorridorBounds();
 
   blocks.forEach(b => {
-    if (b.isProp) return;
+    if (b.isProp) {
+      if (b.tipPropSprite) {
+        b.tipPropSprite.visible = (b.length > 0 && b.sprite && b.sprite.visible);
+      }
+      return;
+    }
     const isAboveCorridor = b.row < bounds.minRow || b.concentricBuffer;
 
     if (b.sprite) {
@@ -3230,10 +3492,12 @@ function getActiveConcentricCorridorBounds(): { minCol: number; maxCol: number; 
   activeProps.forEach(p => {
     const isVert = p.propDir === 'up' || p.propDir === 'down' || p.propOrientation === 'vertical';
     if (!isVert) {
+      const openCols = getOpenColumnsForRow(activeProps, totalCols, p.row);
+      const isCompletelyBlocking = openCols.length === 0;
       if (p.row < halfRows) {
-        minRow = Math.max(minRow, p.row + 1);
+        minRow = Math.max(minRow, isCompletelyBlocking ? p.row + 1 : p.row);
       } else {
-        maxRow = Math.min(maxRow, p.row - 1);
+        maxRow = Math.min(maxRow, isCompletelyBlocking ? p.row - 1 : p.row);
       }
     }
   });
@@ -3646,6 +3910,11 @@ function setConcentricObstacleMode(enabled: boolean): void {
 function generateConcentricObstacleBoard(): void {
   blocks.forEach(b => {
     if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+    if (b.tipPropSprite && b.tipPropSprite.parent) {
+      blocksContainer.removeChild(b.tipPropSprite);
+      b.tipPropSprite.destroy();
+      b.tipPropSprite = undefined;
+    }
   });
   blocks = [];
 
@@ -3724,6 +3993,9 @@ function generateConcentricObstacleBoard(): void {
           blk.sprite.width = isVert ? (PARAMS.cellSize || 50) : p.length * (PARAMS.cellSize || 50);
           blk.sprite.height = isVert ? p.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
         }
+        blk.tipPropSprite = createConcentricTipSprite(p.propDir);
+        updateBlockTipPropPosition(blk);
+        blocksContainer.addChild(blk.tipPropSprite);
       }
     });
   });
@@ -4399,6 +4671,11 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
           const isVert = blk.propDir === 'up' || blk.propDir === 'down' || blk.propOrientation === 'vertical';
           blk.sprite.width = isVert ? (PARAMS.cellSize || 50) : blk.length * (PARAMS.cellSize || 50);
           blk.sprite.height = isVert ? blk.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
+        }
+        if (blk.length > 0) {
+          blk.tipPropSprite = createConcentricTipSprite(blk.propDir);
+          updateBlockTipPropPosition(blk);
+          blocksContainer.addChild(blk.tipPropSprite);
         }
       }
     }
@@ -19487,6 +19764,7 @@ interface Block {
   concentricEntryFromY?: number;
   /** Concentric mode: block was pre-generated in the hidden reserve above the board. */
   concentricBuffer?: boolean;
+  tipPropSprite?: PIXI.Sprite;
   /** PASTURE_LAYER_MODE: current visual/clear layer, absent for ordinary blocks. */
   pastureStage?: PastureLayerStage;
   isJewelryBox?: boolean;
@@ -26074,10 +26352,16 @@ function animateConcentricPropShrink(
   onComplete?: () => void
 ) {
   const sprite = b.sprite;
+  const tipSprite = b.tipPropSprite;
   if (!sprite || !sprite.parent) {
     if (newLen <= 0) {
       const headCell = getPropMachineHeadCell({ row: oldRow, col: oldCol, length: oldLen, propDir: dir });
       playPropMachineHeadShatter(headCell.row, headCell.col);
+      if (tipSprite) {
+        if (tipSprite.parent) tipSprite.parent.removeChild(tipSprite);
+        tipSprite.destroy();
+        b.tipPropSprite = undefined;
+      }
     }
     if (onComplete) onComplete();
     return;
@@ -26089,7 +26373,14 @@ function animateConcentricPropShrink(
   const bodyLength = Math.max(0, oldLen - 1) * cellSz;
   const targetBodyLength = Math.max(0, newLen - 1) * cellSz;
   if (bodyLength === 0) {
-    if (newLen <= 0) playPropMachineHeadShatter(head.row, head.col);
+    if (newLen <= 0) {
+      playPropMachineHeadShatter(head.row, head.col);
+      if (tipSprite) {
+        if (tipSprite.parent) tipSprite.parent.removeChild(tipSprite);
+        tipSprite.destroy();
+        b.tipPropSprite = undefined;
+      }
+    }
     if (onComplete) onComplete();
     return;
   }
@@ -26106,6 +26397,11 @@ function animateConcentricPropShrink(
   bodySprite.x = dir === 'right' ? headSprite.x + cellSz : oldCol * cellSz;
   bodySprite.y = dir === 'down' ? headSprite.y + cellSz : oldRow * cellSz;
   bodySprite.scale.set(1, 1);
+
+  if (tipSprite) {
+    tipSprite.zIndex = 115;
+    tipSprite.visible = true;
+  }
 
   const animation = new PIXI.Container();
   animation.zIndex = 110;
@@ -26154,6 +26450,23 @@ function animateConcentricPropShrink(
     }
     bodySprite.visible = remainingLength > 0.5;
 
+    // Sync duck tip prop position with retreating tip
+    if (tipSprite && !((tipSprite as any).destroyed)) {
+      if (dir === 'left') {
+        tipSprite.x = bodySprite.x + cellSz / 2;
+        tipSprite.y = bodySprite.y + cellSz / 2;
+      } else if (dir === 'right') {
+        tipSprite.x = bodySprite.x + remainingLength - cellSz / 2;
+        tipSprite.y = bodySprite.y + cellSz / 2;
+      } else if (dir === 'down') {
+        tipSprite.x = bodySprite.x + cellSz / 2;
+        tipSprite.y = bodySprite.y + remainingLength - cellSz / 2;
+      } else { // dir === 'up'
+        tipSprite.x = bodySprite.x + cellSz / 2;
+        tipSprite.y = bodySprite.y + cellSz / 2;
+      }
+    }
+
     if (progress < 1) {
       requestAnimationFrame(step);
       return;
@@ -26166,8 +26479,25 @@ function animateConcentricPropShrink(
       sprite.x = newCol * cellSz;
       sprite.y = newRow * cellSz;
       sprite.visible = true;
+      if (tipSprite && !((tipSprite as any).destroyed)) {
+        updateBlockTipPropPosition(b);
+        tipSprite.visible = true;
+      }
     } else {
       playPropMachineHeadShatter(head.row, head.col);
+      if (tipSprite && !((tipSprite as any).destroyed)) {
+        gsap.to(tipSprite, {
+          y: tipSprite.y - 70,
+          alpha: 0,
+          duration: 0.6,
+          ease: 'power2.out',
+          onComplete: () => {
+            if (tipSprite.parent) tipSprite.parent.removeChild(tipSprite);
+            tipSprite.destroy();
+            b.tipPropSprite = undefined;
+          }
+        });
+      }
     }
     animation.destroy({ children: true });
     bodyTexture.destroy();
@@ -27740,7 +28070,14 @@ function clearAllBlocks() {
 
 
 
-  blocks.forEach(b => blocksContainer.removeChild(b.sprite));
+  blocks.forEach(b => {
+    if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+    if (b.tipPropSprite && b.tipPropSprite.parent) {
+      blocksContainer.removeChild(b.tipPropSprite);
+      b.tipPropSprite.destroy();
+      b.tipPropSprite = undefined;
+    }
+  });
 
 
 
