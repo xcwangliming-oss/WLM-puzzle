@@ -3377,17 +3377,63 @@ function ensureConcentricTopBuffer(forceRegenerate = false): void {
   // across the FULL unified width so dropping rows naturally contain 1x1, 1x2, 1x3, 1x4 blocks
   // spanning seamlessly across the newly opened columns.
   if (forceRegenerate && !isPlayingScript && existingRows.size > 0) {
-    bufferBlocks.forEach(b => {
-      if (b.sprite && b.sprite.parent) {
-        blocksContainer.removeChild(b.sprite);
-      }
-    });
-    blocks = blocks.filter(b => !(b.concentricBuffer && b.row < 0));
-    if (isRecordingSteps) {
-      initialBoardBlocks = initialBoardBlocks.filter(b => !(b.concentricBuffer && b.row < 0));
+    if (isRecordingSteps || isRepairingScript) {
+      // During script recording or repair, do NOT wipe existing buffer rows!
+      // Wiping buffer rows would destroy initialBoardBlocks and cause playback divergence.
+      // Instead, seamlessly populate newly opened corridor columns in the existing buffer rows.
+      existingRows.forEach(r => {
+        const occupiedCols = new Set<number>();
+        blocks.filter(b => !b.isProp && b.row === r).forEach(b => {
+          for (let c = b.col; c < b.col + b.length; c++) occupiedCols.add(c);
+        });
+        const openCols: number[] = [];
+        for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
+          if (!occupiedCols.has(c)) openCols.push(c);
+        }
+        if (openCols.length > 0) {
+          generateConcentricBlocksForOpenColumns(openCols).forEach(spec => {
+            const blk = spawnBlock(spec.col, r, spec.length, pickColorForCurrentMode(Math.max(0, r)));
+            if (blk) {
+              blk.concentricBuffer = true;
+              if (blk.sprite) {
+                blk.sprite.visible = false;
+                blk.sprite.eventMode = 'none';
+              }
+              if (isRecordingSteps) {
+                initialBoardBlocks.push({
+                  id: blk.id,
+                  col: blk.col,
+                  row: blk.row,
+                  length: blk.length,
+                  color: blk.color,
+                  noGravity: blk.noGravity,
+                  isCollectible: blk.isCollectible,
+                  isProp: blk.isProp,
+                  propType: blk.propType,
+                  propDir: blk.propDir,
+                  collectibleId: blk.collectibleId,
+                  pastureStage: blk.pastureStage,
+                  concentricLayer: blk.concentricLayer,
+                  concentricBuffer: blk.concentricBuffer,
+                  propOrientation: blk.propOrientation,
+                  isJewelryBox: blk.isJewelryBox,
+                  jewelryBoxState: blk.jewelryBoxState
+                });
+              }
+            }
+          });
+        }
+      });
+    } else {
+      bufferBlocks.forEach(b => {
+        if (b.sprite && b.sprite.parent) {
+          blocksContainer.removeChild(b.sprite);
+        }
+      });
+      blocks = blocks.filter(b => !(b.concentricBuffer && b.row < 0));
+      bufferBlocks = [];
+      existingRows.clear();
     }
-    bufferBlocks = [];
-    existingRows.clear();
   }
 
   if (existingRows.size === 0) {
@@ -4753,6 +4799,10 @@ function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
   }
 
   return true;
+}
+
+function syncBoardToRecordedStep(states: BoardBlockState[]) {
+  restoreBoardBlockStates(states);
 }
 
 
@@ -8154,6 +8204,10 @@ function restoreBoardState(options: { preserveWorldY?: boolean } = {}) {
 
   if (isConcentricObstacleMode) {
     currentConcentricLayerIndex = initialConcentricLayerIndex;
+    const initialBounds = getActiveConcentricCorridorBounds();
+    concentricCenterMinCol = initialBounds.minCol;
+    concentricCenterMaxCol = initialBounds.maxCol;
+    concentricCenterMinRow = initialBounds.minRow;
     syncActiveConcentricCorridorBounds();
     ensureConcentricTopBuffer();
     updateConcentricBlockVisibility();
@@ -9881,6 +9935,10 @@ function repairScriptSteps(options: RepairScriptOptions = {}) {
 
     });
     if (isConcentricObstacleMode) {
+      const initialBounds = getActiveConcentricCorridorBounds();
+      concentricCenterMinCol = initialBounds.minCol;
+      concentricCenterMaxCol = initialBounds.maxCol;
+      concentricCenterMinRow = initialBounds.minRow;
       syncActiveConcentricCorridorBounds();
       updateConcentricBlockVisibility();
     }
@@ -11450,18 +11508,24 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
       );
     }
 
-    let block = step.blockId ? blocks.find(b => b.id === step.blockId) : null;
-
-
-
+    let block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row) : null;
+    if (!block && step.blockId) {
+      block = blocks.find(b => b.id === step.blockId);
+    }
     if (!block) {
-
-
-
       block = blocks.find(b => b.col === step.fromCol && b.row === step.row);
+    }
 
-
-
+    if ((!block || !canMoveBlockHorizontallyTo(block, step.toCol)) && step.boardBefore && step.boardBefore.length > 0) {
+      console.warn(`[Playback] Step ${i + 1} board drifted; resyncing from recorded snapshot.`);
+      syncBoardToRecordedStep(step.boardBefore);
+      block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row) : null;
+      if (!block && step.blockId) {
+        block = blocks.find(b => b.id === step.blockId);
+      }
+      if (!block) {
+        block = blocks.find(b => b.col === step.fromCol && b.row === step.row);
+      }
     }
 
 
@@ -11591,6 +11655,19 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
           block.col = step.toCol;
+          if (isConcentricObstacleMode) {
+            for (let j = blocks.length - 1; j >= 0; j--) {
+              const other = blocks[j];
+              if (other.id !== block.id && !other.isProp && other.row === block.row) {
+                if (other.col >= block.col && other.col < block.col + block.length) {
+                  if (!other.sprite || !other.sprite.visible || (other.sprite as any).destroyed) {
+                    if (other.sprite && other.sprite.parent) blocksContainer.removeChild(other.sprite);
+                    blocks.splice(j, 1);
+                  }
+                }
+              }
+            }
+          }
 
 
 
