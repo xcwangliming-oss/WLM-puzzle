@@ -3272,6 +3272,38 @@ function generateSupportedFullBoardRow(
   return rowBlocks;
 }
 
+function generateSupportedConcentricRowBlocks(
+  openCols: number[],
+  supportCols?: Set<number> | null,
+): { col: number; length: number }[] {
+  const sorted = Array.from(new Set(openCols))
+    .filter(c => Number.isFinite(c))
+    .sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+
+  const result: { col: number; length: number }[] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+
+  const appendSegment = (minC: number, maxC: number) => {
+    if (minC > maxC) return;
+    result.push(...generateSupportedCorridorRowBlocks(minC, maxC, supportCols));
+  };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const col = sorted[i];
+    if (col === prev + 1) {
+      prev = col;
+      continue;
+    }
+    appendSegment(start, prev);
+    start = col;
+    prev = col;
+  }
+  appendSegment(start, prev);
+  return result;
+}
+
 function updateConcentricBlockVisibility(): void {
   if (!isConcentricObstacleMode) return;
   const bounds = getActiveConcentricCorridorBounds();
@@ -3550,16 +3582,34 @@ function getActiveConcentricCorridorBounds(): { minCol: number; maxCol: number; 
     }
   });
 
-  // 2. Determine minCol and maxCol at the top entrance row (minRow)
-  // A column is open for falling blocks if no active obstacle covers (c, minRow)
+  // 2. Determine minCol and maxCol across playable rows [minRow, maxRow]
+  // A column from the edge is blocked only if it has NO open playable cells in any row within [minRow, maxRow]
   for (let c = 0; c < halfCols; c++) {
-    if (isCellCoveredByProps(activeProps, c, minRow)) {
+    let hasOpenCell = false;
+    for (let r = minRow; r <= maxRow; r++) {
+      if (!isCellCoveredByProps(activeProps, c, r)) {
+        hasOpenCell = true;
+        break;
+      }
+    }
+    if (!hasOpenCell) {
       minCol = Math.max(minCol, c + 1);
+    } else {
+      break;
     }
   }
   for (let c = totalCols - 1; c >= halfCols; c--) {
-    if (isCellCoveredByProps(activeProps, c, minRow)) {
+    let hasOpenCell = false;
+    for (let r = minRow; r <= maxRow; r++) {
+      if (!isCellCoveredByProps(activeProps, c, r)) {
+        hasOpenCell = true;
+        break;
+      }
+    }
+    if (!hasOpenCell) {
       maxCol = Math.min(maxCol, c - 1);
+    } else {
+      break;
     }
   }
 
@@ -3745,6 +3795,95 @@ function stageConcentricReserveRowsForGravity(rowCount: number): void {
       }
     });
   }
+}
+
+function stageConcentricSubObstacleBlocksForGravity(): void {
+  if (!isConcentricObstacleMode) return;
+  const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+  if (activeProps.length === 0) return;
+  const bounds = getActiveConcentricCorridorBounds();
+  const totalCols = PARAMS.gridCols || concentricConfig.cols || DEFAULT_BOARD_COLS;
+  const totalRows = PARAMS.totalRows || concentricConfig.rows || 20;
+
+  const portalColsByRow = new Map<number, number[]>();
+
+  for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
+    for (let r = 0; r < totalRows - 1; r++) {
+      if (!isCellCoveredByProps(activeProps, c, r)) continue;
+      if (r + 1 < bounds.minRow || r + 1 > bounds.maxRow) continue;
+      if (isCellCoveredByProps(activeProps, c, r + 1)) continue;
+
+      const alreadyStaged = blocks.some(b =>
+        !b.isProp &&
+        b.row === r &&
+        c >= b.col &&
+        c < b.col + b.length
+      );
+      if (alreadyStaged) continue;
+
+      let openCellCount = 0;
+      let occupiedCount = 0;
+      for (let testR = r + 1; testR <= bounds.maxRow; testR++) {
+        if (isCellCoveredByProps(activeProps, c, testR)) break;
+        openCellCount++;
+        const hasBlock = blocks.some(b =>
+          !b.isProp &&
+          !b.concentricBuffer &&
+          b.row === testR &&
+          c >= b.col &&
+          c < b.col + b.length
+        );
+        if (hasBlock) occupiedCount++;
+      }
+
+      if (openCellCount > occupiedCount) {
+        if (!portalColsByRow.has(r)) {
+          portalColsByRow.set(r, []);
+        }
+        portalColsByRow.get(r)!.push(c);
+      }
+    }
+  }
+
+  portalColsByRow.forEach((cols, portalRow) => {
+    const specs = generateConcentricBlocksForOpenColumns(cols);
+    specs.forEach(spec => {
+      const color = pickColorForCurrentMode(Math.max(0, portalRow + 1));
+      const blk = spawnBlock(spec.col, portalRow, spec.length, color);
+      if (blk) {
+        blk.concentricBuffer = false;
+        blk.concentricEntryFromY = portalRow * PARAMS.cellSize;
+        if (blk.sprite) {
+          blk.sprite.zIndex = 10;
+          blk.sprite.y = portalRow * PARAMS.cellSize;
+          blk.sprite.visible = false;
+          blk.sprite.alpha = 1;
+          blk.sprite.eventMode = 'none';
+        }
+        if (isRecordingSteps) {
+          initialBoardBlocks.push({
+            id: blk.id,
+            col: blk.col,
+            row: blk.row,
+            length: blk.length,
+            color: blk.color,
+            noGravity: blk.noGravity,
+            isCollectible: blk.isCollectible,
+            isProp: blk.isProp,
+            propType: blk.propType,
+            propDir: blk.propDir,
+            collectibleId: blk.collectibleId,
+            pastureStage: blk.pastureStage,
+            concentricLayer: blk.concentricLayer,
+            concentricBuffer: blk.concentricBuffer,
+            propOrientation: blk.propOrientation,
+            isJewelryBox: blk.isJewelryBox,
+            jewelryBoxState: blk.jewelryBoxState,
+          });
+        }
+      }
+    });
+  });
 }
 
 function syncActiveConcentricCorridorBounds(): void {
@@ -4055,25 +4194,34 @@ function generateConcentricObstacleBoard(): void {
   // the normal rising-board feel: the opening layout is already settled, so a
   // newly visible block is not obviously hanging over empty space.
   const activePropsForInitialBoard = blocks.filter(b => b.isProp && b.length > 0);
+  const bounds = getActiveConcentricCorridorBounds();
+  concentricCenterMinCol = bounds.minCol;
+  concentricCenterMaxCol = bounds.maxCol;
+  concentricCenterMinRow = bounds.minRow;
+
   let supportCols = new Set<number>();
-  for (let c = concentricCenterMinCol; c <= concentricCenterMaxCol; c++) {
+  for (let c = 0; c < totalCols; c++) {
     supportCols.add(c);
   }
-  for (let r = layout.centerBounds.maxRow; r >= layout.centerBounds.minRow; r--) {
-    const rowBlocks = generateSupportedFullBoardRow(r, supportCols);
+  const colors = ['red', 'blue', 'green', 'yellow', 'pink'];
+  for (let r = bounds.maxRow; r >= bounds.minRow; r--) {
+    const openCols = getOpenColumnsForRow(activePropsForInitialBoard, totalCols, r);
+    if (openCols.length === 0) continue;
+    const rowBlocks = generateSupportedConcentricRowBlocks(openCols, supportCols);
     const nextSupportCols = new Set<number>();
     rowBlocks.forEach(b => {
-      const blk = spawnBlock(b.col, r, b.length, b.color);
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const blk = spawnBlock(b.col, r, b.length, color);
       if (blk && blk.sprite) {
         blk.sprite.zIndex = 10;
         blk.sprite.visible = false;
-          blk.sprite.eventMode = 'none';
+        blk.sprite.eventMode = 'none';
       }
       for (let c = b.col; c < b.col + b.length; c++) {
         nextSupportCols.add(c);
       }
     });
-    for (let c = concentricCenterMinCol; c <= concentricCenterMaxCol; c++) {
+    for (let c = 0; c < totalCols; c++) {
       if (isCellCoveredByProps(activePropsForInitialBoard, c, r)) {
         nextSupportCols.add(c);
       }
@@ -9376,6 +9524,7 @@ function continueGravityAfterElimination() {
       const rowsToStage = Math.max(0, Math.max(concentricRecentEliminatedRowCount, missingTopRows) - stagedRowCount);
       if (rowsToStage > 0) replenishConcentricCentralRows(rowsToStage);
       concentricRecentEliminatedRowCount = 0;
+      stageConcentricSubObstacleBlocksForGravity();
     }
     applyGravity(shouldCheckNextClear);
   };
@@ -29159,6 +29308,7 @@ function applyGravity(checkElim: boolean = true) {
     if (missingRows > 0) {
       stageConcentricReserveRowsForGravity(missingRows);
     }
+    stageConcentricSubObstacleBlocksForGravity();
     blocks.forEach(b => {
       if (!b.isProp && b.row >= bounds.minRow && b.concentricBuffer) {
         b.concentricBuffer = false;
@@ -29391,13 +29541,21 @@ function applyGravity(checkElim: boolean = true) {
           gsap.killTweensOf(b.sprite);
           b.sprite.y = pendingEntryY as number;
           const bounds = isConcentricObstacleMode ? getActiveConcentricCorridorBounds() : null;
-          if (bounds && (targetR === undefined || targetR < bounds.minRow)) {
-            b.concentricBuffer = true;
-            b.row = -1;
-            delete b.concentricEntryFromY;
-            if (b.sprite) {
-              b.sprite.visible = false;
-              b.sprite.eventMode = 'none';
+          if (bounds && (targetR === undefined || targetR < bounds.minRow || (b.concentricEntryFromY !== undefined && b.concentricEntryFromY >= 0 && targetR === b.row))) {
+            if (b.concentricEntryFromY !== undefined && b.concentricEntryFromY >= 0) {
+              if (b.sprite) {
+                blocksContainer.removeChild(b.sprite);
+                (b.sprite as any).destroy?.();
+              }
+              blocks = blocks.filter(x => x.id !== b.id);
+            } else {
+              b.concentricBuffer = true;
+              b.row = -1;
+              delete b.concentricEntryFromY;
+              if (b.sprite) {
+                b.sprite.visible = false;
+                b.sprite.eventMode = 'none';
+              }
             }
           } else {
             if (targetR !== undefined && targetR !== b.row) {
