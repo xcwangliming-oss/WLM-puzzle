@@ -26117,22 +26117,35 @@ function animateConcentricPropShrink(
   const startTime = performance.now();
 
   function step(now: number) {
-    const progress = Math.min(1, Math.max(0, (now - startTime) / totalDur));
+    const el = now - startTime;
+    const progress = Math.min(1, Math.max(0, el / totalDur));
     const distanceIntoHead = (bodyLength - targetBodyLength) * progress;
     const remainingLength = Math.max(0.01, bodyLength - distanceIntoHead);
 
+    // Rapid vibration/shake during damage shrinking:
+    // Matches the impact feel from regular obstacles with a decaying high-frequency oscillation
+    const shakeIntensity = Math.max(0, 1 - progress);
+    const shakeAmount = Math.sin(el * 0.05) * 2 * shakeIntensity;
+    const shakeCross = Math.cos(el * 0.05) * 1 * shakeIntensity;
+
     // Keep the entire bar at strictly constant 1:1 scale without compression/squashing.
-    // Slide the body towards the fixed obstacle head.
+    // Slide the body towards the fixed obstacle head with rapid vibration.
     if (isHoriz) {
       bodyTexture.frame.x = dir === 'right' ? cellSz + distanceIntoHead : 0;
       bodyTexture.frame.width = remainingLength;
       (bodyTexture as any).orig.width = remainingLength;
-      bodySprite.x = (dir === 'left' ? oldCol * cellSz + distanceIntoHead : headSprite.x + cellSz);
+      bodySprite.x = (dir === 'left' ? oldCol * cellSz + distanceIntoHead : headSprite.x + cellSz) + shakeCross;
+      bodySprite.y = oldRow * cellSz + shakeAmount;
+      headSprite.x = head.col * cellSz + shakeCross;
+      headSprite.y = head.row * cellSz + shakeAmount;
     } else {
       bodyTexture.frame.y = dir === 'down' ? cellSz + distanceIntoHead : 0;
       bodyTexture.frame.height = remainingLength;
       (bodyTexture as any).orig.height = remainingLength;
-      bodySprite.y = (dir === 'up' ? oldRow * cellSz + distanceIntoHead : headSprite.y + cellSz);
+      bodySprite.x = oldCol * cellSz + shakeAmount;
+      bodySprite.y = (dir === 'up' ? oldRow * cellSz + distanceIntoHead : headSprite.y + cellSz) + shakeCross;
+      headSprite.x = head.col * cellSz + shakeAmount;
+      headSprite.y = head.row * cellSz + shakeCross;
     }
     bodyTexture.updateUvs();
     bodySprite.scale.set(1, 1);
