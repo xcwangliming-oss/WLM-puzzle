@@ -2801,7 +2801,11 @@ function getConcentricPropTexture(length: number, dir: PropDirection = 'left'): 
   return texture;
 }
 
-function getConcentricTipPropTexture(): PIXI.Texture {
+function hasConcentricTipProp(): boolean {
+  return !!(concentricCustomTipImg && concentricCustomTipImg.naturalWidth > 0 && concentricCustomTipImg.naturalHeight > 0);
+}
+
+function getConcentricTipPropTexture(): PIXI.Texture | null {
   if (concentricCustomTipImg && concentricCustomTipImg.naturalWidth > 0 && concentricCustomTipImg.naturalHeight > 0) {
     const key = `concentric_custom_tip_${concentricCustomTipImg.src.slice(-32)}`;
     if (concentricTextureCache[key]) return concentricTextureCache[key];
@@ -2809,15 +2813,7 @@ function getConcentricTipPropTexture(): PIXI.Texture {
     concentricTextureCache[key] = tex;
     return tex;
   }
-  if (!concentricDuckDefaultTexture) {
-    if (concentricDuckImg && concentricDuckImg.naturalWidth > 0) {
-      concentricDuckDefaultTexture = PIXI.Texture.from(concentricDuckImg);
-    } else {
-      const cvs = renderCanonicalDuckCanvas(128);
-      concentricDuckDefaultTexture = PIXI.Texture.from(cvs);
-    }
-  }
-  return concentricDuckDefaultTexture;
+  return null;
 }
 
 function getConcentricPropTipCell(b: { row: number; col: number; length: number; propDir?: PropDirection }): { col: number; row: number } {
@@ -2833,9 +2829,11 @@ function getConcentricPropTipCell(b: { row: number; col: number; length: number;
   }
 }
 
-function createConcentricTipSprite(dir: PropDirection = 'left'): PIXI.Sprite {
+function createConcentricTipSprite(dir: PropDirection = 'left'): PIXI.Sprite | null {
+  const tex = getConcentricTipPropTexture();
+  if (!tex) return null;
   const cellSz = PARAMS.cellSize || 50;
-  const sprite = new PIXI.Sprite(getConcentricTipPropTexture());
+  const sprite = new PIXI.Sprite(tex);
   sprite.anchor.set(0.5, 0.5);
   const duckSize = cellSz * 0.88;
   sprite.width = duckSize;
@@ -2859,15 +2857,26 @@ function updateBlockTipPropPosition(b: Block): void {
 }
 
 function updateConcentricTipProps(): void {
+  const hasTip = hasConcentricTipProp();
   blocks.forEach(b => {
     if (b.isProp && b.concentricLayer !== undefined && b.length > 0) {
-      if (!b.tipPropSprite || (b.tipPropSprite as any).destroyed) {
-        b.tipPropSprite = createConcentricTipSprite(b.propDir || 'left');
-        blocksContainer.addChild(b.tipPropSprite);
-      } else {
-        b.tipPropSprite.texture = getConcentricTipPropTexture();
+      if (hasTip) {
+        if (!b.tipPropSprite || (b.tipPropSprite as any).destroyed) {
+          const sp = createConcentricTipSprite(b.propDir || 'left');
+          if (sp) {
+            b.tipPropSprite = sp;
+            blocksContainer.addChild(b.tipPropSprite);
+          }
+        } else {
+          const tex = getConcentricTipPropTexture();
+          if (tex) b.tipPropSprite.texture = tex;
+        }
+        updateBlockTipPropPosition(b);
+      } else if (b.tipPropSprite) {
+        if (b.tipPropSprite.parent) b.tipPropSprite.parent.removeChild(b.tipPropSprite);
+        b.tipPropSprite.destroy();
+        b.tipPropSprite = undefined;
       }
-      updateBlockTipPropPosition(b);
     } else if (b.tipPropSprite) {
       if (b.tipPropSprite.parent) b.tipPropSprite.parent.removeChild(b.tipPropSprite);
       b.tipPropSprite.destroy();
@@ -2901,7 +2910,7 @@ function refreshConcentricStyleUI(): void {
 
   const hasBar = !!(concentricCustomBarImg && concentricCustomBarImg.src);
   const hasHead = !!(concentricCustomHeadImg && concentricCustomHeadImg.src);
-  const hasTip = !!(concentricCustomTipImg && concentricCustomTipImg.src);
+  const hasTip = hasConcentricTipProp();
 
   if (barThumb) {
     barThumb.src = hasBar ? concentricCustomBarImg!.src : '';
@@ -2916,12 +2925,12 @@ function refreshConcentricStyleUI(): void {
   if (headPlaceholder) headPlaceholder.style.display = hasHead ? 'none' : 'block';
 
   if (tipThumb) {
-    tipThumb.src = hasTip ? concentricCustomTipImg!.src : '';
+    tipThumb.src = hasTip && concentricCustomTipImg ? concentricCustomTipImg.src : '';
     tipThumb.style.display = hasTip ? 'block' : 'none';
   }
   if (tipPlaceholder) {
     tipPlaceholder.style.display = hasTip ? 'none' : 'block';
-    tipPlaceholder.textContent = '小鸭(默认)';
+    tipPlaceholder.textContent = '点击上传';
   }
 
   const hasCustom = hasBar || hasHead || hasTip;
@@ -3023,16 +3032,9 @@ function initConcentricAppearanceUI(): void {
           if (isConcentricObstacleMode) updateConcentricPropTextures();
         };
         img.src = savedTip;
+      } else {
+        concentricCustomTipImg = null;
       }
-
-      const duckDefaultImg = new Image();
-      duckDefaultImg.onload = () => {
-        concentricDuckImg = duckDefaultImg;
-        if (!concentricCustomTipImg && isConcentricObstacleMode) {
-          updateConcentricPropTextures();
-        }
-      };
-      duckDefaultImg.src = concentricDuckUrl;
     } catch(e){}
   };
 
@@ -3993,9 +3995,12 @@ function generateConcentricObstacleBoard(): void {
           blk.sprite.width = isVert ? (PARAMS.cellSize || 50) : p.length * (PARAMS.cellSize || 50);
           blk.sprite.height = isVert ? p.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
         }
-        blk.tipPropSprite = createConcentricTipSprite(p.propDir);
-        updateBlockTipPropPosition(blk);
-        blocksContainer.addChild(blk.tipPropSprite);
+        const tipSp = createConcentricTipSprite(p.propDir);
+        if (tipSp) {
+          blk.tipPropSprite = tipSp;
+          updateBlockTipPropPosition(blk);
+          blocksContainer.addChild(tipSp);
+        }
       }
     });
   });
@@ -4673,9 +4678,12 @@ function spawnRecordedBlockState(sb: BoardBlockState | any) {
           blk.sprite.height = isVert ? blk.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
         }
         if (blk.length > 0) {
-          blk.tipPropSprite = createConcentricTipSprite(blk.propDir);
-          updateBlockTipPropPosition(blk);
-          blocksContainer.addChild(blk.tipPropSprite);
+          const tipSp = createConcentricTipSprite(blk.propDir);
+          if (tipSp) {
+            blk.tipPropSprite = tipSp;
+            updateBlockTipPropPosition(blk);
+            blocksContainer.addChild(tipSp);
+          }
         }
       }
     }
