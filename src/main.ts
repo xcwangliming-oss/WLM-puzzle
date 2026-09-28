@@ -2868,7 +2868,7 @@ function getConcentricPropTipCell(b: { row: number; col: number; length: number;
 
 function createConcentricTipSprite(dir: PropDirection = 'left'): PIXI.Sprite | PIXI.AnimatedSprite | null {
   const cellSz = PARAMS.cellSize || 50;
-  const duckSize = cellSz * 1.08;
+  const duckSize = cellSz * 0.96;
 
   if (concentricCustomTipFrameImages.length > 1) {
     const validImages = concentricCustomTipFrameImages.filter(img => img && img.naturalWidth > 0);
