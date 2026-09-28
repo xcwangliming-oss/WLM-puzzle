@@ -3846,6 +3846,46 @@ function stageConcentricSubObstacleBlocksForGravity(): void {
   }
 
   portalColsByRow.forEach((cols, portalRow) => {
+    if (isPlayingScript && activeSimulatingStepIndex !== null) {
+      const nextStep = scriptSteps[activeSimulatingStepIndex + 1];
+      if (nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
+        const currentIds = new Set(blocks.map(b => b.id));
+        const colSet = new Set(cols);
+        const recordedSpawns = nextStep.boardBefore.filter(sb =>
+          !sb.isProp &&
+          !sb.concentricBuffer &&
+          sb.row > portalRow &&
+          sb.id !== undefined &&
+          !currentIds.has(sb.id) &&
+          colSet.has(sb.col)
+        );
+
+        if (recordedSpawns.length > 0) {
+          recordedSpawns.forEach(sb => {
+            const blk = spawnRecordedBlockState({
+              ...sb,
+              row: portalRow,
+              noGravity: false,
+              concentricBuffer: false,
+            });
+            if (blk) {
+              blk.concentricBuffer = false;
+              blk.concentricEntryFromY = portalRow * PARAMS.cellSize;
+              if (blk.sprite) {
+                blk.sprite.zIndex = 10;
+                blk.sprite.x = sb.col * PARAMS.cellSize;
+                blk.sprite.y = portalRow * PARAMS.cellSize;
+                blk.sprite.visible = false;
+                blk.sprite.alpha = 1;
+                blk.sprite.eventMode = 'none';
+              }
+            }
+          });
+          return;
+        }
+      }
+    }
+
     const specs = generateConcentricBlocksForOpenColumns(cols);
     specs.forEach(spec => {
       const color = pickColorForCurrentMode(Math.max(0, portalRow + 1));
@@ -36031,10 +36071,10 @@ function drawSolidRecordingBoardFrame(
   const radius = Math.max(4, width * 0.011);
 
   ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-  ctx.shadowBlur = Math.max(12, width * 0.035);
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
   ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = Math.max(4, width * 0.012);
+  ctx.shadowOffsetY = 0;
   ctx.fillStyle = 'rgba(35, 45, 92, 0.7)';
   drawRoundedRectPath(ctx, boardBox.x, boardBox.y, boardBox.w, boardBox.h, radius);
   ctx.fill();
