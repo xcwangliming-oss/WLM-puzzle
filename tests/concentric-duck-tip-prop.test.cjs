@@ -61,12 +61,17 @@ assert.ok(
   'createConcentricTipSprite must create PIXI.AnimatedSprite when sequence frames are uploaded',
 );
 
-// 5. playConcentricDuckFlyAway must float upward with gsap and fade out
+// 5. playConcentricDuckFlyAway must support two-stage animation (enlarge first, then disappear) and fly frames
 const flyAwayFunc = bodyOf('playConcentricDuckFlyAway', 'triggerConcentricVictory');
 assert.ok(
-  flyAwayFunc.includes('gsap.to(') &&
-  flyAwayFunc.includes('alpha: 0'),
-  'playConcentricDuckFlyAway must animate duck floating up and fading out with gsap',
+  (flyAwayFunc.includes('gsap.to(') || flyAwayFunc.includes('tl.to(')) &&
+  flyAwayFunc.includes('alpha: 0') &&
+  flyAwayFunc.includes('concentricCustomFlyFrameImages'),
+  'playConcentricDuckFlyAway must support dedicated fly-away sequence frames and fade out',
+);
+assert.ok(
+  flyAwayFunc.includes('1.65') && flyAwayFunc.includes('enlargedScale'),
+  'playConcentricDuckFlyAway must first enlarge before flying away and disappearing',
 );
 
 // 6. triggerConcentricVictory must fly away all ducks when obstacle bars are completely cleared

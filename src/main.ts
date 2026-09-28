@@ -2456,11 +2456,14 @@ const CONCENTRIC_STORAGE_BAR = 'concentric_custom_bar_b64';
 const CONCENTRIC_STORAGE_HEAD = 'concentric_custom_head_b64';
 const CONCENTRIC_STORAGE_TIP = 'concentric_custom_tip_b64';
 const CONCENTRIC_STORAGE_TIP_FRAMES = 'concentric_custom_tip_frames_json';
+const CONCENTRIC_STORAGE_FLY_FRAMES = 'concentric_custom_fly_frames_json';
 let concentricCustomBarImg: HTMLImageElement | null = null;
 let concentricCustomHeadImg: HTMLImageElement | null = null;
 let concentricCustomTipImg: HTMLImageElement | null = null;
 let concentricCustomTipFrames: string[] = [];
 let concentricCustomTipFrameImages: HTMLImageElement[] = [];
+let concentricCustomFlyFrames: string[] = [];
+let concentricCustomFlyFrameImages: HTMLImageElement[] = [];
 let concentricDuckImg: HTMLImageElement | null = null;
 let concentricDuckDefaultTexture: PIXI.Texture | null = null;
 const concentricTextureCache: Record<string, PIXI.Texture> = {};
@@ -2949,6 +2952,9 @@ function refreshConcentricStyleUI(): void {
   const tipThumb = document.getElementById('concentric-tip-thumb') as HTMLImageElement | null;
   const tipPlaceholder = document.getElementById('concentric-tip-placeholder');
   const tipCount = document.getElementById('concentric-tip-count');
+  const flyThumb = document.getElementById('concentric-fly-thumb') as HTMLImageElement | null;
+  const flyPlaceholder = document.getElementById('concentric-fly-placeholder');
+  const flyCount = document.getElementById('concentric-fly-count');
   const badge = document.getElementById('concentric-custom-badge');
   const btnClear = document.getElementById('btn-clear-concentric-style');
 
@@ -2956,6 +2962,7 @@ function refreshConcentricStyleUI(): void {
   const hasHead = !!(concentricCustomHeadImg && concentricCustomHeadImg.src);
   const hasFrames = concentricCustomTipFrames.length > 1;
   const hasTip = hasFrames || hasConcentricTipProp();
+  const hasFly = concentricCustomFlyFrames.length > 0;
 
   if (barThumb) {
     barThumb.src = hasBar ? concentricCustomBarImg!.src : '';
@@ -2985,7 +2992,22 @@ function refreshConcentricStyleUI(): void {
     tipCount.style.display = hasFrames ? 'block' : 'none';
   }
 
-  const hasCustom = hasBar || hasHead || hasTip;
+  if (flyThumb) {
+    flyThumb.src = hasFly ? concentricCustomFlyFrames[0] : '';
+    flyThumb.style.display = hasFly ? 'block' : 'none';
+  }
+  if (flyPlaceholder) {
+    flyPlaceholder.style.display = hasFly ? 'none' : 'block';
+    flyPlaceholder.textContent = '飞走(上传)';
+  }
+  if (flyCount) {
+    flyCount.textContent = concentricCustomFlyFrames.length > 1
+      ? `飞走 (${concentricCustomFlyFrames.length}帧)`
+      : (hasFly ? '飞走 (1帧)' : '');
+    flyCount.style.display = hasFly ? 'block' : 'none';
+  }
+
+  const hasCustom = hasBar || hasHead || hasTip || hasFly;
   if (badge) badge.style.display = hasCustom ? 'inline-block' : 'none';
   if (btnClear) btnClear.style.display = hasCustom ? 'block' : 'none';
 }
@@ -2994,14 +3016,17 @@ function initConcentricAppearanceUI(): void {
   const barSlot = document.getElementById('concentric-bar-slot');
   const headSlot = document.getElementById('concentric-head-slot');
   const tipSlot = document.getElementById('concentric-tip-slot');
+  const flySlot = document.getElementById('concentric-fly-slot');
   const inputBar = document.getElementById('input-concentric-bar') as HTMLInputElement | null;
   const inputHead = document.getElementById('input-concentric-head') as HTMLInputElement | null;
   const inputTip = document.getElementById('input-concentric-tip') as HTMLInputElement | null;
+  const inputFly = document.getElementById('input-concentric-fly') as HTMLInputElement | null;
   const btnClear = document.getElementById('btn-clear-concentric-style');
 
   barSlot?.addEventListener('click', () => inputBar?.click());
   headSlot?.addEventListener('click', () => inputHead?.click());
   tipSlot?.addEventListener('click', () => inputTip?.click());
+  flySlot?.addEventListener('click', () => inputFly?.click());
 
   const handleFile = (file: File, type: 'bar' | 'head' | 'tip') => {
     const reader = new FileReader();
@@ -3108,6 +3133,54 @@ function initConcentricAppearanceUI(): void {
     inputTip.value = '';
   });
 
+  inputFly?.addEventListener('change', async () => {
+    const rawFiles = Array.from(inputFly.files || []);
+    const files = rawFiles
+      .filter(file => !file.type || file.type.startsWith('image/'))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (files.length === 0) {
+      inputFly.value = '';
+      return;
+    }
+
+    const readAsDataURL = (file: File): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    };
+    const loadImage = (src: string): Promise<HTMLImageElement> => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(img);
+        img.src = src;
+      });
+    };
+
+    try {
+      const b64List = await Promise.all(files.map(readAsDataURL));
+      const imgList = await Promise.all(b64List.map(loadImage));
+      const validImgs = imgList.filter(img => img.naturalWidth > 0);
+      if (validImgs.length > 0) {
+        concentricCustomFlyFrames = b64List;
+        concentricCustomFlyFrameImages = validImgs;
+        try {
+          try {
+            localStorage.setItem(CONCENTRIC_STORAGE_FLY_FRAMES, JSON.stringify(b64List));
+          } catch(e){}
+          await savePropFrameSet(CONCENTRIC_STORAGE_FLY_FRAMES, b64List);
+        } catch(e){}
+        refreshConcentricStyleUI();
+      }
+    } catch(e) {
+      console.error('Failed to load fly-away sequence frames', e);
+    }
+    inputFly.value = '';
+  });
+
   const loadConcentricAppearanceAssets = () => {
     try {
       const savedBar = localStorage.getItem(CONCENTRIC_STORAGE_BAR);
@@ -3192,6 +3265,36 @@ function initConcentricAppearanceUI(): void {
         } catch(e){}
       };
       loadSavedTipFrames();
+
+      const loadSavedFlyFrames = async () => {
+        try {
+          let frames: string[] | null = null;
+          try {
+            frames = await loadPropFrameSet(CONCENTRIC_STORAGE_FLY_FRAMES);
+          } catch(e){}
+          if (!frames || frames.length === 0) {
+            const lsFrames = localStorage.getItem(CONCENTRIC_STORAGE_FLY_FRAMES);
+            if (lsFrames) {
+              try { frames = JSON.parse(lsFrames); } catch(e){}
+            }
+          }
+          if (frames && Array.isArray(frames) && frames.length > 0) {
+            concentricCustomFlyFrames = frames;
+            const imgPromises = frames.map(src => {
+              return new Promise<HTMLImageElement>((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => resolve(img);
+                img.src = src;
+              });
+            });
+            const imgs = await Promise.all(imgPromises);
+            concentricCustomFlyFrameImages = imgs.filter(img => img.naturalWidth > 0);
+            refreshConcentricStyleUI();
+          }
+        } catch(e){}
+      };
+      loadSavedFlyFrames();
     } catch(e){}
   };
 
@@ -3201,15 +3304,20 @@ function initConcentricAppearanceUI(): void {
     concentricCustomTipImg = null;
     concentricCustomTipFrames = [];
     concentricCustomTipFrameImages = [];
+    concentricCustomFlyFrames = [];
+    concentricCustomFlyFrameImages = [];
     try {
       localStorage.removeItem(CONCENTRIC_STORAGE_BAR);
       localStorage.removeItem(CONCENTRIC_STORAGE_HEAD);
       localStorage.removeItem(CONCENTRIC_STORAGE_TIP);
       localStorage.removeItem(CONCENTRIC_STORAGE_TIP_FRAMES);
+      localStorage.removeItem(CONCENTRIC_STORAGE_FLY_FRAMES);
       clearLegacyPropFrameStorage(CONCENTRIC_STORAGE_TIP_FRAMES);
+      clearLegacyPropFrameStorage(CONCENTRIC_STORAGE_FLY_FRAMES);
       openPropAssetDb().then(db => {
         try {
           db.transaction(PROP_ASSET_STORE, 'readwrite').objectStore(PROP_ASSET_STORE).delete(CONCENTRIC_STORAGE_TIP_FRAMES);
+          db.transaction(PROP_ASSET_STORE, 'readwrite').objectStore(PROP_ASSET_STORE).delete(CONCENTRIC_STORAGE_FLY_FRAMES);
         } catch(e){}
       }).catch(() => {});
     } catch(e){}
@@ -4641,26 +4749,81 @@ function playConcentricDuckFlyAway(duckSprite: PIXI.Sprite | PIXI.AnimatedSprite
   if (duckSprite.parent !== blocksContainer && blocksContainer) {
     blocksContainer.addChild(duckSprite);
   }
-  if (duckSprite instanceof PIXI.AnimatedSprite) {
+
+  // Switch to dedicated fly-away sequence frames if uploaded
+  const validFlyImages = concentricCustomFlyFrameImages.filter(img => img && img.naturalWidth > 0);
+  if (validFlyImages.length > 0) {
+    const flyTextures = validFlyImages.map(img => PIXI.Texture.from(img));
+    if (validFlyImages.length > 1) {
+      if (duckSprite instanceof PIXI.AnimatedSprite) {
+        duckSprite.textures = flyTextures;
+        duckSprite.animationSpeed = 0.22;
+        duckSprite.loop = true;
+        duckSprite.gotoAndPlay(0);
+      } else {
+        const animDuck = new PIXI.AnimatedSprite(flyTextures);
+        animDuck.anchor.set(0.5, 0.5);
+        animDuck.x = duckSprite.x;
+        animDuck.y = duckSprite.y;
+        animDuck.width = duckSprite.width;
+        animDuck.height = duckSprite.height;
+        animDuck.scale.x = duckSprite.scale.x;
+        animDuck.scale.y = duckSprite.scale.y;
+        animDuck.zIndex = 200;
+        animDuck.animationSpeed = 0.22;
+        animDuck.loop = true;
+        animDuck.play();
+        if (duckSprite.parent) {
+          duckSprite.parent.addChild(animDuck);
+          duckSprite.parent.removeChild(duckSprite);
+        }
+        duckSprite.destroy();
+        duckSprite = animDuck;
+      }
+    } else {
+      duckSprite.texture = flyTextures[0];
+    }
+  } else if (duckSprite instanceof PIXI.AnimatedSprite) {
     duckSprite.animationSpeed = 0.25;
     duckSprite.play();
   }
-  const startY = duckSprite.y;
-  const targetScaleX = duckSprite.scale.x * 1.35;
-  const targetScaleY = Math.abs(duckSprite.scale.y) * 1.35;
 
-  gsap.to(duckSprite, {
-    y: startY - 120,
-    scaleX: targetScaleX,
-    scaleY: targetScaleY,
-    alpha: 0,
-    duration: 0.85,
-    ease: 'power2.out',
+  const startY = duckSprite.y;
+  const baseScaleX = duckSprite.scale.x;
+  const baseScaleY = duckSprite.scale.y;
+  const isFlipped = baseScaleX < 0;
+  const absScaleX = Math.abs(baseScaleX);
+  const absScaleY = Math.abs(baseScaleY);
+
+  // Two-stage animation: 先放大，在消失
+  const enlargedScaleX = (isFlipped ? -1 : 1) * absScaleX * 1.65;
+  const enlargedScaleY = absScaleY * 1.65;
+
+  const tl = gsap.timeline({
     onComplete: () => {
       if (duckSprite.parent) duckSprite.parent.removeChild(duckSprite);
       duckSprite.destroy();
       if (onComplete) onComplete();
     }
+  });
+
+  // Stage 1: 先放大 (Enlarge with anticipation bounce)
+  tl.to(duckSprite, {
+    scaleX: enlargedScaleX,
+    scaleY: enlargedScaleY,
+    y: startY - 18,
+    duration: 0.32,
+    ease: 'back.out(2.2)',
+  });
+
+  // Stage 2: 在消失 (Fly away upward into sky and fade out)
+  tl.to(duckSprite, {
+    scaleX: enlargedScaleX * 1.25,
+    scaleY: enlargedScaleY * 1.25,
+    y: startY - 150,
+    alpha: 0,
+    duration: 0.58,
+    ease: 'power2.in',
   });
 }
 
