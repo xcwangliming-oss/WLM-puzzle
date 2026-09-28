@@ -9540,17 +9540,22 @@ function continueGravityAfterElimination() {
   const applyNextGravity = () => {
     isAnimating = false;
     if (isConcentricObstacleMode) {
-      const bounds = getActiveConcentricCorridorBounds();
-      const stagedRowCount = new Set(
-        blocks
-          .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
-          .map(b => b.row)
-      ).size;
-      const missingTopRows = getConcentricMissingTopRowCount();
-      const rowsToStage = Math.max(0, Math.max(concentricRecentEliminatedRowCount, missingTopRows) - stagedRowCount);
-      if (rowsToStage > 0) replenishConcentricCentralRows(rowsToStage);
-      concentricRecentEliminatedRowCount = 0;
-      stageConcentricSubObstacleBlocksForGravity();
+      if (isPlayingScript && activeSimulatingStepIndex !== null) {
+        // In script playback, do NOT generate random buffer rows or stage random sub-obstacle blocks.
+        // All spawns are deterministically driven by the recorded nextStep.boardBefore in applyGravity.
+      } else {
+        const bounds = getActiveConcentricCorridorBounds();
+        const stagedRowCount = new Set(
+          blocks
+            .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
+            .map(b => b.row)
+        ).size;
+        const missingTopRows = getConcentricMissingTopRowCount();
+        const rowsToStage = Math.max(0, Math.max(concentricRecentEliminatedRowCount, missingTopRows) - stagedRowCount);
+        if (rowsToStage > 0) replenishConcentricCentralRows(rowsToStage);
+        concentricRecentEliminatedRowCount = 0;
+        stageConcentricSubObstacleBlocksForGravity();
+      }
     }
     applyGravity(shouldCheckNextClear);
   };
@@ -29311,13 +29316,13 @@ function applyGravity(checkElim: boolean = true) {
     if (isPlayingScript && activeSimulatingStepIndex !== null) {
       const nextStep = scriptSteps[activeSimulatingStepIndex + 1];
       if (nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
-        const currentIds = new Set(blocks.map(b => b.id));
+        const currentById = new Map(blocks.map(b => [b.id, b]));
         const recordedSpawns = nextStep.boardBefore.filter(sb =>
           !sb.isProp &&
           !sb.concentricBuffer &&
           sb.row >= 0 &&
           sb.id !== undefined &&
-          !currentIds.has(sb.id)
+          (!currentById.has(sb.id) || currentById.get(sb.id)!.row < bounds.minRow)
         );
 
         recordedSpawns.forEach(sb => {
@@ -29339,13 +29344,19 @@ function applyGravity(checkElim: boolean = true) {
             portalRow = bounds.minRow - 1;
           }
 
-          const blk = spawnRecordedBlockState({
-            ...sb,
-            row: portalRow,
-            noGravity: false,
-            concentricBuffer: false,
-          });
+          let blk: Block | null | undefined = currentById.get(sb.id!);
+          if (!blk) {
+            blk = spawnRecordedBlockState({
+              ...sb,
+              row: portalRow,
+              noGravity: false,
+              concentricBuffer: false,
+            });
+            if (blk) currentById.set(blk.id, blk);
+          }
           if (blk) {
+            blk.row = portalRow;
+            blk.col = sb.col;
             blk.concentricBuffer = false;
             blk.concentricEntryFromY = portalRow * PARAMS.cellSize;
             if (blk.sprite) {
@@ -52037,6 +52048,7 @@ function getPlayableTutorialTarget() {
 
 
 function getImmediatePlayableFullRows(): number[] {
+  if (isConcentricObstacleMode) return [];
   const occ = getGridOccupancy();
 
   if (activeSimulatingStepIndex !== null && !isRepairingScript) {
