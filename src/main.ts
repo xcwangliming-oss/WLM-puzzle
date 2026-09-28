@@ -2853,7 +2853,7 @@ function updateBlockTipPropPosition(b: Block): void {
   const tip = getConcentricPropTipCell(b);
   b.tipPropSprite.x = tip.col * cellSz + cellSz / 2;
   b.tipPropSprite.y = tip.row * cellSz + cellSz / 2;
-  b.tipPropSprite.visible = !(b.sprite && !b.sprite.visible);
+  b.tipPropSprite.visible = Boolean(b.isConcentricShrinking || !(b.sprite && !b.sprite.visible));
 }
 
 function updateConcentricTipProps(): void {
@@ -3311,7 +3311,7 @@ function updateConcentricBlockVisibility(): void {
   blocks.forEach(b => {
     if (b.isProp) {
       if (b.tipPropSprite) {
-        b.tipPropSprite.visible = (b.length > 0 && b.sprite && b.sprite.visible);
+        b.tipPropSprite.visible = Boolean(b.length > 0 && (b.isConcentricShrinking || (b.sprite && b.sprite.visible)));
       }
       return;
     }
@@ -5030,6 +5030,21 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
         if (prop.sprite && !(prop.sprite as any).destroyed) {
           prop.sprite.x = prop.col * PARAMS.cellSize;
           prop.sprite.y = prop.row * PARAMS.cellSize;
+          const isVert = prop.propDir === 'up' || prop.propDir === 'down' || prop.propOrientation === 'vertical';
+          prop.sprite.width = isVert ? (PARAMS.cellSize || 50) : prop.length * (PARAMS.cellSize || 50);
+          prop.sprite.height = isVert ? prop.length * (PARAMS.cellSize || 50) : (PARAMS.cellSize || 50);
+          prop.sprite.texture = getConcentricPropTexture(prop.length, prop.propDir || 'left');
+          prop.sprite.visible = prop.length > 0;
+        }
+        if (hasConcentricTipProp() && prop.length > 0) {
+          if (!prop.tipPropSprite || (prop.tipPropSprite as any).destroyed) {
+            const sp = createConcentricTipSprite(prop.propDir || 'left');
+            if (sp) {
+              prop.tipPropSprite = sp;
+              blocksContainer.addChild(sp);
+            }
+          }
+          updateBlockTipPropPosition(prop);
         }
       }
       return;
@@ -20199,6 +20214,7 @@ interface Block {
   concentricEntryFromY?: number;
   /** Concentric mode: block was pre-generated in the hidden reserve above the board. */
   concentricBuffer?: boolean;
+  isConcentricShrinking?: boolean;
   tipPropSprite?: PIXI.Sprite;
   /** PASTURE_LAYER_MODE: current visual/clear layer, absent for ordinary blocks. */
   pastureStage?: PastureLayerStage;
@@ -26842,8 +26858,11 @@ function animateConcentricPropShrink(
   bodySprite.y = dir === 'down' ? headSprite.y + cellSz : oldRow * cellSz;
   bodySprite.scale.set(1, 1);
 
+  b.isConcentricShrinking = true;
   if (tipSprite) {
-    tipSprite.zIndex = 115;
+    gsap.killTweensOf(tipSprite);
+    tipSprite.alpha = 1;
+    tipSprite.zIndex = 120;
     tipSprite.visible = true;
   }
 
@@ -26852,6 +26871,9 @@ function animateConcentricPropShrink(
   animation.addChild(bodySprite, headSprite);
   sprite.parent.addChild(animation);
   sprite.visible = false;
+  if (tipSprite && tipSprite.parent) {
+    tipSprite.parent.addChild(tipSprite);
+  }
 
   const totalDur = 400;
   const startTime = performance.now();
@@ -26896,6 +26918,8 @@ function animateConcentricPropShrink(
 
     // Sync duck tip prop position with retreating tip
     if (tipSprite && !((tipSprite as any).destroyed)) {
+      tipSprite.visible = true;
+      tipSprite.alpha = 1;
       if (dir === 'left') {
         tipSprite.x = bodySprite.x + cellSz / 2;
         tipSprite.y = bodySprite.y + cellSz / 2;
@@ -26915,6 +26939,8 @@ function animateConcentricPropShrink(
       requestAnimationFrame(step);
       return;
     }
+
+    b.isConcentricShrinking = false;
 
     if (newLen > 0) {
       sprite.texture = getConcentricPropTexture(newLen, dir);
