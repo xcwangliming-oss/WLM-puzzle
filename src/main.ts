@@ -11336,209 +11336,6 @@ function animateRecordedScrollTo(targetY: number, durationMs: number): Promise<v
 
 
 
-
-async function playConcentricStepTransition(step: ScriptStep, nextStep: ScriptStep): Promise<void> {
-  if (!nextStep.boardBefore || nextStep.boardBefore.length === 0) return;
-
-  const nextStates = nextStep.boardBefore;
-  const nextById = new Map<number, BoardBlockState>();
-  nextStates.forEach(s => {
-    if (s.id !== undefined) nextById.set(s.id, s);
-  });
-
-  const activeProps = blocks.filter(b => b.isProp && b.length > 0);
-  const bounds = getActiveConcentricCorridorBounds();
-  const gravityPhaseDuration = CONCENTRIC_CASCADE_PHASE_SECONDS || 0.28;
-
-  // 1. Identify and eliminate blocks that are no longer on the board in nextStep
-  const nextBoardIds = new Set(
-    nextStates.filter(s => !s.isProp && s.row >= 0 && !s.concentricBuffer).map(s => s.id)
-  );
-
-  const eliminatedBlocks = blocks.filter(b =>
-    !b.isProp &&
-    !b.concentricBuffer &&
-    b.row >= 0 &&
-    (b.id === undefined || !nextBoardIds.has(b.id))
-  );
-
-  if (eliminatedBlocks.length > 0) {
-    hasAnyEliminationThisStep = true;
-    const eliminatedRows = Array.from(new Set(eliminatedBlocks.map(b => b.row))).sort((a, b) => a - b);
-    comboCount += Math.max(1, eliminatedRows.length);
-
-    playSound(sounds.combos[Math.min(9, comboCount - 1)]);
-
-    eliminatedRows.forEach(r => {
-      const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r);
-      const onlyCols = new Set(openCols);
-      playRowShatterEffect(r, 'blue', eliminatedBlocks.filter(b => b.row === r), new Set(), onlyCols);
-    });
-
-    const scoreEl = document.getElementById('score-val');
-    if (scoreEl) {
-      const current = parseInt(scoreEl.innerText.replace(/,/g, '')) || 0;
-      const target = current + eliminatedRows.length * 888;
-      scoreEl.innerText = target.toLocaleString();
-    }
-
-    eliminatedBlocks.forEach(b => {
-      if (b.sprite && !(b.sprite as any).destroyed) {
-        gsap.to(b.sprite.scale, { y: 0, duration: 0.15, ease: 'power2.in' });
-        gsap.to(b.sprite, { alpha: 0, duration: 0.15 });
-      }
-    });
-
-    await new Promise(r => setTimeout(r, 180));
-
-    eliminatedBlocks.forEach(b => {
-      if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
-      (b.sprite as any)?.destroy?.();
-    });
-    const elimSet = new Set(eliminatedBlocks.map(b => b.id));
-    blocks = blocks.filter(b => !elimSet.has(b.id));
-
-    await new Promise(r => setTimeout(r, 40));
-  }
-
-  // 2. Identify newly spawned blocks in nextStep that are not yet on the board
-  const currentBlockIds = new Set(blocks.map(b => b.id));
-  const newSpawns = nextStates.filter(s =>
-    !s.isProp &&
-    s.row >= 0 &&
-    !s.concentricBuffer &&
-    s.id !== undefined &&
-    !currentBlockIds.has(s.id)
-  );
-
-  const blockPortalRows = new Map<number, number>();
-
-  newSpawns.forEach(sb => {
-    // Find the closest obstacle prop directly above sb's row covering any of sb's columns
-    let portalRow = -1;
-    for (let r = sb.row - 1; r >= 0; r--) {
-      let covered = false;
-      for (let c = sb.col; c < sb.col + sb.length; c++) {
-        if (isCellCoveredByProps(activeProps, c, r)) {
-          covered = true;
-          break;
-        }
-      }
-      if (covered) {
-        portalRow = r;
-        break;
-      }
-    }
-
-    if (portalRow < 0) {
-      portalRow = Math.max(0, bounds.minRow - 1);
-    }
-
-    const blk = spawnRecordedBlockState({
-      ...sb,
-      row: portalRow,
-      noGravity: false,
-      concentricBuffer: false,
-    });
-
-    if (blk) {
-      blk.concentricBuffer = false;
-      blk.concentricEntryFromY = portalRow * PARAMS.cellSize;
-      if (blk.id !== undefined) {
-        blockPortalRows.set(blk.id, portalRow);
-      }
-      if (blk.sprite) {
-        blk.sprite.zIndex = 10;
-        blk.sprite.x = sb.col * PARAMS.cellSize;
-        blk.sprite.y = portalRow * PARAMS.cellSize;
-        blk.sprite.visible = false;
-        blk.sprite.alpha = 1;
-        blk.sprite.eventMode = 'none';
-      }
-    }
-  });
-
-  // 3. Animate all blocks falling to their destination row in nextStep.boardBefore
-  const animPromises: Promise<void>[] = [];
-  let anyFell = false;
-
-  blocks.forEach(b => {
-    if (b.isProp) return;
-    const targetState = nextById.get(b.id);
-    if (!targetState) return;
-
-    if (targetState.row < 0 || targetState.concentricBuffer) {
-      b.row = targetState.row;
-      b.concentricBuffer = true;
-      delete b.concentricEntryFromY;
-      if (b.sprite) {
-        b.sprite.visible = false;
-        b.sprite.eventMode = 'none';
-      }
-      return;
-    }
-
-    const targetY = targetState.row * PARAMS.cellSize;
-    const currentY = b.sprite ? b.sprite.y : b.row * PARAMS.cellSize;
-    const hasPendingEntry = Number.isFinite(b.concentricEntryFromY);
-    const portalRow = b.id !== undefined ? blockPortalRows.get(b.id) : undefined;
-
-    if (Math.abs(targetY - currentY) > 0.5 || b.row !== targetState.row || hasPendingEntry) {
-      anyFell = true;
-      blocksThatFell.add(b.id);
-      if (b.sprite && !(b.sprite as any).destroyed) {
-        gsap.killTweensOf(b.sprite);
-        if (hasPendingEntry) {
-          b.sprite.y = b.concentricEntryFromY as number;
-        }
-        b.row = targetState.row;
-        b.col = targetState.col;
-
-        animPromises.push(new Promise<void>(resolve => {
-          gsap.to(b.sprite, {
-            y: targetY,
-            duration: gravityPhaseDuration,
-            ease: 'power2.in',
-            onUpdate: () => {
-              if (portalRow !== undefined && b.sprite) {
-                const thresholdY = (portalRow + 1) * PARAMS.cellSize - 2;
-                b.sprite.visible = b.sprite.y >= thresholdY;
-              } else {
-                updateConcentricFallingVisibility(b, b.sprite.y);
-              }
-            },
-            onComplete: () => {
-              delete b.concentricEntryFromY;
-              if (b.sprite) {
-                b.sprite.visible = true;
-                b.sprite.eventMode = 'static';
-              }
-              resolve();
-            },
-          });
-        }));
-      } else {
-        b.row = targetState.row;
-        b.col = targetState.col;
-        delete b.concentricEntryFromY;
-      }
-    } else {
-      b.row = targetState.row;
-      b.col = targetState.col;
-      delete b.concentricEntryFromY;
-    }
-  });
-
-  if (anyFell) {
-    playSound(sounds.fall);
-    await Promise.all(animPromises);
-  }
-
-  syncCurrentConcentricLayerFromBlocks();
-  syncActiveConcentricCorridorBounds();
-  updateConcentricBlockVisibility();
-}
-
 async function playScript(autoScroll = false, rising = false, options: PlayScriptOptions = {}) {
 
 
@@ -12170,26 +11967,37 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
     blocksThatFell.add(block.id);
 
     const immediatePlaybackRows = getImmediatePlayableFullRows();
-    const nextStep = i + 1 < scriptSteps.length ? scriptSteps[i + 1] : null;
 
-    if (isConcentricObstacleMode && nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
-      await playConcentricStepTransition(step, nextStep);
-    } else {
-      if (immediatePlaybackRows.length > 0) {
-        forcedPlaybackFullRows = immediatePlaybackRows;
-        try {
-          checkEliminations();
-        } finally {
-          forcedPlaybackFullRows = null;
-        }
-        await waitForPhysics();
+    if (immediatePlaybackRows.length > 0) {
+
+      forcedPlaybackFullRows = immediatePlaybackRows;
+
+      try {
+
+        checkEliminations();
+
+      } finally {
+
+        forcedPlaybackFullRows = null;
+
       }
 
-      if (immediatePlaybackRows.length === 0) {
-        applyGravity(true);
-        await waitForPhysics();
-      }
+      await waitForPhysics();
+
     }
+
+
+
+    if (immediatePlaybackRows.length === 0) {
+      applyGravity(true);
+
+
+
+      await waitForPhysics();
+
+    }
+
+
 
     isPlayingStepTransition = false;
 
