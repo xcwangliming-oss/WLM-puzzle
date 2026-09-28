@@ -3805,51 +3805,6 @@ function stageConcentricSubObstacleBlocksForGravity(): void {
   const totalCols = PARAMS.gridCols || concentricConfig.cols || DEFAULT_BOARD_COLS;
   const totalRows = PARAMS.totalRows || concentricConfig.rows || 20;
 
-  // During script playback: stage the exact newly-spawned blocks from next step's recorded snapshot!
-  if (isPlayingScript && activeSimulatingStepIndex !== null) {
-    const nextStep = scriptSteps[activeSimulatingStepIndex + 1];
-    if (nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
-      const currentIds = new Set(blocks.map(b => b.id));
-      const newlySpawned = nextStep.boardBefore.filter(sb =>
-        !sb.isProp &&
-        sb.row >= 0 &&
-        sb.id !== undefined &&
-        !currentIds.has(sb.id) &&
-        !sb.concentricBuffer
-      );
-
-      newlySpawned.forEach(sb => {
-        let portalRow = 0;
-        for (let r = sb.row - 1; r >= 0; r--) {
-          if (isCellCoveredByProps(activeProps, sb.col, r)) {
-            portalRow = r;
-            break;
-          }
-        }
-
-        const blk = spawnRecordedBlockState({
-          ...sb,
-          row: portalRow,
-          noGravity: false,
-          concentricBuffer: false,
-        });
-
-        if (blk) {
-          blk.concentricBuffer = false;
-          blk.concentricEntryFromY = portalRow * PARAMS.cellSize;
-          if (blk.sprite) {
-            blk.sprite.zIndex = 10;
-            blk.sprite.y = portalRow * PARAMS.cellSize;
-            blk.sprite.visible = false;
-            blk.sprite.alpha = 1;
-            blk.sprite.eventMode = 'none';
-          }
-        }
-      });
-      return;
-    }
-  }
-
   const portalColsByRow = new Map<number, number[]>();
 
   for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
@@ -4990,9 +4945,19 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
     }
   });
 
-  const matchedBlockIds = new Set<number>();
+  const stateIds = new Set(states.map(s => s.id).filter(id => id !== undefined));
 
-  // 1. Sync existing blocks or spawn missing ones smoothly
+  // 1. Remove blocks that are not in the recorded snapshot (skip props)
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.isProp) continue;
+    if (b.id !== undefined && !stateIds.has(b.id)) {
+      if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+      blocks.splice(i, 1);
+    }
+  }
+
+  // 2. Sync existing blocks or spawn missing ones smoothly
   states.forEach(sb => {
     if (sb.isProp) {
       const prop = blocks.find(b => b.isProp && b.id === sb.id);
@@ -5004,16 +4969,13 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
           prop.sprite.x = prop.col * PARAMS.cellSize;
           prop.sprite.y = prop.row * PARAMS.cellSize;
         }
-        if (prop.id !== undefined) matchedBlockIds.add(prop.id);
       }
       return;
     }
 
     let existing = sb.id !== undefined ? currentById.get(sb.id) : null;
     if (!existing) {
-      const idx = unmatchedLiveBlocks.findIndex(b => b.length === sb.length && b.row === sb.row && b.col === sb.col) >= 0
-        ? unmatchedLiveBlocks.findIndex(b => b.length === sb.length && b.row === sb.row && b.col === sb.col)
-        : unmatchedLiveBlocks.findIndex(b => b.length === sb.length && b.row === sb.row);
+      const idx = unmatchedLiveBlocks.findIndex(b => b.length === sb.length && b.row === sb.row);
       if (idx >= 0) {
         existing = unmatchedLiveBlocks.splice(idx, 1)[0];
         if (sb.id !== undefined) existing.id = sb.id;
@@ -5027,8 +4989,6 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
       existing.color = sb.color;
       existing.noGravity = sb.noGravity;
       existing.concentricBuffer = sb.concentricBuffer;
-      if (existing.id !== undefined) matchedBlockIds.add(existing.id);
-
       if (existing.sprite && !(existing.sprite as any).destroyed) {
         gsap.killTweensOf(existing.sprite);
         existing.sprite.x = existing.col * PARAMS.cellSize;
@@ -5046,27 +5006,16 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
     } else {
       const blk = spawnRecordedBlockState(sb);
       if (blk && blk.sprite && !(blk.sprite as any).destroyed) {
-        if (blk.id !== undefined) matchedBlockIds.add(blk.id);
         if (isConcentricObstacleMode && (blk.concentricBuffer || blk.row < 0)) {
           blk.sprite.visible = false;
           blk.sprite.eventMode = 'none';
         } else {
-          blk.sprite.visible = true;
-          blk.sprite.alpha = 1;
+          blk.sprite.alpha = 0;
+          gsap.to(blk.sprite, { alpha: 1, duration: 0.15, ease: 'power1.out' });
         }
       }
     }
   });
-
-  // 2. Remove live blocks that were not matched (skip props)
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i];
-    if (b.isProp) continue;
-    if (b.id !== undefined && !matchedBlockIds.has(b.id)) {
-      if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
-      blocks.splice(i, 1);
-    }
-  }
 
   if (isConcentricObstacleMode) {
     syncCurrentConcentricLayerFromBlocks();
@@ -29337,20 +29286,8 @@ function applyGravity(checkElim: boolean = true) {
 
   const simulatedRows: Record<number, number> = {};
 
-  const nextStepForPlayback = (isPlayingScript && activeSimulatingStepIndex !== null)
-    ? scriptSteps[activeSimulatingStepIndex + 1]
-    : null;
-
   blocks.forEach(b => {
     let targetRow = b.row;
-
-    if (nextStepForPlayback && nextStepForPlayback.boardBefore) {
-      const recordedBlock = nextStepForPlayback.boardBefore.find(s => s.id === b.id);
-      if (recordedBlock && recordedBlock.row >= 0) {
-        simulatedRows[b.id] = recordedBlock.row;
-        return;
-      }
-    }
 
     if (isNoGravityMode && b.noGravity) {
       simulatedRows[b.id] = targetRow;
