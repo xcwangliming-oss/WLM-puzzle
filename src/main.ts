@@ -3806,6 +3806,7 @@ function stageConcentricReserveRowsForGravity(rowCount: number): void {
 
 function stageConcentricSubObstacleBlocksForGravity(): void {
   if (!isConcentricObstacleMode) return;
+  if (isPlayingScript && activeSimulatingStepIndex !== null) return;
   const activeProps = blocks.filter(b => b.isProp && b.length > 0);
   if (activeProps.length === 0) return;
   const bounds = getActiveConcentricCorridorBounds();
@@ -4956,10 +4957,21 @@ function areBoardBlockStatesEquivalent(states: BoardBlockState[]): boolean {
   if (blocks.length !== states.length) return false;
 
   const currentById = new Map<number | undefined, Block>(blocks.map(block => [block.id, block]));
+  const usedBlocks = new Set<Block>();
 
   for (const state of states) {
-    const block = currentById.get(state.id);
+    let block = currentById.get(state.id);
+    if (!block || usedBlocks.has(block)) {
+      block = blocks.find(b =>
+        !usedBlocks.has(b) &&
+        b.col === state.col &&
+        b.row === state.row &&
+        b.length === state.length &&
+        !!b.isProp === !!state.isProp
+      );
+    }
     if (!block) return false;
+    usedBlocks.add(block);
     if (block.col !== state.col) return false;
     if (block.row !== state.row) return false;
     if (block.length !== state.length) return false;
@@ -4985,7 +4997,8 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
   const currentById = new Map<number, Block>();
   const unmatchedLiveBlocks: Block[] = [];
   blocks.forEach(b => {
-    if (b.id !== undefined && !b.isProp) {
+    if (b.isProp) return; // PROPS NEVER ENTER regular block matching!
+    if (b.id !== undefined) {
       currentById.set(b.id, b);
     } else {
       unmatchedLiveBlocks.push(b);
@@ -4998,7 +5011,9 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
   for (let i = blocks.length - 1; i >= 0; i--) {
     const b = blocks[i];
     if (b.isProp) continue;
-    if (b.id !== undefined && !stateIds.has(b.id)) {
+    const matchesRecorded = (b.id !== undefined && stateIds.has(b.id)) ||
+      states.some(s => !s.isProp && s.col === b.col && s.row === b.row && s.length === b.length);
+    if (!matchesRecorded) {
       if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
       blocks.splice(i, 1);
     }
@@ -5022,7 +5037,13 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
 
     let existing = sb.id !== undefined ? currentById.get(sb.id) : null;
     if (!existing) {
-      const idx = unmatchedLiveBlocks.findIndex(b => b.col === sb.col && b.length === sb.length);
+      let idx = unmatchedLiveBlocks.findIndex(b => b.col === sb.col && b.row === sb.row && b.length === sb.length);
+      if (idx < 0) {
+        idx = unmatchedLiveBlocks.findIndex(b => b.col === sb.col && b.length === sb.length);
+      }
+      if (idx < 0) {
+        idx = unmatchedLiveBlocks.findIndex(b => b.length === sb.length);
+      }
       if (idx >= 0) {
         existing = unmatchedLiveBlocks.splice(idx, 1)[0];
         if (sb.id !== undefined) existing.id = sb.id;
@@ -9529,6 +9550,89 @@ function alignInstantPlaybackViewportToNextWave() {
   if (nextWaveWorldY !== null) setWorldY(nextWaveWorldY);
 }
 
+function stageConcentricPlaybackSpawns(stepIndex: number): void {
+  if (!isConcentricObstacleMode) return;
+  const nextStep = scriptSteps[stepIndex + 1];
+  if (!nextStep || !nextStep.boardBefore || nextStep.boardBefore.length === 0) return;
+
+  const bounds = getActiveConcentricCorridorBounds();
+  const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+  const totalCols = PARAMS.gridCols || concentricConfig.cols || DEFAULT_BOARD_COLS;
+
+  for (let c = 0; c < totalCols; c++) {
+    const currentInCol = blocks.filter(b =>
+      !b.isProp &&
+      !b.concentricBuffer &&
+      b.col <= c &&
+      b.col + b.length > c &&
+      b.row >= bounds.minRow
+    );
+
+    const targetInCol = nextStep.boardBefore.filter(sb =>
+      !sb.isProp &&
+      !sb.concentricBuffer &&
+      sb.col <= c &&
+      sb.col + sb.length > c &&
+      sb.row >= bounds.minRow &&
+      sb.row <= bounds.maxRow
+    ).sort((a, b) => a.row - b.row);
+
+    const missingCount = targetInCol.length - currentInCol.length;
+    if (missingCount <= 0) continue;
+
+    const spawnsForCol = targetInCol.slice(0, missingCount);
+
+    spawnsForCol.forEach(sb => {
+      const alreadyPresent = blocks.some(b =>
+        !b.isProp &&
+        b.col === sb.col &&
+        b.length === sb.length &&
+        (b.id === sb.id || (b.row === sb.row && b.color === sb.color))
+      );
+      if (alreadyPresent) return;
+
+      let portalRow = -1;
+      for (let r = sb.row - 1; r >= 0; r--) {
+        let covered = false;
+        for (let colIdx = sb.col; colIdx < sb.col + sb.length; colIdx++) {
+          if (isCellCoveredByProps(activeProps, colIdx, r)) {
+            covered = true;
+            break;
+          }
+        }
+        if (covered) {
+          portalRow = r;
+          break;
+        }
+      }
+      if (portalRow < 0) {
+        portalRow = bounds.minRow - 1;
+      }
+
+      const blk = spawnRecordedBlockState({
+        ...sb,
+        row: portalRow,
+        noGravity: false,
+        concentricBuffer: false,
+      });
+      if (blk) {
+        blk.row = portalRow;
+        blk.col = sb.col;
+        blk.concentricBuffer = false;
+        blk.concentricEntryFromY = portalRow * PARAMS.cellSize;
+        if (blk.sprite) {
+          blk.sprite.zIndex = 10;
+          blk.sprite.x = sb.col * PARAMS.cellSize;
+          blk.sprite.y = portalRow * PARAMS.cellSize;
+          blk.sprite.visible = false;
+          blk.sprite.alpha = 1;
+          blk.sprite.eventMode = 'none';
+        }
+      }
+    });
+  }
+}
+
 function continueGravityAfterElimination() {
 
   const hasVisibleFullRows = getCurrentVisiblePlaybackFullRows(activeSimulatingStepIndex).length > 0;
@@ -9541,8 +9645,7 @@ function continueGravityAfterElimination() {
     isAnimating = false;
     if (isConcentricObstacleMode) {
       if (isPlayingScript && activeSimulatingStepIndex !== null) {
-        // In script playback, do NOT generate random buffer rows or stage random sub-obstacle blocks.
-        // All spawns are deterministically driven by the recorded nextStep.boardBefore in applyGravity.
+        stageConcentricPlaybackSpawns(activeSimulatingStepIndex);
       } else {
         const bounds = getActiveConcentricCorridorBounds();
         const stagedRowCount = new Set(
@@ -29313,64 +29416,7 @@ function applyGravity(checkElim: boolean = true) {
     const bounds = getActiveConcentricCorridorBounds();
     const activeProps = blocks.filter(b => b.isProp && b.length > 0);
 
-    if (isPlayingScript && activeSimulatingStepIndex !== null) {
-      const nextStep = scriptSteps[activeSimulatingStepIndex + 1];
-      if (nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
-        const currentById = new Map(blocks.map(b => [b.id, b]));
-        const recordedSpawns = nextStep.boardBefore.filter(sb =>
-          !sb.isProp &&
-          !sb.concentricBuffer &&
-          sb.row >= 0 &&
-          sb.id !== undefined &&
-          (!currentById.has(sb.id) || currentById.get(sb.id)!.row < bounds.minRow)
-        );
-
-        recordedSpawns.forEach(sb => {
-          let portalRow = -1;
-          for (let r = sb.row - 1; r >= 0; r--) {
-            let covered = false;
-            for (let c = sb.col; c < sb.col + sb.length; c++) {
-              if (isCellCoveredByProps(activeProps, c, r)) {
-                covered = true;
-                break;
-              }
-            }
-            if (covered) {
-              portalRow = r;
-              break;
-            }
-          }
-          if (portalRow < 0) {
-            portalRow = bounds.minRow - 1;
-          }
-
-          let blk: Block | null | undefined = currentById.get(sb.id!);
-          if (!blk) {
-            blk = spawnRecordedBlockState({
-              ...sb,
-              row: portalRow,
-              noGravity: false,
-              concentricBuffer: false,
-            });
-            if (blk) currentById.set(blk.id, blk);
-          }
-          if (blk) {
-            blk.row = portalRow;
-            blk.col = sb.col;
-            blk.concentricBuffer = false;
-            blk.concentricEntryFromY = portalRow * PARAMS.cellSize;
-            if (blk.sprite) {
-              blk.sprite.zIndex = 10;
-              blk.sprite.x = sb.col * PARAMS.cellSize;
-              blk.sprite.y = portalRow * PARAMS.cellSize;
-              blk.sprite.visible = false;
-              blk.sprite.alpha = 1;
-              blk.sprite.eventMode = 'none';
-            }
-          }
-        });
-      }
-    } else {
+    if (!isPlayingScript || activeSimulatingStepIndex === null) {
       const stagedRowCount = new Set(
         blocks
           .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)

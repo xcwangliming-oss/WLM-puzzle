@@ -709,7 +709,7 @@ body:not(.is-playable) #tab-level {
 
 #canvas-container canvas {
   position: absolute;
-  box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  box-shadow: none;
   border: none;
   border-radius: 0;
 }
