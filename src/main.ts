@@ -2468,6 +2468,9 @@ let concentricDuckImg: HTMLImageElement | null = null;
 let concentricDuckDefaultTexture: PIXI.Texture | null = null;
 const concentricTextureCache: Record<string, PIXI.Texture> = {};
 
+let concentricDuckCachedTextures: PIXI.Texture[] = [];
+let concentricFlyCachedTextures: PIXI.Texture[] = [];
+
 function invalidateConcentricTextureCache(): void {
   for (const k in concentricTextureCache) {
     concentricTextureCache[k].destroy(true);
@@ -2477,6 +2480,28 @@ function invalidateConcentricTextureCache(): void {
     concentricDuckDefaultTexture.destroy(true);
     concentricDuckDefaultTexture = null;
   }
+  concentricDuckCachedTextures = [];
+  concentricFlyCachedTextures = [];
+}
+
+function getConcentricDuckTipTextures(): PIXI.Texture[] {
+  if (concentricDuckCachedTextures.length === concentricCustomTipFrameImages.length && concentricDuckCachedTextures.length > 0) {
+    return concentricDuckCachedTextures;
+  }
+  concentricDuckCachedTextures = concentricCustomTipFrameImages
+    .filter(img => img && img.naturalWidth > 0)
+    .map(img => PIXI.Texture.from(img));
+  return concentricDuckCachedTextures;
+}
+
+function getConcentricFlyTextures(): PIXI.Texture[] {
+  if (concentricFlyCachedTextures.length === concentricCustomFlyFrameImages.length && concentricFlyCachedTextures.length > 0) {
+    return concentricFlyCachedTextures;
+  }
+  concentricFlyCachedTextures = concentricCustomFlyFrameImages
+    .filter(img => img && img.naturalWidth > 0)
+    .map(img => PIXI.Texture.from(img));
+  return concentricFlyCachedTextures;
 }
 
 function renderCanonicalDuckCanvas(size: number): HTMLCanvasElement {
@@ -2843,18 +2868,18 @@ function getConcentricPropTipCell(b: { row: number; col: number; length: number;
 
 function createConcentricTipSprite(dir: PropDirection = 'left'): PIXI.Sprite | PIXI.AnimatedSprite | null {
   const cellSz = PARAMS.cellSize || 50;
-  const duckSize = cellSz * 0.88;
+  const duckSize = cellSz * 1.32;
 
   if (concentricCustomTipFrameImages.length > 1) {
     const validImages = concentricCustomTipFrameImages.filter(img => img && img.naturalWidth > 0);
     if (validImages.length > 1) {
-      const textures = validImages.map(img => PIXI.Texture.from(img));
+      const textures = getConcentricDuckTipTextures();
       const anim = new PIXI.AnimatedSprite(textures);
       anim.anchor.set(0.5, 0.5);
       anim.width = duckSize;
       anim.height = duckSize;
       anim.zIndex = 108;
-      anim.animationSpeed = 0.15;
+      anim.animationSpeed = 0.42;
       anim.loop = true;
       if (dir === 'right' || dir === 'up') {
         anim.scale.x = -Math.abs(anim.scale.x);
@@ -2909,9 +2934,9 @@ function updateConcentricTipProps(): void {
             blocksContainer.addChild(b.tipPropSprite);
           }
         } else if (wantAnim && isAnim) {
-          const validImages = concentricCustomTipFrameImages.filter(img => img && img.naturalWidth > 0);
-          const textures = validImages.map(img => PIXI.Texture.from(img));
+          const textures = getConcentricDuckTipTextures();
           (b.tipPropSprite as PIXI.AnimatedSprite).textures = textures;
+          (b.tipPropSprite as PIXI.AnimatedSprite).animationSpeed = 0.42;
           (b.tipPropSprite as PIXI.AnimatedSprite).play();
         } else {
           const tex = getConcentricTipPropTexture();
@@ -4753,11 +4778,11 @@ function playConcentricDuckFlyAway(duckSprite: PIXI.Sprite | PIXI.AnimatedSprite
   // Switch to dedicated fly-away sequence frames if uploaded
   const validFlyImages = concentricCustomFlyFrameImages.filter(img => img && img.naturalWidth > 0);
   if (validFlyImages.length > 0) {
-    const flyTextures = validFlyImages.map(img => PIXI.Texture.from(img));
+    const flyTextures = getConcentricFlyTextures();
     if (validFlyImages.length > 1) {
       if (duckSprite instanceof PIXI.AnimatedSprite) {
         duckSprite.textures = flyTextures;
-        duckSprite.animationSpeed = 0.22;
+        duckSprite.animationSpeed = 0.45;
         duckSprite.loop = true;
         duckSprite.gotoAndPlay(0);
       } else {
@@ -4770,7 +4795,7 @@ function playConcentricDuckFlyAway(duckSprite: PIXI.Sprite | PIXI.AnimatedSprite
         animDuck.scale.x = duckSprite.scale.x;
         animDuck.scale.y = duckSprite.scale.y;
         animDuck.zIndex = 200;
-        animDuck.animationSpeed = 0.22;
+        animDuck.animationSpeed = 0.45;
         animDuck.loop = true;
         animDuck.play();
         if (duckSprite.parent) {
@@ -4784,7 +4809,7 @@ function playConcentricDuckFlyAway(duckSprite: PIXI.Sprite | PIXI.AnimatedSprite
       duckSprite.texture = flyTextures[0];
     }
   } else if (duckSprite instanceof PIXI.AnimatedSprite) {
-    duckSprite.animationSpeed = 0.25;
+    duckSprite.animationSpeed = 0.55;
     duckSprite.play();
   }
 
