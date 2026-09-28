@@ -3383,6 +3383,13 @@ function getConcentricMissingTopRowCount(): number {
 function updateConcentricFallingVisibility(block: Block, visualY: number): void {
   if (!isConcentricObstacleMode || block.isProp || !block.sprite) return;
   const cell = Math.max(1, PARAMS.cellSize || 1);
+  if (Number.isFinite(block.concentricEntryFromY)) {
+    const thresholdY = (block.concentricEntryFromY as number) + cell - 2;
+    const isEmerging = visualY >= thresholdY;
+    block.sprite.visible = isEmerging;
+    block.sprite.eventMode = isEmerging ? 'static' : 'none';
+    return;
+  }
   const visualRow = Math.floor((visualY + cell * 0.5) / cell);
   // Keep the whole physical block rendered while it traverses the board.
   // Obstacle sprites render above the blocks during the fall.
@@ -5000,7 +5007,7 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
   // 2. Sync existing blocks or spawn missing ones smoothly
   states.forEach(sb => {
     if (sb.isProp) {
-      const prop = blocks.find(b => b.isProp && b.id === sb.id);
+      const prop = blocks.find(b => b.isProp && (b.id === sb.id || (b.propDir === sb.propDir && b.concentricLayer === sb.concentricLayer)));
       if (prop) {
         prop.col = sb.col;
         prop.row = sb.row;
@@ -5015,7 +5022,7 @@ function syncBoardToRecordedStep(states: BoardBlockState[]) {
 
     let existing = sb.id !== undefined ? currentById.get(sb.id) : null;
     if (!existing) {
-      const idx = unmatchedLiveBlocks.findIndex(b => b.length === sb.length && b.row === sb.row);
+      const idx = unmatchedLiveBlocks.findIndex(b => b.col === sb.col && b.length === sb.length);
       if (idx >= 0) {
         existing = unmatchedLiveBlocks.splice(idx, 1)[0];
         if (sb.id !== undefined) existing.id = sb.id;
@@ -29299,16 +29306,72 @@ function applyGravity(checkElim: boolean = true) {
 
   if (isConcentricObstacleMode) {
     const bounds = getActiveConcentricCorridorBounds();
-    const stagedRowCount = new Set(
-      blocks
-        .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
-        .map(b => b.row)
-    ).size;
-    const missingRows = Math.max(0, getConcentricMissingTopRowCount() - stagedRowCount);
-    if (missingRows > 0) {
-      stageConcentricReserveRowsForGravity(missingRows);
+    const activeProps = blocks.filter(b => b.isProp && b.length > 0);
+
+    if (isPlayingScript && activeSimulatingStepIndex !== null) {
+      const nextStep = scriptSteps[activeSimulatingStepIndex + 1];
+      if (nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
+        const currentIds = new Set(blocks.map(b => b.id));
+        const recordedSpawns = nextStep.boardBefore.filter(sb =>
+          !sb.isProp &&
+          !sb.concentricBuffer &&
+          sb.row >= 0 &&
+          sb.id !== undefined &&
+          !currentIds.has(sb.id)
+        );
+
+        recordedSpawns.forEach(sb => {
+          let portalRow = -1;
+          for (let r = sb.row - 1; r >= 0; r--) {
+            let covered = false;
+            for (let c = sb.col; c < sb.col + sb.length; c++) {
+              if (isCellCoveredByProps(activeProps, c, r)) {
+                covered = true;
+                break;
+              }
+            }
+            if (covered) {
+              portalRow = r;
+              break;
+            }
+          }
+          if (portalRow < 0) {
+            portalRow = bounds.minRow - 1;
+          }
+
+          const blk = spawnRecordedBlockState({
+            ...sb,
+            row: portalRow,
+            noGravity: false,
+            concentricBuffer: false,
+          });
+          if (blk) {
+            blk.concentricBuffer = false;
+            blk.concentricEntryFromY = portalRow * PARAMS.cellSize;
+            if (blk.sprite) {
+              blk.sprite.zIndex = 10;
+              blk.sprite.x = sb.col * PARAMS.cellSize;
+              blk.sprite.y = portalRow * PARAMS.cellSize;
+              blk.sprite.visible = false;
+              blk.sprite.alpha = 1;
+              blk.sprite.eventMode = 'none';
+            }
+          }
+        });
+      }
+    } else {
+      const stagedRowCount = new Set(
+        blocks
+          .filter(b => !b.isProp && !b.concentricBuffer && b.row < bounds.minRow)
+          .map(b => b.row)
+      ).size;
+      const missingRows = Math.max(0, getConcentricMissingTopRowCount() - stagedRowCount);
+      if (missingRows > 0) {
+        stageConcentricReserveRowsForGravity(missingRows);
+      }
+      stageConcentricSubObstacleBlocksForGravity();
     }
-    stageConcentricSubObstacleBlocksForGravity();
+
     blocks.forEach(b => {
       if (!b.isProp && b.row >= bounds.minRow && b.concentricBuffer) {
         b.concentricBuffer = false;
