@@ -49,8 +49,31 @@ assert.ok(
   'shrink animation must update tip prop position with retreating body',
 );
 assert.ok(
-  shrinkFunc.includes('gsap.to(tipSprite'),
-  'destroyed obstacle must animate tip prop flying away with gsap',
+  shrinkFunc.includes('playConcentricDuckFlyAway(tipSprite)') || shrinkFunc.includes('gsap.to(tipSprite'),
+  'destroyed obstacle must animate tip prop flying away',
+);
+
+// 4. createConcentricTipSprite must support sequence frames via PIXI.AnimatedSprite
+const createSpriteFunc = bodyOf('createConcentricTipSprite', 'updateBlockTipPropPosition');
+assert.ok(
+  createSpriteFunc.includes('concentricCustomTipFrameImages.length > 1') &&
+  createSpriteFunc.includes('new PIXI.AnimatedSprite'),
+  'createConcentricTipSprite must create PIXI.AnimatedSprite when sequence frames are uploaded',
+);
+
+// 5. playConcentricDuckFlyAway must float upward with gsap and fade out
+const flyAwayFunc = bodyOf('playConcentricDuckFlyAway', 'triggerConcentricVictory');
+assert.ok(
+  flyAwayFunc.includes('gsap.to(') &&
+  flyAwayFunc.includes('alpha: 0'),
+  'playConcentricDuckFlyAway must animate duck floating up and fading out with gsap',
+);
+
+// 6. triggerConcentricVictory must fly away all ducks when obstacle bars are completely cleared
+const victoryFunc = bodyOf('triggerConcentricVictory', 'let isSingleColorMode');
+assert.ok(
+  victoryFunc.includes('playConcentricDuckFlyAway'),
+  'triggerConcentricVictory must fly away remaining ducks when all obstacle bars are cleared',
 );
 
 console.log('concentric-duck-tip-prop regression tests passed successfully!');

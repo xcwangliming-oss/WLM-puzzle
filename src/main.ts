@@ -2455,9 +2455,12 @@ let concentricConfig: ConcentricObstacleConfig = {
 const CONCENTRIC_STORAGE_BAR = 'concentric_custom_bar_b64';
 const CONCENTRIC_STORAGE_HEAD = 'concentric_custom_head_b64';
 const CONCENTRIC_STORAGE_TIP = 'concentric_custom_tip_b64';
+const CONCENTRIC_STORAGE_TIP_FRAMES = 'concentric_custom_tip_frames_json';
 let concentricCustomBarImg: HTMLImageElement | null = null;
 let concentricCustomHeadImg: HTMLImageElement | null = null;
 let concentricCustomTipImg: HTMLImageElement | null = null;
+let concentricCustomTipFrames: string[] = [];
+let concentricCustomTipFrameImages: HTMLImageElement[] = [];
 let concentricDuckImg: HTMLImageElement | null = null;
 let concentricDuckDefaultTexture: PIXI.Texture | null = null;
 const concentricTextureCache: Record<string, PIXI.Texture> = {};
@@ -2802,14 +2805,20 @@ function getConcentricPropTexture(length: number, dir: PropDirection = 'left'): 
 }
 
 function hasConcentricTipProp(): boolean {
+  if (concentricCustomTipFrameImages.length > 0) {
+    return concentricCustomTipFrameImages.some(img => img && img.naturalWidth > 0 && img.naturalHeight > 0);
+  }
   return !!(concentricCustomTipImg && concentricCustomTipImg.naturalWidth > 0 && concentricCustomTipImg.naturalHeight > 0);
 }
 
 function getConcentricTipPropTexture(): PIXI.Texture | null {
-  if (concentricCustomTipImg && concentricCustomTipImg.naturalWidth > 0 && concentricCustomTipImg.naturalHeight > 0) {
-    const key = `concentric_custom_tip_${concentricCustomTipImg.src.slice(-32)}`;
+  const sourceImg = (concentricCustomTipFrameImages.length > 0 && concentricCustomTipFrameImages[0].naturalWidth > 0)
+    ? concentricCustomTipFrameImages[0]
+    : concentricCustomTipImg;
+  if (sourceImg && sourceImg.naturalWidth > 0 && sourceImg.naturalHeight > 0) {
+    const key = `concentric_custom_tip_${sourceImg.src.slice(-32)}`;
     if (concentricTextureCache[key]) return concentricTextureCache[key];
-    const tex = PIXI.Texture.from(concentricCustomTipImg);
+    const tex = PIXI.Texture.from(sourceImg);
     concentricTextureCache[key] = tex;
     return tex;
   }
@@ -2829,13 +2838,35 @@ function getConcentricPropTipCell(b: { row: number; col: number; length: number;
   }
 }
 
-function createConcentricTipSprite(dir: PropDirection = 'left'): PIXI.Sprite | null {
+function createConcentricTipSprite(dir: PropDirection = 'left'): PIXI.Sprite | PIXI.AnimatedSprite | null {
+  const cellSz = PARAMS.cellSize || 50;
+  const duckSize = cellSz * 0.88;
+
+  if (concentricCustomTipFrameImages.length > 1) {
+    const validImages = concentricCustomTipFrameImages.filter(img => img && img.naturalWidth > 0);
+    if (validImages.length > 1) {
+      const textures = validImages.map(img => PIXI.Texture.from(img));
+      const anim = new PIXI.AnimatedSprite(textures);
+      anim.anchor.set(0.5, 0.5);
+      anim.width = duckSize;
+      anim.height = duckSize;
+      anim.zIndex = 108;
+      anim.animationSpeed = 0.15;
+      anim.loop = true;
+      if (dir === 'right' || dir === 'up') {
+        anim.scale.x = -Math.abs(anim.scale.x);
+      } else {
+        anim.scale.x = Math.abs(anim.scale.x);
+      }
+      anim.play();
+      return anim;
+    }
+  }
+
   const tex = getConcentricTipPropTexture();
   if (!tex) return null;
-  const cellSz = PARAMS.cellSize || 50;
   const sprite = new PIXI.Sprite(tex);
   sprite.anchor.set(0.5, 0.5);
-  const duckSize = cellSz * 0.88;
   sprite.width = duckSize;
   sprite.height = duckSize;
   sprite.zIndex = 108;
@@ -2861,12 +2892,24 @@ function updateConcentricTipProps(): void {
   blocks.forEach(b => {
     if (b.isProp && b.concentricLayer !== undefined && b.length > 0) {
       if (hasTip) {
-        if (!b.tipPropSprite || (b.tipPropSprite as any).destroyed) {
+        const isAnim = b.tipPropSprite instanceof PIXI.AnimatedSprite;
+        const wantAnim = concentricCustomTipFrameImages.filter(img => img && img.naturalWidth > 0).length > 1;
+        if (!b.tipPropSprite || (b.tipPropSprite as any).destroyed || isAnim !== wantAnim) {
+          if (b.tipPropSprite) {
+            if (b.tipPropSprite.parent) b.tipPropSprite.parent.removeChild(b.tipPropSprite);
+            b.tipPropSprite.destroy();
+            b.tipPropSprite = undefined;
+          }
           const sp = createConcentricTipSprite(b.propDir || 'left');
           if (sp) {
             b.tipPropSprite = sp;
             blocksContainer.addChild(b.tipPropSprite);
           }
+        } else if (wantAnim && isAnim) {
+          const validImages = concentricCustomTipFrameImages.filter(img => img && img.naturalWidth > 0);
+          const textures = validImages.map(img => PIXI.Texture.from(img));
+          (b.tipPropSprite as PIXI.AnimatedSprite).textures = textures;
+          (b.tipPropSprite as PIXI.AnimatedSprite).play();
         } else {
           const tex = getConcentricTipPropTexture();
           if (tex) b.tipPropSprite.texture = tex;
@@ -2905,12 +2948,14 @@ function refreshConcentricStyleUI(): void {
   const headPlaceholder = document.getElementById('concentric-head-placeholder');
   const tipThumb = document.getElementById('concentric-tip-thumb') as HTMLImageElement | null;
   const tipPlaceholder = document.getElementById('concentric-tip-placeholder');
+  const tipCount = document.getElementById('concentric-tip-count');
   const badge = document.getElementById('concentric-custom-badge');
   const btnClear = document.getElementById('btn-clear-concentric-style');
 
   const hasBar = !!(concentricCustomBarImg && concentricCustomBarImg.src);
   const hasHead = !!(concentricCustomHeadImg && concentricCustomHeadImg.src);
-  const hasTip = hasConcentricTipProp();
+  const hasFrames = concentricCustomTipFrames.length > 1;
+  const hasTip = hasFrames || hasConcentricTipProp();
 
   if (barThumb) {
     barThumb.src = hasBar ? concentricCustomBarImg!.src : '';
@@ -2925,12 +2970,19 @@ function refreshConcentricStyleUI(): void {
   if (headPlaceholder) headPlaceholder.style.display = hasHead ? 'none' : 'block';
 
   if (tipThumb) {
-    tipThumb.src = hasTip && concentricCustomTipImg ? concentricCustomTipImg.src : '';
+    const thumbSrc = hasFrames
+      ? concentricCustomTipFrames[0]
+      : (hasTip && concentricCustomTipImg ? concentricCustomTipImg.src : '');
+    tipThumb.src = thumbSrc;
     tipThumb.style.display = hasTip ? 'block' : 'none';
   }
   if (tipPlaceholder) {
     tipPlaceholder.style.display = hasTip ? 'none' : 'block';
-    tipPlaceholder.textContent = '点击上传';
+    tipPlaceholder.textContent = '小鸭(上传)';
+  }
+  if (tipCount) {
+    tipCount.textContent = hasFrames ? `小鸭 (${concentricCustomTipFrames.length}帧)` : '';
+    tipCount.style.display = hasFrames ? 'block' : 'none';
   }
 
   const hasCustom = hasBar || hasHead || hasTip;
@@ -2965,7 +3017,13 @@ function initConcentricAppearanceUI(): void {
           try { localStorage.setItem(CONCENTRIC_STORAGE_HEAD, b64); } catch(e){}
         } else {
           concentricCustomTipImg = img;
-          try { localStorage.setItem(CONCENTRIC_STORAGE_TIP, b64); } catch(e){}
+          concentricCustomTipFrames = [b64];
+          concentricCustomTipFrameImages = [img];
+          try {
+            localStorage.setItem(CONCENTRIC_STORAGE_TIP, b64);
+            localStorage.removeItem(CONCENTRIC_STORAGE_TIP_FRAMES);
+            clearLegacyPropFrameStorage(CONCENTRIC_STORAGE_TIP_FRAMES);
+          } catch(e){}
         }
         invalidateConcentricTextureCache();
         refreshConcentricStyleUI();
@@ -2988,9 +3046,65 @@ function initConcentricAppearanceUI(): void {
     inputHead.value = '';
   });
 
-  inputTip?.addEventListener('change', () => {
-    const file = inputTip.files?.[0];
-    if (file) handleFile(file, 'tip');
+  inputTip?.addEventListener('change', async () => {
+    const rawFiles = Array.from(inputTip.files || []);
+    const files = rawFiles
+      .filter(file => !file.type || file.type.startsWith('image/'))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (files.length === 0) {
+      inputTip.value = '';
+      return;
+    }
+
+    if (files.length === 1) {
+      handleFile(files[0], 'tip');
+      concentricCustomTipFrames = [];
+      concentricCustomTipFrameImages = [];
+      try {
+        localStorage.removeItem(CONCENTRIC_STORAGE_TIP_FRAMES);
+        clearLegacyPropFrameStorage(CONCENTRIC_STORAGE_TIP_FRAMES);
+      } catch(e){}
+    } else {
+      const readAsDataURL = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      };
+      const loadImage = (src: string): Promise<HTMLImageElement> => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(img);
+          img.src = src;
+        });
+      };
+
+      try {
+        const b64List = await Promise.all(files.map(readAsDataURL));
+        const imgList = await Promise.all(b64List.map(loadImage));
+        const validImgs = imgList.filter(img => img.naturalWidth > 0);
+        if (validImgs.length > 0) {
+          concentricCustomTipFrames = b64List;
+          concentricCustomTipFrameImages = validImgs;
+          concentricCustomTipImg = validImgs[0];
+          try {
+            localStorage.setItem(CONCENTRIC_STORAGE_TIP, b64List[0]);
+            try {
+              localStorage.setItem(CONCENTRIC_STORAGE_TIP_FRAMES, JSON.stringify(b64List));
+            } catch(e){}
+            await savePropFrameSet(CONCENTRIC_STORAGE_TIP_FRAMES, b64List);
+          } catch(e){}
+          invalidateConcentricTextureCache();
+          refreshConcentricStyleUI();
+          if (isConcentricObstacleMode) updateConcentricPropTextures();
+        }
+      } catch(e) {
+        console.error('Failed to load duck sequence frames', e);
+      }
+    }
     inputTip.value = '';
   });
 
@@ -3022,19 +3136,62 @@ function initConcentricAppearanceUI(): void {
         img.src = headSrc;
       }
 
-      const savedTip = localStorage.getItem(CONCENTRIC_STORAGE_TIP);
-      if (savedTip) {
-        const img = new Image();
-        img.onload = () => {
-          concentricCustomTipImg = img;
-          invalidateConcentricTextureCache();
-          refreshConcentricStyleUI();
-          if (isConcentricObstacleMode) updateConcentricPropTextures();
-        };
-        img.src = savedTip;
-      } else {
-        concentricCustomTipImg = null;
-      }
+      const loadSavedTipFrames = async () => {
+        try {
+          let frames: string[] | null = null;
+          try {
+            frames = await loadPropFrameSet(CONCENTRIC_STORAGE_TIP_FRAMES);
+          } catch(e){}
+          if (!frames || frames.length <= 1) {
+            const lsFrames = localStorage.getItem(CONCENTRIC_STORAGE_TIP_FRAMES);
+            if (lsFrames) {
+              try { frames = JSON.parse(lsFrames); } catch(e){}
+            }
+          }
+          if (frames && Array.isArray(frames) && frames.length > 1) {
+            concentricCustomTipFrames = frames;
+            const imgPromises = frames.map(src => {
+              return new Promise<HTMLImageElement>((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => resolve(img);
+                img.src = src;
+              });
+            });
+            const imgs = await Promise.all(imgPromises);
+            concentricCustomTipFrameImages = imgs.filter(img => img.naturalWidth > 0);
+            if (concentricCustomTipFrameImages.length > 0) {
+              concentricCustomTipImg = concentricCustomTipFrameImages[0];
+            }
+            invalidateConcentricTextureCache();
+            refreshConcentricStyleUI();
+            if (isConcentricObstacleMode) updateConcentricPropTextures();
+            return;
+          }
+        } catch(e){}
+
+        // Single saved tip fallback
+        try {
+          const savedTip = localStorage.getItem(CONCENTRIC_STORAGE_TIP);
+          if (savedTip) {
+            const img = new Image();
+            img.onload = () => {
+              concentricCustomTipImg = img;
+              concentricCustomTipFrames = [savedTip];
+              concentricCustomTipFrameImages = [img];
+              invalidateConcentricTextureCache();
+              refreshConcentricStyleUI();
+              if (isConcentricObstacleMode) updateConcentricPropTextures();
+            };
+            img.src = savedTip;
+          } else {
+            concentricCustomTipImg = null;
+            concentricCustomTipFrames = [];
+            concentricCustomTipFrameImages = [];
+          }
+        } catch(e){}
+      };
+      loadSavedTipFrames();
     } catch(e){}
   };
 
@@ -3042,10 +3199,19 @@ function initConcentricAppearanceUI(): void {
     concentricCustomBarImg = null;
     concentricCustomHeadImg = null;
     concentricCustomTipImg = null;
+    concentricCustomTipFrames = [];
+    concentricCustomTipFrameImages = [];
     try {
       localStorage.removeItem(CONCENTRIC_STORAGE_BAR);
       localStorage.removeItem(CONCENTRIC_STORAGE_HEAD);
       localStorage.removeItem(CONCENTRIC_STORAGE_TIP);
+      localStorage.removeItem(CONCENTRIC_STORAGE_TIP_FRAMES);
+      clearLegacyPropFrameStorage(CONCENTRIC_STORAGE_TIP_FRAMES);
+      openPropAssetDb().then(db => {
+        try {
+          db.transaction(PROP_ASSET_STORE, 'readwrite').objectStore(PROP_ASSET_STORE).delete(CONCENTRIC_STORAGE_TIP_FRAMES);
+        } catch(e){}
+      }).catch(() => {});
     } catch(e){}
     loadConcentricAppearanceAssets();
     invalidateConcentricTextureCache();
@@ -3311,7 +3477,7 @@ function updateConcentricBlockVisibility(): void {
   blocks.forEach(b => {
     if (b.isProp) {
       if (b.tipPropSprite) {
-        b.tipPropSprite.visible = Boolean(b.length > 0 && (b.isConcentricShrinking || (b.sprite && b.sprite.visible)));
+        b.tipPropSprite.visible = Boolean((b.length > 0 || b.isConcentricShrinking) && (b.isConcentricShrinking || (b.sprite && b.sprite.visible)));
       }
       return;
     }
@@ -4463,10 +4629,54 @@ function damageConcentricActiveLayer(): void {
   });
 }
 
+function playConcentricDuckFlyAway(duckSprite: PIXI.Sprite | PIXI.AnimatedSprite, onComplete?: () => void): void {
+  if (!duckSprite || (duckSprite as any).destroyed) {
+    if (onComplete) onComplete();
+    return;
+  }
+  gsap.killTweensOf(duckSprite);
+  duckSprite.visible = true;
+  duckSprite.alpha = 1;
+  duckSprite.zIndex = 200;
+  if (duckSprite.parent !== blocksContainer && blocksContainer) {
+    blocksContainer.addChild(duckSprite);
+  }
+  if (duckSprite instanceof PIXI.AnimatedSprite) {
+    duckSprite.animationSpeed = 0.25;
+    duckSprite.play();
+  }
+  const startY = duckSprite.y;
+  const targetScaleX = duckSprite.scale.x * 1.35;
+  const targetScaleY = Math.abs(duckSprite.scale.y) * 1.35;
+
+  gsap.to(duckSprite, {
+    y: startY - 120,
+    scaleX: targetScaleX,
+    scaleY: targetScaleY,
+    alpha: 0,
+    duration: 0.85,
+    ease: 'power2.out',
+    onComplete: () => {
+      if (duckSprite.parent) duckSprite.parent.removeChild(duckSprite);
+      duckSprite.destroy();
+      if (onComplete) onComplete();
+    }
+  });
+}
+
 function triggerConcentricVictory(): void {
   if (isRepairingScript) return;
   const remainingProps = blocks.filter(b => b.isProp && b.length > 0);
   if (remainingProps.length > 0) return;
+
+  // Fly away any ducks still on the board when all obstacle bars are cleared
+  blocks.forEach(b => {
+    if (b.tipPropSprite && !((b.tipPropSprite as any).destroyed)) {
+      const duck = b.tipPropSprite;
+      b.tipPropSprite = undefined;
+      playConcentricDuckFlyAway(duck);
+    }
+  });
 
   const go = document.getElementById('game-over-text');
   if (go) {
@@ -20215,7 +20425,7 @@ interface Block {
   /** Concentric mode: block was pre-generated in the hidden reserve above the board. */
   concentricBuffer?: boolean;
   isConcentricShrinking?: boolean;
-  tipPropSprite?: PIXI.Sprite;
+  tipPropSprite?: PIXI.Sprite | PIXI.AnimatedSprite;
   /** PASTURE_LAYER_MODE: current visual/clear layer, absent for ordinary blocks. */
   pastureStage?: PastureLayerStage;
   isJewelryBox?: boolean;
@@ -26817,10 +27027,9 @@ function animateConcentricPropShrink(
     if (newLen <= 0) {
       const headCell = getPropMachineHeadCell({ row: oldRow, col: oldCol, length: oldLen, propDir: dir });
       playPropMachineHeadShatter(headCell.row, headCell.col);
-      if (tipSprite) {
-        if (tipSprite.parent) tipSprite.parent.removeChild(tipSprite);
-        tipSprite.destroy();
+      if (tipSprite && !((tipSprite as any).destroyed)) {
         b.tipPropSprite = undefined;
+        playConcentricDuckFlyAway(tipSprite);
       }
     }
     if (onComplete) onComplete();
@@ -26835,10 +27044,9 @@ function animateConcentricPropShrink(
   if (bodyLength === 0) {
     if (newLen <= 0) {
       playPropMachineHeadShatter(head.row, head.col);
-      if (tipSprite) {
-        if (tipSprite.parent) tipSprite.parent.removeChild(tipSprite);
-        tipSprite.destroy();
+      if (tipSprite && !((tipSprite as any).destroyed)) {
         b.tipPropSprite = undefined;
+        playConcentricDuckFlyAway(tipSprite);
       }
     }
     if (onComplete) onComplete();
@@ -26956,17 +27164,8 @@ function animateConcentricPropShrink(
     } else {
       playPropMachineHeadShatter(head.row, head.col);
       if (tipSprite && !((tipSprite as any).destroyed)) {
-        gsap.to(tipSprite, {
-          y: tipSprite.y - 70,
-          alpha: 0,
-          duration: 0.6,
-          ease: 'power2.out',
-          onComplete: () => {
-            if (tipSprite.parent) tipSprite.parent.removeChild(tipSprite);
-            tipSprite.destroy();
-            b.tipPropSprite = undefined;
-          }
-        });
+        b.tipPropSprite = undefined;
+        playConcentricDuckFlyAway(tipSprite);
       }
     }
     animation.destroy({ children: true });
