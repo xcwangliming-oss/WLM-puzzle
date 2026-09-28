@@ -11376,295 +11376,6 @@ function animateRecordedScrollTo(targetY: number, durationMs: number): Promise<v
 
 
 
-
-async function playConcentricStepTransition(step: ScriptStep, nextStep: ScriptStep): Promise<void> {
-  if (!nextStep.boardBefore || nextStep.boardBefore.length === 0) return;
-  if (scriptPlaybackStopRequested) return;
-
-  const activeProps = blocks.filter(b => b.isProp && b.length > 0);
-  const bounds = getActiveConcentricCorridorBounds();
-  const gravityDuration = CONCENTRIC_CASCADE_PHASE_SECONDS || 0.28;
-
-  // 1. Elimination phase: only eliminate rows that were actually recorded as eliminated
-  const stepElimRows = getStepFlatEliminatedRows(step);
-  let rowsToEliminate: number[] = [];
-  if (stepElimRows.length > 0) {
-    rowsToEliminate = stepElimRows;
-  } else if (step.playbackDataVersion !== SCRIPT_PLAYBACK_DATA_VERSION) {
-    rowsToEliminate = getImmediatePlayableFullRows();
-  }
-
-  if (rowsToEliminate.length > 0) {
-    hasAnyEliminationThisStep = true;
-    comboCount += Math.max(1, rowsToEliminate.length);
-    playSound(sounds.combos[Math.min(9, comboCount - 1)]);
-
-    rowsToEliminate.forEach(r => {
-      const openCols = getOpenColumnsForRow(activeProps, PARAMS.gridCols, r);
-      const onlyCols = new Set(openCols);
-      playRowShatterEffect(r, 'blue', blocks.filter(b => !b.isProp && b.row === r), new Set(), onlyCols);
-    });
-
-    const scoreEl = document.getElementById('score-val');
-    if (scoreEl) {
-      const current = parseInt(scoreEl.innerText.replace(/,/g, '')) || 0;
-      const target = current + rowsToEliminate.length * 888;
-      scoreEl.innerText = target.toLocaleString();
-    }
-
-    const elimBlocks = blocks.filter(b => !b.isProp && rowsToEliminate.includes(b.row));
-    elimBlocks.forEach(b => {
-      if (b.sprite && !(b.sprite as any).destroyed) {
-        gsap.to(b.sprite.scale, { y: 0, duration: 0.15, ease: 'power2.in' });
-        gsap.to(b.sprite, { alpha: 0, duration: 0.15 });
-      }
-    });
-
-    await new Promise(r => setTimeout(r, 180));
-
-    elimBlocks.forEach(b => {
-      if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
-      (b.sprite as any)?.destroy?.();
-    });
-    const elimIdSet = new Set(elimBlocks.map(b => b.id));
-    blocks = blocks.filter(b => !elimIdSet.has(b.id));
-
-    await new Promise(r => setTimeout(r, 40));
-  }
-
-  if (scriptPlaybackStopRequested) return;
-
-  // Check if props in nextStep.boardBefore were destroyed or changed
-  const nextPropIds = new Set(nextStep.boardBefore.filter(s => s.isProp && s.id !== undefined).map(s => s.id));
-  for (let j = blocks.length - 1; j >= 0; j--) {
-    const b = blocks[j];
-    if (b.isProp && b.id !== undefined && !nextPropIds.has(b.id)) {
-      if (b.tipPropSprite && b.tipPropSprite.parent) blocksContainer.removeChild(b.tipPropSprite);
-      if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
-      (b.sprite as any)?.destroy?.();
-      blocks.splice(j, 1);
-    }
-  }
-  nextStep.boardBefore.forEach(sb => {
-    if (sb.isProp) {
-      const prop = blocks.find(b => b.isProp && b.id === sb.id);
-      if (prop) {
-        prop.col = sb.col;
-        prop.row = sb.row;
-        prop.length = sb.length;
-        if (prop.sprite && !(prop.sprite as any).destroyed) {
-          prop.sprite.x = prop.col * PARAMS.cellSize;
-          prop.sprite.y = prop.row * PARAMS.cellSize;
-        }
-      }
-    }
-  });
-
-  // 2. Gravity and Spawn transition directly to nextStep.boardBefore column by column
-  const targetBlocksByCol = new Map<number, BoardBlockState[]>();
-  nextStep.boardBefore.forEach(sb => {
-    if (sb.isProp || sb.row < 0 || sb.concentricBuffer) return;
-    if (!targetBlocksByCol.has(sb.col)) targetBlocksByCol.set(sb.col, []);
-    targetBlocksByCol.get(sb.col)!.push(sb);
-  });
-  targetBlocksByCol.forEach(list => list.sort((a, b) => b.row - a.row));
-
-  const currentBlocksByCol = new Map<number, Block[]>();
-  blocks.forEach(b => {
-    if (b.isProp || b.row < 0 || b.concentricBuffer) return;
-    if (!currentBlocksByCol.has(b.col)) currentBlocksByCol.set(b.col, []);
-    currentBlocksByCol.get(b.col)!.push(b);
-  });
-  currentBlocksByCol.forEach(list => list.sort((a, b) => b.row - a.row));
-
-  const animPromises: Promise<void>[] = [];
-  let anyFell = false;
-
-  const allCols = new Set([...targetBlocksByCol.keys(), ...currentBlocksByCol.keys()]);
-
-  allCols.forEach(col => {
-    const targets = targetBlocksByCol.get(col) || [];
-    const currents = currentBlocksByCol.get(col) || [];
-
-    const matchedTargets = new Set<BoardBlockState>();
-    const matchedCurrents = new Set<Block>();
-
-    // Pass 0: Match by exact ID if available
-    targets.forEach(t => {
-      if (t.id === undefined) return;
-      const c = currents.find(b => b.id === t.id && !matchedCurrents.has(b));
-      if (c && c.length === t.length) {
-        matchedTargets.add(t);
-        matchedCurrents.add(c);
-        c.color = t.color;
-        const targetY = t.row * PARAMS.cellSize;
-        const currentY = c.sprite ? c.sprite.y : c.row * PARAMS.cellSize;
-        if (Math.abs(targetY - currentY) > 0.5 || c.row !== t.row) {
-          anyFell = true;
-          blocksThatFell.add(c.id);
-          c.row = t.row;
-          if (c.sprite && !(c.sprite as any).destroyed) {
-            gsap.killTweensOf(c.sprite);
-            animPromises.push(new Promise<void>(res => {
-              gsap.to(c.sprite, {
-                y: targetY,
-                duration: gravityDuration,
-                ease: 'power2.in',
-                onUpdate: () => {
-                  updateConcentricFallingVisibility(c, c.sprite.y);
-                },
-                onComplete: () => {
-                  updateConcentricBlockVisibility();
-                  res();
-                },
-              });
-            }));
-          }
-        }
-      }
-    });
-
-    // Pass 1: Match remaining by length in order from bottom to top
-    let cIdx = 0;
-    targets.forEach(t => {
-      if (matchedTargets.has(t)) return;
-      while (cIdx < currents.length && matchedCurrents.has(currents[cIdx])) {
-        cIdx++;
-      }
-      for (let j = cIdx; j < currents.length; j++) {
-        if (!matchedCurrents.has(currents[j]) && currents[j].length === t.length) {
-          matchedTargets.add(t);
-          matchedCurrents.add(currents[j]);
-
-          const b = currents[j];
-          b.color = t.color;
-          if (t.id !== undefined) b.id = t.id;
-          const targetY = t.row * PARAMS.cellSize;
-          const currentY = b.sprite ? b.sprite.y : b.row * PARAMS.cellSize;
-
-          if (Math.abs(targetY - currentY) > 0.5 || b.row !== t.row) {
-            anyFell = true;
-            blocksThatFell.add(b.id);
-            b.row = t.row;
-            if (b.sprite && !(b.sprite as any).destroyed) {
-              gsap.killTweensOf(b.sprite);
-              animPromises.push(new Promise<void>(res => {
-                gsap.to(b.sprite, {
-                  y: targetY,
-                  duration: gravityDuration,
-                  ease: 'power2.in',
-                  onUpdate: () => {
-                    updateConcentricFallingVisibility(b, b.sprite.y);
-                  },
-                  onComplete: () => {
-                    updateConcentricBlockVisibility();
-                    res();
-                  },
-                });
-              }));
-            }
-          }
-          break;
-        }
-      }
-    });
-
-    // Pass 2: Remaining targets are newly spawned blocks
-    targets.filter(t => !matchedTargets.has(t)).forEach(sb => {
-      let portalRow = -1;
-      for (let r = sb.row - 1; r >= 0; r--) {
-        let covered = false;
-        for (let c = sb.col; c < sb.col + sb.length; c++) {
-          if (isCellCoveredByProps(activeProps, c, r)) {
-            covered = true;
-            break;
-          }
-        }
-        if (covered) {
-          portalRow = r;
-          break;
-        }
-      }
-      if (portalRow < 0) {
-        portalRow = bounds.minRow - 1;
-      }
-
-      const blk = spawnRecordedBlockState({
-        ...sb,
-        row: portalRow,
-        noGravity: false,
-        concentricBuffer: false,
-      });
-
-      if (blk) {
-        blk.concentricBuffer = false;
-        blk.row = sb.row;
-        blk.col = sb.col;
-        const targetY = sb.row * PARAMS.cellSize;
-        const startY = portalRow * PARAMS.cellSize;
-
-        if (blk.sprite) {
-          blk.sprite.zIndex = 10;
-          blk.sprite.x = sb.col * PARAMS.cellSize;
-          blk.sprite.y = startY;
-          blk.sprite.visible = false;
-          blk.sprite.alpha = 1;
-          anyFell = true;
-          blocksThatFell.add(blk.id);
-
-          animPromises.push(new Promise<void>(res => {
-            gsap.to(blk.sprite, {
-              y: targetY,
-              duration: gravityDuration,
-              ease: 'power2.in',
-              onUpdate: () => {
-                const thresholdY = (portalRow + 1) * PARAMS.cellSize - 2;
-                blk.sprite.visible = blk.sprite.y >= thresholdY;
-              },
-              onComplete: () => {
-                if (blk.sprite) {
-                  blk.sprite.visible = true;
-                  blk.sprite.eventMode = 'static';
-                }
-                res();
-              },
-            });
-          }));
-        }
-      }
-    });
-
-    // Remove unmatched currents cleanly
-    currents.filter(c => !matchedCurrents.has(c)).forEach(b => {
-      if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
-      (b.sprite as any)?.destroy?.();
-      blocks = blocks.filter(x => x !== b);
-    });
-  });
-
-  // 3. Keep buffer blocks in sync with nextStep
-  const targetBuffers = nextStep.boardBefore.filter(sb => !sb.isProp && (sb.concentricBuffer || sb.row < 0));
-  for (let j = blocks.length - 1; j >= 0; j--) {
-    if (!blocks[j].isProp && (blocks[j].concentricBuffer || blocks[j].row < 0)) {
-      if (blocks[j].sprite && blocks[j].sprite.parent) blocksContainer.removeChild(blocks[j].sprite);
-      (blocks[j].sprite as any)?.destroy?.();
-      blocks.splice(j, 1);
-    }
-  }
-  targetBuffers.forEach(sb => {
-    spawnRecordedBlockState(sb);
-  });
-
-  if (anyFell) {
-    playSound(sounds.fall);
-    await Promise.all(animPromises);
-  }
-
-  syncCurrentConcentricLayerFromBlocks();
-  syncActiveConcentricCorridorBounds();
-  updateConcentricBlockVisibility();
-}
-
 async function playScript(autoScroll = false, rising = false, options: PlayScriptOptions = {}) {
 
 
@@ -12296,26 +12007,37 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
     blocksThatFell.add(block.id);
 
     const immediatePlaybackRows = getImmediatePlayableFullRows();
-    const nextStep = i + 1 < scriptSteps.length ? scriptSteps[i + 1] : null;
 
-    if (isConcentricObstacleMode && nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
-      await playConcentricStepTransition(step, nextStep);
-    } else {
-      if (immediatePlaybackRows.length > 0) {
-        forcedPlaybackFullRows = immediatePlaybackRows;
-        try {
-          checkEliminations();
-        } finally {
-          forcedPlaybackFullRows = null;
-        }
-        await waitForPhysics();
+    if (immediatePlaybackRows.length > 0) {
+
+      forcedPlaybackFullRows = immediatePlaybackRows;
+
+      try {
+
+        checkEliminations();
+
+      } finally {
+
+        forcedPlaybackFullRows = null;
+
       }
 
-      if (immediatePlaybackRows.length === 0) {
-        applyGravity(true);
-        await waitForPhysics();
-      }
+      await waitForPhysics();
+
     }
+
+
+
+    if (immediatePlaybackRows.length === 0) {
+      applyGravity(true);
+
+
+
+      await waitForPhysics();
+
+    }
+
+
 
     isPlayingStepTransition = false;
 
