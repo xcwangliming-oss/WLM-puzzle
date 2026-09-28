@@ -3860,27 +3860,6 @@ function stageConcentricSubObstacleBlocksForGravity(): void {
           blk.sprite.alpha = 1;
           blk.sprite.eventMode = 'none';
         }
-        if (isRecordingSteps) {
-          initialBoardBlocks.push({
-            id: blk.id,
-            col: blk.col,
-            row: blk.row,
-            length: blk.length,
-            color: blk.color,
-            noGravity: blk.noGravity,
-            isCollectible: blk.isCollectible,
-            isProp: blk.isProp,
-            propType: blk.propType,
-            propDir: blk.propDir,
-            collectibleId: blk.collectibleId,
-            pastureStage: blk.pastureStage,
-            concentricLayer: blk.concentricLayer,
-            concentricBuffer: blk.concentricBuffer,
-            propOrientation: blk.propOrientation,
-            isJewelryBox: blk.isJewelryBox,
-            jewelryBoxState: blk.jewelryBoxState,
-          });
-        }
       }
     });
   });
@@ -11745,12 +11724,12 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
       );
     }
 
-    let block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row) : null;
+    let block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed)) : null;
     if (!block) {
       block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
     }
     if (!block && step.blockId) {
-      block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer);
+      block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
     }
 
     const needsResync = (!block || block.row !== step.row || !canMoveBlockHorizontallyTo(block, step.toCol))
@@ -11759,12 +11738,12 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
     if (needsResync && step.boardBefore) {
       console.warn(`[Playback] Step ${i + 1} board drifted; smoothly resyncing from recorded snapshot.`);
       syncBoardToRecordedStep(step.boardBefore);
-      block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row) : null;
+      block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed)) : null;
       if (!block && step.blockId) {
-        block = blocks.find(b => b.id === step.blockId);
+        block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
       }
       if (!block) {
-        block = blocks.find(b => b.col === step.fromCol && b.row === step.row);
+        block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
       }
     }
 
@@ -11794,29 +11773,22 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
 
-    if (!canMoveBlockHorizontallyTo(block, step.toCol)) {
-
-
-
-      console.warn(`[Playback] Step ${i + 1} target column ${step.toCol} is occupied; damaged legacy step skipped before overlap.`);
-
-
-
-      nextStepIndex = i + 1;
-
-
-
-      continue;
-
-
-
+    if (block && block.col !== step.fromCol) {
+      block.col = step.fromCol;
+      if (block.sprite && !(block.sprite as any).destroyed) {
+        block.sprite.x = step.fromCol * PARAMS.cellSize;
+      }
     }
 
-
-
-
-
-
+    if (!canMoveBlockHorizontallyTo(block, step.toCol)) {
+      if (step.boardBefore && step.boardBefore.length > 0) {
+        console.warn(`[Playback] Step ${i + 1} target column ${step.toCol} bounds check was strict; proceeding with recorded move.`);
+      } else {
+        console.warn(`[Playback] Step ${i + 1} target column ${step.toCol} is occupied; damaged legacy step skipped before overlap.`);
+        nextStepIndex = i + 1;
+        continue;
+      }
+    }
 
     const stepStateBefore: BoardBlockState[] = captureCurrentBoardBlockStates();
 
@@ -12040,36 +12012,19 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
 
 
     if (overlaps.length > 0) {
-
-
-
-      console.error(`[Playback] Step ${i + 1} produced overlapping blocks; the step was rolled back.`, overlaps);
-
-
-
-      restoreBoardBlockStates(stepStateBefore);
-
-
-
-      setWorldY(stepWorldYBefore);
-
-
-
-      blockedStepIndex = i;
-
-
-
-      break;
-
-
-
+      console.warn(`[Playback] Step ${i + 1} produced overlapping blocks; checking recovery.`, overlaps);
+      const nextStep = i + 1 < scriptSteps.length ? scriptSteps[i + 1] : null;
+      if (nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
+        console.warn(`[Playback] Resyncing board to Step ${i + 2} recorded snapshot to continue continuous playback.`);
+        syncBoardToRecordedStep(nextStep.boardBefore);
+      } else {
+        console.error(`[Playback] Step ${i + 1} produced overlapping blocks without recovery snapshot; the step was rolled back.`, overlaps);
+        restoreBoardBlockStates(stepStateBefore);
+        setWorldY(stepWorldYBefore);
+        blockedStepIndex = i;
+        break;
+      }
     }
-
-
-
-
-
-
 
     nextStepIndex = i + 1;
 
@@ -24775,6 +24730,11 @@ function getBlockOverlapPairs(): Array<{ first: Block; second: Block }> {
   const activeBlocks = blocks.filter(b => {
     if (!b || b.length <= 0) return false;
     if (b.row < 0) return false;
+    if (b.isProp) return false;
+    if (b.concentricBuffer) return false;
+    if (b.concentricEntryFromY !== undefined) return false;
+    if (b.sprite && (b.sprite as any).destroyed) return false;
+    if (b.sprite && !b.sprite.visible) return false;
     return true;
   });
 
