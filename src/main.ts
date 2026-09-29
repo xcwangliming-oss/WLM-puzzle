@@ -12300,51 +12300,40 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
       block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
     }
 
-    const needsResync = (!block || block.row !== step.row || !canMoveBlockHorizontallyTo(block, step.toCol))
-      && !!step.boardBefore && step.boardBefore.length > 0;
+    if (isConcentricObstacleMode) {
+      const needsResync = (!block || block.row !== step.row || !canMoveBlockHorizontallyTo(block, step.toCol))
+        && !!step.boardBefore && step.boardBefore.length > 0;
 
-    if (needsResync && step.boardBefore) {
-      console.warn(`[Playback] Step ${i + 1} board drifted; smoothly resyncing from recorded snapshot.`);
-      syncBoardToRecordedStep(step.boardBefore);
-      block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed)) : null;
-      if (!block && step.blockId) {
-        block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
-      }
-      if (!block) {
-        block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
+      if (needsResync && step.boardBefore) {
+        console.warn(`[Playback] Step ${i + 1} board drifted; smoothly resyncing from recorded snapshot.`);
+        syncBoardToRecordedStep(step.boardBefore);
+        block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed)) : null;
+        if (!block && step.blockId) {
+          block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
+        }
+        if (!block) {
+          block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
+        }
       }
     }
-
-
 
     if (!block) {
-
-
-
       console.warn(`[Playback] Block not found at (${step.fromCol}, ${step.row}) for step ${i + 1}`);
-
-
-
       nextStepIndex = i + 1;
-
-
-
       continue;
-
-
-
     }
-
-
-
-
-
-
 
     if (block && block.col !== step.fromCol) {
       block.col = step.fromCol;
       if (block.sprite && !(block.sprite as any).destroyed) {
         block.sprite.x = step.fromCol * PARAMS.cellSize;
+      }
+    }
+
+    if (block && block.row !== step.row) {
+      block.row = step.row;
+      if (block.sprite && !(block.sprite as any).destroyed) {
+        block.sprite.y = step.row * PARAMS.cellSize;
       }
     }
 
@@ -12582,7 +12571,7 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
     if (overlaps.length > 0) {
       console.warn(`[Playback] Step ${i + 1} produced overlapping blocks; checking recovery.`, overlaps);
       const nextStep = i + 1 < scriptSteps.length ? scriptSteps[i + 1] : null;
-      if (nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
+      if (isConcentricObstacleMode && nextStep && nextStep.boardBefore && nextStep.boardBefore.length > 0) {
         console.warn(`[Playback] Resyncing board to Step ${i + 2} recorded snapshot to continue continuous playback.`);
         syncBoardToRecordedStep(nextStep.boardBefore);
       } else {
