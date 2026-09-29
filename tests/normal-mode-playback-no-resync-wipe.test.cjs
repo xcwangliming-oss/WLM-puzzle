@@ -21,13 +21,14 @@ assert.ok(
   'syncBoardToRecordedStep before step move must be strictly scoped to concentric obstacle mode',
 );
 
-// 2. In normal mode playback, drifted block col and row must align without wiping the board
+// 2. In normal mode playback, blocks must strictly respect horizontal move bounds without penetrating other blocks
 assert.ok(
-  playBody.includes('if (block && block.col !== step.fromCol) {') &&
-  playBody.includes('block.col = step.fromCol;') &&
-  playBody.includes('if (block && block.row !== step.row) {') &&
-  playBody.includes('block.row = step.row;'),
-  'playScript must align block row and column coordinates in normal mode without destructive sync',
+  playBody.includes('canMoveBlockHorizontallyTo(block, step.toCol)'),
+  'playScript must check canMoveBlockHorizontallyTo before sliding a block',
+);
+assert.ok(
+  !playBody.includes('target column ${step.toCol} bounds check was strict; proceeding with recorded move'),
+  'playScript must never bypass horizontal bounds check to slide through other blocks',
 );
 
 // 3. In playScript, overlap recovery must only call syncBoardToRecordedStep in concentric obstacle mode

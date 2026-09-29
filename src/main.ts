@@ -12292,27 +12292,27 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
       );
     }
 
-    let block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed)) : null;
+    let block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || (!(b.sprite as any).destroyed && b.sprite.visible !== false))) : null;
     if (!block) {
-      block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
+      block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || (!(b.sprite as any).destroyed && b.sprite.visible !== false)));
     }
-    if (!block && step.blockId) {
-      block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
+    if (!block) {
+      block = blocks.find(b => b.row === step.row && step.fromCol >= b.col && step.fromCol < b.col + b.length && !b.isProp && !b.concentricBuffer && (!b.sprite || (!(b.sprite as any).destroyed && b.sprite.visible !== false)));
     }
 
     if (isConcentricObstacleMode) {
-      const needsResync = (!block || block.row !== step.row || !canMoveBlockHorizontallyTo(block, step.toCol))
+      const needsResync = (!block || !canMoveBlockHorizontallyTo(block, step.toCol))
         && !!step.boardBefore && step.boardBefore.length > 0;
 
       if (needsResync && step.boardBefore) {
         console.warn(`[Playback] Step ${i + 1} board drifted; smoothly resyncing from recorded snapshot.`);
         syncBoardToRecordedStep(step.boardBefore);
-        block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed)) : null;
-        if (!block && step.blockId) {
-          block = blocks.find(b => b.id === step.blockId && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
+        block = step.blockId ? blocks.find(b => b.id === step.blockId && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || (!(b.sprite as any).destroyed && b.sprite.visible !== false))) : null;
+        if (!block) {
+          block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || (!(b.sprite as any).destroyed && b.sprite.visible !== false)));
         }
         if (!block) {
-          block = blocks.find(b => b.col === step.fromCol && b.row === step.row && !b.isProp && !b.concentricBuffer && (!b.sprite || !(b.sprite as any).destroyed));
+          block = blocks.find(b => b.row === step.row && step.fromCol >= b.col && step.fromCol < b.col + b.length && !b.isProp && !b.concentricBuffer && (!b.sprite || (!(b.sprite as any).destroyed && b.sprite.visible !== false)));
         }
       }
     }
@@ -12324,27 +12324,18 @@ async function playScript(autoScroll = false, rising = false, options: PlayScrip
     }
 
     if (block && block.col !== step.fromCol) {
-      block.col = step.fromCol;
-      if (block.sprite && !(block.sprite as any).destroyed) {
-        block.sprite.x = step.fromCol * PARAMS.cellSize;
-      }
-    }
-
-    if (block && block.row !== step.row) {
-      block.row = step.row;
-      if (block.sprite && !(block.sprite as any).destroyed) {
-        block.sprite.y = step.row * PARAMS.cellSize;
+      if (canMoveBlockHorizontallyTo(block, step.fromCol)) {
+        block.col = step.fromCol;
+        if (block.sprite && !(block.sprite as any).destroyed) {
+          block.sprite.x = step.fromCol * PARAMS.cellSize;
+        }
       }
     }
 
     if (!canMoveBlockHorizontallyTo(block, step.toCol)) {
-      if (step.boardBefore && step.boardBefore.length > 0) {
-        console.warn(`[Playback] Step ${i + 1} target column ${step.toCol} bounds check was strict; proceeding with recorded move.`);
-      } else {
-        console.warn(`[Playback] Step ${i + 1} target column ${step.toCol} is occupied; damaged legacy step skipped before overlap.`);
-        nextStepIndex = i + 1;
-        continue;
-      }
+      console.warn(`[Playback] Step ${i + 1} target column ${step.toCol} is blocked or occupied; skipping step to prevent penetration and overlap.`);
+      nextStepIndex = i + 1;
+      continue;
     }
 
     const stepStateBefore: BoardBlockState[] = captureCurrentBoardBlockStates();
@@ -25102,7 +25093,8 @@ function getGridOccupancy(ignoreBlockId: number = -1): number[][] {
 
   blocks.forEach(b => {
     if (b.id === ignoreBlockId) return;
-    if (b.sprite && (b.sprite as any).destroyed) return;
+    if (!b || b.length <= 0) return;
+    if (b.sprite && ((b.sprite as any).destroyed || b.sprite.visible === false)) return;
     if (isConcentricObstacleMode) {
       if (!b.isProp && b.concentricBuffer) return;
       if (concentricBounds && !b.isProp) {
@@ -47858,16 +47850,11 @@ function startRecording(): Promise<boolean> {
 
 
   const drawFrame = () => {
-
-
-
     if (!isRecording) return;
 
-
-
-    
-
-
+    if (app?.renderer && app?.stage) {
+      app.renderer.render(app.stage);
+    }
 
     const boardWrapper = document.getElementById('board-wrapper');
 
