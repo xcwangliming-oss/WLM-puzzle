@@ -23692,6 +23692,24 @@ async function init() {
 
   }
 
+  // Pre-warm shatter textures into WebGL GPU VRAM to prevent in-game upload stutter
+  try {
+    const renderer = (app as any)?.renderer;
+    const prepare = renderer?.prepare;
+    if (prepare && typeof prepare.upload === 'function') {
+      void prepare.upload([...shatterLeftTextures, ...shatterRightTextures]);
+    } else {
+      const textureSystem = renderer?.texture;
+      if (textureSystem && typeof textureSystem.initSource === 'function') {
+        shatterLeftTextures.forEach(t => t?.source && textureSystem.initSource(t.source));
+        shatterRightTextures.forEach(t => t?.source && textureSystem.initSource(t.source));
+      }
+    }
+  } catch (e) {
+    console.warn('Shatter textures prewarm warning:', e);
+  }
+
+
 
 
 
@@ -31309,7 +31327,7 @@ function playRowShatterEffect(
 
 
 
-            const spriteW = PARAMS.cellSize * (texW / 127);
+            const spriteW = PARAMS.cellSize * (2048 / 127);
 
 
 
