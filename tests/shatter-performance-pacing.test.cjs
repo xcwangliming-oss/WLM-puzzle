@@ -13,15 +13,12 @@ test('shatter effect performance optimization and pacing verification', () => {
   // 2. Verify pink / zero-adjustment returns null to eliminate identity FBO passes
   assert.ok(code.includes('params.hue === 0 && params.saturate === 0'), 'zero hue/saturate checks must return null filter');
 
-  // 3. Verify rowEffectContainer groups row cells for single FBO pass
-  assert.ok(code.includes('const rowEffectContainer = new PIXI.Container();'), 'rowEffectContainer must group row cells');
-  assert.ok(code.includes('rowEffectContainer.filters = [rowFilter];'), 'filter applied once to row container when single color');
+  // 3. Verify sprites are directly managed without heavy rowEffectContainer FBO stalls
+  assert.ok(!code.includes('const rowEffectContainer = new PIXI.Container();'), 'rowEffectContainer must not be used to prevent combo FBO stalls');
 
-  // 4. Verify cleanup when remaining cells complete
-  assert.ok(code.includes('remainingCells--;'), 'remainingCells decremented on each complete');
-  assert.ok(code.includes('if (remainingCells <= 0)'), 'rowEffectContainer cleaned up when all cells complete');
+  // 4. Verify cleanup when sprite completes
+  assert.ok(code.includes('cellAnim.onComplete = () => {'), 'cellAnim onComplete handler must be registered');
 
-  // 5. Verify rowPlaybackGap is optimized from 0.8s down to 0.22s for smooth cascading
-  assert.ok(code.includes('PARAMS.rowClearOrder === \'bottom-up\' ? 0.22 : 0'), 'rowPlaybackGap must be 0.22s to prevent 800ms dead pause');
-  assert.ok(!code.includes('PARAMS.rowClearOrder === \'bottom-up\' ? 0.8 : 0'), 'old 0.8s gap must be removed');
+  // 5. Verify rowPlaybackGap is set to 0.8s for clean sequential combo pacing
+  assert.ok(code.includes('PARAMS.rowClearOrder === \'bottom-up\' ? 0.8 : 0'), 'rowPlaybackGap must be 0.8s for smooth pacing');
 });

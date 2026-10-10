@@ -30162,21 +30162,15 @@ const defaultShatterColorParams: Record<string, { hue: number; saturate: number 
   blue: { hue: 252, saturate: 0.2 }
 };
 
-const defaultShatterFilterCache = new Map<string, PIXI.ColorMatrixFilter>();
-
 function getDefaultShatterColorFilter(cellColor: string): PIXI.ColorMatrixFilter | null {
   const params = defaultShatterColorParams[cellColor];
   if (!params || (params.hue === 0 && params.saturate === 0)) {
     return null;
   }
-  let filter = defaultShatterFilterCache.get(cellColor);
-  if (!filter) {
-    filter = new PIXI.ColorMatrixFilter();
-    filter.hue(params.hue, false);
-    if (params.saturate !== 0) {
-      filter.saturate(params.saturate, true);
-    }
-    defaultShatterFilterCache.set(cellColor, filter);
+  const filter = new PIXI.ColorMatrixFilter();
+  filter.hue(params.hue, false);
+  if (params.saturate !== 0) {
+    filter.saturate(params.saturate, true);
   }
   return filter;
 }
@@ -31046,30 +31040,13 @@ function playRowShatterEffect(
 
 
 
-    const rowEffectContainer = new PIXI.Container();
-    rowEffectContainer.zIndex = 1000;
-    worldContainer.addChild(rowEffectContainer);
-
-    const isSingleColorRow = !useIndividualBlockColors;
-    if (isSingleColorRow) {
-      const rowFilter = getDefaultShatterColorFilter(color);
-      if (rowFilter) {
-        rowEffectContainer.filters = [rowFilter];
-      }
-    }
-
-    let remainingCells = 0;
-    for (let col = minCol; col <= maxCol; col++) {
-      if (!shouldRenderColumn(col)) continue;
-      if (skipCols.has(col)) continue;
-      remainingCells++;
-    }
-
-    if (remainingCells === 0) {
-      if (rowEffectContainer.parent) rowEffectContainer.parent.removeChild(rowEffectContainer);
-      rowEffectContainer.destroy();
-      return;
-    }
+    const colorParams: Record<string, { hue: number; saturate: number }> = {
+      pink: { hue: 0, saturate: 0 },
+      red: { hue: 41, saturate: 0.4 },
+      yellow: { hue: 80, saturate: 0.4 },
+      green: { hue: 164, saturate: 0.2 },
+      blue: { hue: 252, saturate: 0.2 }
+    };
 
     for (let col = minCol; col <= maxCol; col++) {
       if (!shouldRenderColumn(col)) continue;
@@ -31443,31 +31420,25 @@ function playRowShatterEffect(
 
 
 
-        if (!rowEffectContainer || (rowEffectContainer as any).destroyed || !rowEffectContainer.parent) {
-          return;
-        }
-
         const cellColor = getShatterColorAtColumn(col);
-        if (!isSingleColorRow) {
-          const filter = getDefaultShatterColorFilter(cellColor);
-          if (filter) {
-            cellAnim.filters = [filter];
+        const params = colorParams[cellColor] || { hue: 0, saturate: 0 };
+        if (params.hue !== 0 || params.saturate !== 0) {
+          const filter = new PIXI.ColorMatrixFilter();
+          filter.hue(params.hue, false);
+          if (params.saturate !== 0) {
+            filter.saturate(params.saturate, true);
           }
+          cellAnim.filters = [filter];
         }
 
-        rowEffectContainer.addChild(cellAnim);
+        cellAnim.zIndex = 1000;
+        worldContainer.addChild(cellAnim);
         cellAnim.play();
 
         cellAnim.onComplete = () => {
           cellAnim.filters = null;
           if (cellAnim.parent) cellAnim.parent.removeChild(cellAnim);
           cellAnim.destroy();
-          remainingCells--;
-          if (remainingCells <= 0) {
-            rowEffectContainer.filters = null;
-            if (rowEffectContainer.parent) rowEffectContainer.parent.removeChild(rowEffectContainer);
-            rowEffectContainer.destroy();
-          }
         };
 
 
@@ -32342,7 +32313,7 @@ function checkEliminations() {
       : fullRows;
     const rowPlaybackGap = isConcentricObstacleMode
       ? 0
-      : (rowsForPlayback.length > 1 && PARAMS.rowClearOrder === 'bottom-up' ? 0.22 : 0);
+      : (rowsForPlayback.length > 1 && PARAMS.rowClearOrder === 'bottom-up' ? 0.8 : 0);
 
     rowsForPlayback.forEach((r, rowPlaybackIndex) => {
       const rowPlaybackOffset = rowPlaybackIndex * rowPlaybackGap;
