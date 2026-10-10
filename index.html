@@ -1004,6 +1004,14 @@
           <label class="vc-toggle" title="开启后隐藏顶部的关卡与积分文案"><input type="checkbox" id="input-hidetext"><span>隐藏文案</span></label>
           <label class="vc-toggle" title="开启后消除方块时不播放破碎动画"><input type="checkbox" id="input-hideshatter"><span>隐藏破碎</span></label>
         </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px; padding: 4px 8px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 11px;">
+          <span style="color: #ddd; font-weight: bold;">顶栏文字颜色</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button type="button" id="btn-header-dark" title="深色 (#180d33)" style="padding: 2px 6px; font-size: 11px; background: #180d33; color: #ddd; border: 1px solid #5a4b7c; border-radius: 4px; cursor: pointer;">深色 180d33</button>
+            <button type="button" id="btn-header-white" title="白色 (#ffffff)" style="padding: 2px 6px; font-size: 11px; background: #333; color: #fff; border: 1px solid #666; border-radius: 4px; cursor: pointer;">白色</button>
+            <input type="color" id="input-header-color" value="#ffffff" title="自定义颜色" style="width: 22px; height: 20px; padding: 0; border: none; background: transparent; cursor: pointer; vertical-align: middle;">
+          </div>
+        </div>
         <div class="vocal-controls">
           <div id="top-ui-mode-group" role="group" aria-label="顶部UI样式">
             <button type="button" class="voice-pack-btn" data-top-ui-mode="classic">经典顶框</button>

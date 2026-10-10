@@ -38004,16 +38004,45 @@ function setupDOMUI() {
 
 
     });
-
-
-
   }
 
+  const headerColorInput = document.getElementById('input-header-color') as HTMLInputElement | null;
+  const btnHeaderDark = document.getElementById('btn-header-dark');
+  const btnHeaderWhite = document.getElementById('btn-header-white');
 
+  function updateHeaderTextColor(color: string) {
+    try {
+      localStorage.setItem('puzzle_header_color', color);
+    } catch (_) {}
+    document.documentElement.style.setProperty('--header-text-color', color);
+    if (headerColorInput) headerColorInput.value = color.startsWith('#') && color.length === 7 ? color : '#ffffff';
+    
+    const hex = color.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16) || 0;
+    const g = parseInt(hex.substring(2, 4), 16) || 0;
+    const b = parseInt(hex.substring(4, 6), 16) || 0;
+    const isDark = (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5;
+    const shadow = isDark ? '0 1px 2px rgba(255,255,255,0.4)' : '0 2px 6px rgba(0,0,0,0.4)';
+    document.documentElement.style.setProperty('--header-text-shadow', shadow);
+  }
 
+  let savedHeaderColor = '#ffffff';
+  try {
+    savedHeaderColor = localStorage.getItem('puzzle_header_color') || '#ffffff';
+  } catch (_) {}
+  if (savedHeaderColor !== '#ffffff') {
+    updateHeaderTextColor(savedHeaderColor);
+  }
 
-
-
+  headerColorInput?.addEventListener('input', () => {
+    updateHeaderTextColor(headerColorInput.value);
+  });
+  btnHeaderDark?.addEventListener('click', () => {
+    updateHeaderTextColor('#180d33');
+  });
+  btnHeaderWhite?.addEventListener('click', () => {
+    updateHeaderTextColor('#ffffff');
+  });
 
   const recordBgCheckbox = document.getElementById('input-record-bg') as HTMLInputElement | null;
 
@@ -47953,11 +47982,9 @@ function startRecording(): Promise<boolean> {
 
 
 
-      recordingCtx!.fillStyle = '#ffffff';
-
-
-
-      recordingCtx!.strokeStyle = '#ffffff';
+      const headerItemColor = (headerItems[0] && getComputedStyle(headerItems[0]).color) || '#ffffff';
+      recordingCtx!.fillStyle = headerItemColor;
+      recordingCtx!.strokeStyle = headerItemColor;
 
 
 
