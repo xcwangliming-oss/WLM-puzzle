@@ -4451,9 +4451,9 @@ function generateBallShooterBoard(): void {
   });
   blocks = [];
 
-  // Spawn fixed corridor layout (rows 0..14, leaving bottom 2 rows empty for cannon)
+  // Spawn fixed corridor layout shifted down by 1 row (rows 1..15, leaving row 16 clear, and row 17 for bottom cannon)
   BALL_SHOOTER_FIXED_LAYOUT.forEach(def => {
-    const b = spawnBlock(def.col, def.row, def.length, def.color);
+    const b = spawnBlock(def.col, def.row + 1, def.length, def.color);
     if (b) {
       b.isBallShooterBlock = true;
       if (b.sprite) {
@@ -4493,11 +4493,11 @@ function setBallShooterMode(enabled: boolean): void {
     }
     isNoGravityMode = false;
 
-    // Set board dimensions to 11 cols x 17 rows (raising bottom border by 1 row)
+    // Set board dimensions to 11 cols x 18 rows
     PARAMS.gridCols = 11;
-    PARAMS.viewportRows = 17;
-    PARAMS.totalRows = 17;
-    previewRenderRows = 17;
+    PARAMS.viewportRows = 18;
+    PARAMS.totalRows = 18;
+    previewRenderRows = 18;
 
     const inputColsEl = document.getElementById('input-cols') as HTMLInputElement | null;
     const sliderColsEl = document.getElementById('slider-cols') as HTMLInputElement | null;
@@ -4509,20 +4509,22 @@ function setBallShooterMode(enabled: boolean): void {
     const inputVpRowsEl = document.getElementById('input-vprows') as HTMLInputElement | null;
     const sliderVpRowsEl = document.getElementById('slider-vprows') as HTMLInputElement | null;
     const valVpRowsEl = document.getElementById('val-vprows');
-    if (inputVpRowsEl) inputVpRowsEl.value = '17';
-    if (sliderVpRowsEl) sliderVpRowsEl.value = '17';
-    if (valVpRowsEl) valVpRowsEl.textContent = '17';
+    if (inputVpRowsEl) inputVpRowsEl.value = '18';
+    if (sliderVpRowsEl) sliderVpRowsEl.value = '18';
+    if (valVpRowsEl) valVpRowsEl.textContent = '18';
 
     const inputRowsEl = document.getElementById('input-rows') as HTMLInputElement | null;
     const sliderRowsEl = document.getElementById('slider-rows') as HTMLInputElement | null;
     const valRowsEl = document.getElementById('val-rows');
-    if (inputRowsEl) inputRowsEl.value = '17';
-    if (sliderRowsEl) sliderRowsEl.value = '17';
-    if (valRowsEl) valRowsEl.textContent = '17';
+    if (inputRowsEl) inputRowsEl.value = '18';
+    if (sliderRowsEl) sliderRowsEl.value = '18';
+    if (valRowsEl) valRowsEl.textContent = '18';
 
     if (typeof (window as any).applyGridConfig === 'function') {
       (window as any).applyGridConfig();
     }
+
+    setWorldY(0);
 
     generateBallShooterBoard();
     ballShooterSystem.setEnabled(true);

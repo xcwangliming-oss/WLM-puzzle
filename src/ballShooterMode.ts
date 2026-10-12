@@ -280,6 +280,7 @@ export class BallShooterSystem {
     }
 
     this.drawCannonGraphics();
+    this.updateCannonPosition();
     this.setupInteraction();
   }
 
