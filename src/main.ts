@@ -57,6 +57,10 @@ import {
   releaseNoGravityBlocksInRange,
 } from './noGravityRules.ts'
 import { getTriggeredVisibleFullRows } from './playbackRowRules.ts'
+import {
+  ballShooterSystem,
+  BALL_SHOOTER_FIXED_LAYOUT,
+} from './ballShooterMode'
 
 const EDITOR_STAGE_BASE_WIDTH = 2020;
 const EDITOR_STAGE_BASE_HEIGHT = 1180;
@@ -2423,6 +2427,11 @@ function syncJewelryBoxUI(): void {
 }
 
 // ==========================================
+// BALL SHOOTER MODE (弹珠打砖块模式)
+// ==========================================
+let isBallShooterMode = false;
+
+// ==========================================
 // CONCENTRIC OBSTACLE MODE (回型障碍模式)
 // ==========================================
 let isConcentricObstacleMode = false;
@@ -4361,6 +4370,7 @@ function initConcentricSettingsUIListeners(): void {
 function setConcentricObstacleMode(enabled: boolean): void {
   isConcentricObstacleMode = enabled;
   if (enabled) {
+    if (isBallShooterMode) setBallShooterMode(false);
     if (isPastureLayerMode) setPastureLayerMode(false);
     if (isJewelryBoxMode) setJewelryBoxMode(false);
     isColorChangingMode = false;
@@ -4418,6 +4428,145 @@ function setConcentricObstacleMode(enabled: boolean): void {
   }
   syncConcentricSettingsUI();
   syncModeButtonsUI();
+}
+
+// ==========================================
+// BALL SHOOTER MODE IMPLEMENTATION
+// ==========================================
+function clearBallShooterBlocks(): void {
+  blocks = blocks.filter(b => {
+    if (b.isBallShooterBlock || b.hpTextSprite) {
+      if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+      return false;
+    }
+    return true;
+  });
+}
+
+function generateBallShooterBoard(): void {
+  // Clear any existing blocks
+  blocks.forEach(b => {
+    if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+  });
+  blocks = [];
+
+  // Spawn fixed corridor layout (rows 0..14, leaving bottom 3 rows empty for cannon)
+  BALL_SHOOTER_FIXED_LAYOUT.forEach(def => {
+    const b = spawnBlock(def.col, def.row, def.length, def.color);
+    if (b) {
+      b.isBallShooterBlock = true;
+      if (b.sprite) {
+        b.sprite.eventMode = 'none'; // Disallow dragging in ball shooter mode
+      }
+    }
+  });
+
+  // Assign randomized HP numbers
+  ballShooterSystem.randomizeHPForBlocks(blocks);
+  ballShooterSystem.updateCannonPosition();
+}
+
+function setBallShooterMode(enabled: boolean): void {
+  isBallShooterMode = enabled;
+  const panel = document.getElementById('ballshooter-settings-section');
+  if (panel) {
+    panel.style.display = enabled ? 'block' : 'none';
+  }
+
+  if (enabled) {
+    if (isConcentricObstacleMode) setConcentricObstacleMode(false);
+    if (isPastureLayerMode) setPastureLayerMode(false);
+    if (isJewelryBoxMode) setJewelryBoxMode(false);
+    isColorChangingMode = false;
+    isSingleColorMode = false;
+    isCustomTwoColorMode = false;
+    isRainbowMode = false;
+    isRainbowFixedMode = false;
+    isMaterialChangingMode = false;
+    isCollectMode = false;
+    if (multiCollectibleModeEnabled) {
+      multiCollectibleModeEnabled = false;
+      const multiToggle = document.getElementById('input-multi-collectible-mode') as HTMLInputElement | null;
+      if (multiToggle) multiToggle.checked = false;
+    }
+    isNoGravityMode = false;
+
+    // Set board dimensions to 11 cols x 18 rows
+    PARAMS.gridCols = 11;
+    PARAMS.viewportRows = 18;
+    PARAMS.totalRows = 18;
+    previewRenderRows = 18;
+
+    const inputColsEl = document.getElementById('input-cols') as HTMLInputElement | null;
+    const sliderColsEl = document.getElementById('slider-cols') as HTMLInputElement | null;
+    const valColsEl = document.getElementById('val-cols');
+    if (inputColsEl) inputColsEl.value = '11';
+    if (sliderColsEl) sliderColsEl.value = '11';
+    if (valColsEl) valColsEl.textContent = '11';
+
+    const inputVpRowsEl = document.getElementById('input-vprows') as HTMLInputElement | null;
+    const sliderVpRowsEl = document.getElementById('slider-vprows') as HTMLInputElement | null;
+    const valVpRowsEl = document.getElementById('val-vprows');
+    if (inputVpRowsEl) inputVpRowsEl.value = '18';
+    if (sliderVpRowsEl) sliderVpRowsEl.value = '18';
+    if (valVpRowsEl) valVpRowsEl.textContent = '18';
+
+    if (typeof (window as any).applyGridConfig === 'function') {
+      (window as any).applyGridConfig();
+    }
+
+    generateBallShooterBoard();
+    ballShooterSystem.setEnabled(true);
+  } else {
+    ballShooterSystem.setEnabled(false);
+    clearBallShooterBlocks();
+    if (typeof (window as any).applyGridConfig === 'function') {
+      (window as any).applyGridConfig();
+    }
+  }
+
+  syncModeButtonsUI();
+}
+
+function initBallShooterUIListeners(): void {
+  const sliderCount = document.getElementById('slider-ballshooter-count') as HTMLInputElement | null;
+  const valCount = document.getElementById('val-ballshooter-count');
+  if (sliderCount) {
+    sliderCount.oninput = () => {
+      const val = parseInt(sliderCount.value, 10) || 45;
+      ballShooterSystem.config.ballCount = val;
+      if (valCount) valCount.textContent = String(val);
+      ballShooterSystem.updateCannonPosition();
+    };
+  }
+
+  const sliderSpeed = document.getElementById('slider-ballshooter-speed') as HTMLInputElement | null;
+  const valSpeed = document.getElementById('val-ballshooter-speed');
+  if (sliderSpeed) {
+    sliderSpeed.oninput = () => {
+      const val = parseInt(sliderSpeed.value, 10) || 16;
+      ballShooterSystem.config.ballSpeed = val;
+      if (valSpeed) valSpeed.textContent = String(val);
+    };
+  }
+
+  const btnRerandom = document.getElementById('btn-ballshooter-rerandom-hp');
+  if (btnRerandom) {
+    btnRerandom.onclick = () => {
+      if (isBallShooterMode) {
+        ballShooterSystem.randomizeHPForBlocks(blocks);
+      }
+    };
+  }
+
+  const btnReset = document.getElementById('btn-ballshooter-reset');
+  if (btnReset) {
+    btnReset.onclick = () => {
+      if (isBallShooterMode) {
+        generateBallShooterBoard();
+      }
+    };
+  }
 }
 
 function generateConcentricObstacleBoard(): void {
@@ -20598,6 +20747,11 @@ interface Block {
   pastureStage?: PastureLayerStage;
   isJewelryBox?: boolean;
   jewelryBoxState?: 'closed' | 'open';
+  isBallShooterBlock?: boolean;
+  hpTextSprite?: PIXI.Text;
+  hitPoints?: number;
+  maxHitPoints?: number;
+  hitHighlightOverlay?: PIXI.Graphics;
 }
 
 
@@ -23217,6 +23371,40 @@ async function init() {
   boardBorderGraphics.zIndex = 20;
   worldContainer.addChild(boardBorderGraphics);
   worldContainer.sortableChildren = true;
+
+  // Initialize Ball Shooter System
+  ballShooterSystem.init(
+    app,
+    worldContainer,
+    document.getElementById('board-wrapper'),
+    () => blocks,
+    (block) => {
+      // Play row shatter / block break effect
+      const colsSet = new Set<number>();
+      for (let c = 0; c < block.length; c++) colsSet.add(block.col + c);
+      playRowShatterEffect(block.row, block.color, [block], new Set(), colsSet);
+      try {
+        const audio = new Audio(soundShatterUrl);
+        audio.volume = 0.5;
+        audio.play().catch(() => {});
+      } catch {}
+      if (block.sprite && block.sprite.parent) {
+        blocksContainer.removeChild(block.sprite);
+      }
+      blocks = blocks.filter(b => b !== block);
+    },
+    () => ({
+      width: PARAMS.gridCols * PARAMS.cellSize,
+      height: PARAMS.viewportRows * PARAMS.cellSize,
+      cellSize: PARAMS.cellSize,
+      cols: PARAMS.gridCols,
+      rows: PARAMS.viewportRows,
+    })
+  );
+
+  app.ticker.add((ticker) => {
+    ballShooterSystem.update(ticker.deltaTime || 1);
+  });
 
 
 
@@ -28486,7 +28674,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    if (currentMode !== 'play' || isAnimating) return;
+    if (currentMode !== 'play' || isAnimating || isBallShooterMode) return;
     if (isConcentricObstacleMode) {
       const activeProps = blocks.filter(b => b.isProp && b.length > 0);
       // A multi-cell block is draggable when any part of it is visible. The
@@ -41796,20 +41984,21 @@ function setupDOMUI() {
   const btnNoGravityMode = document.getElementById('btn-nogravity-mode')!;
   const btnObstacleMode = document.getElementById('btn-obstacle-mode');
   const btnConcentricMode = document.getElementById('btn-concentric-mode');
+  const btnBallShooterMode = document.getElementById('btn-ballshooter-mode');
 
   const disablePastureLayerMode = () => setPastureLayerMode(false);
   const disableJewelryBoxMode = () => setJewelryBoxMode(false);
   const disableConcentricObstacleMode = () => setConcentricObstacleMode(false);
+  const disableBallShooterMode = () => setBallShooterMode(false);
 
-  // PASTURE_LAYER_MODE is intentionally exclusive. Existing buttons keep their
-  // own behaviour; this small boundary prevents hidden combinations with colour,
-  // collection, no-gravity, or material-changing rules.
+  // Exclusive modes: disable others when one is activated
   [btnNormalMode, btnColorMode, btnSingleColorMode, btnCustomTwoColorMode,
     btnRainbowMode, btnRainbowFixedMode, btnMaterialMode, btnCollectMode,
     btnMultiCollectMode, btnNoGravityMode].forEach(button => {
       button.addEventListener('click', disablePastureLayerMode);
       button.addEventListener('click', disableJewelryBoxMode);
       button.addEventListener('click', disableConcentricObstacleMode);
+      button.addEventListener('click', disableBallShooterMode);
     });
 
 
@@ -42041,7 +42230,7 @@ function setupDOMUI() {
     const isNormal = !isCollectMode && !isColorChangingMode && !isSingleColorMode && 
                       !isCustomTwoColorMode && !isRainbowMode && !isRainbowFixedMode && 
                       !isMaterialChangingMode && !isPastureLayerMode && !isJewelryBoxMode &&
-                      !isConcentricObstacleMode;
+                      !isConcentricObstacleMode && !isBallShooterMode;
 
     setBtnActive(btnNormalMode, isNormal);
 
@@ -42073,6 +42262,7 @@ function setupDOMUI() {
     setBtnActive(btnNoGravityMode, isNoGravityMode);
     setBtnActive(btnObstacleMode, obstacleEaterEnabled);
     setBtnActive(btnConcentricMode, isConcentricObstacleMode);
+    setBtnActive(btnBallShooterMode, isBallShooterMode);
 
     setBtnActive(btnDrawCollect, isCollectMode);
 
@@ -43828,6 +44018,13 @@ function setupDOMUI() {
       setConcentricObstacleMode(!isConcentricObstacleMode);
     };
     initConcentricSettingsUIListeners();
+  }
+
+  if (btnBallShooterMode) {
+    btnBallShooterMode.onclick = () => {
+      setBallShooterMode(!isBallShooterMode);
+    };
+    initBallShooterUIListeners();
   }
 
 

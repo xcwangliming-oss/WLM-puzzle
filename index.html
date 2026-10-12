@@ -820,6 +820,9 @@
           <button id="btn-concentric-mode" class="menu-btn gray">
             <span class="icon">🌀</span>回型障碍
           </button>
+          <button id="btn-ballshooter-mode" class="menu-btn gray">
+            <span class="icon">🎯</span>弹球模式
+          </button>
           <div id="concentric-obstacle-settings-section" class="concentric-menu-panel" style="display: none; grid-column: 1 / -1;">
             <div class="concentric-menu-title">🔲 回型障碍配置</div>
             <div class="concentric-menu-item">
@@ -886,6 +889,25 @@
             <button id="btn-concentric-regenerate" class="menu-btn green wide" style="margin-top: 6px; padding: 6px; font-size: 11px; width: 100%;">
               🔄 重新生成关卡
             </button>
+          </div>
+          <div id="ballshooter-settings-section" class="concentric-menu-panel" style="display: none; grid-column: 1 / -1;">
+            <div class="concentric-menu-title">🎯 弹珠打砖块配置</div>
+            <div class="concentric-menu-item">
+              <div class="concentric-menu-label"><span>弹珠数量</span><span id="val-ballshooter-count" class="concentric-menu-val">45</span></div>
+              <input type="range" id="slider-ballshooter-count" min="10" max="100" value="45">
+            </div>
+            <div class="concentric-menu-item">
+              <div class="concentric-menu-label"><span>发射速度</span><span id="val-ballshooter-speed" class="concentric-menu-val">16</span></div>
+              <input type="range" id="slider-ballshooter-speed" min="8" max="30" value="16">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 6px;">
+              <button id="btn-ballshooter-rerandom-hp" class="menu-btn blue" style="padding: 6px; font-size: 11px;">
+                🎲 随机血量
+              </button>
+              <button id="btn-ballshooter-reset" class="menu-btn green" style="padding: 6px; font-size: 11px;">
+                🔄 重置关卡
+              </button>
+            </div>
           </div>
           <div class="custom-two-color-row">
           <button id="btn-custom-twocolor-mode" class="menu-btn gray">
