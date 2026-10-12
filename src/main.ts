@@ -4513,6 +4513,13 @@ function setBallShooterMode(enabled: boolean): void {
     if (sliderVpRowsEl) sliderVpRowsEl.value = '17';
     if (valVpRowsEl) valVpRowsEl.textContent = '17';
 
+    const inputRowsEl = document.getElementById('input-rows') as HTMLInputElement | null;
+    const sliderRowsEl = document.getElementById('slider-rows') as HTMLInputElement | null;
+    const valRowsEl = document.getElementById('val-rows');
+    if (inputRowsEl) inputRowsEl.value = '17';
+    if (sliderRowsEl) sliderRowsEl.value = '17';
+    if (valRowsEl) valRowsEl.textContent = '17';
+
     if (typeof (window as any).applyGridConfig === 'function') {
       (window as any).applyGridConfig();
     }
@@ -44016,6 +44023,12 @@ function setupDOMUI() {
       setBallShooterMode(!isBallShooterMode);
     };
     initBallShooterUIListeners();
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('ballshooter') || urlParams.has('ball') || urlParams.get('mode') === 'ballshooter') {
+      setTimeout(() => {
+        setBallShooterMode(true);
+      }, 150);
+    }
   }
 
 
