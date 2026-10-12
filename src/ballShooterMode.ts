@@ -28,110 +28,110 @@ export interface BallShooterBlockDef {
 /**
  * Fixed corridor level layout matching user reference screenshot media_1791767365908_20c477f5.jpg
  * Total 11 columns (0..10).
- * Playable blocks span rows 0 to 14 (shifted up 3 rows, leaving rows 15..17 empty for cannon).
+ * Playable blocks span rows 1 to 15 (shifted down: row 0 clear, rows 16..17 empty corridor, rows 18..19 for bottom launcher).
  */
 export const BALL_SHOOTER_FIXED_LAYOUT: BallShooterBlockDef[] = [
-  // Row 0
-  { col: 0, row: 0, length: 1, color: 'green', defaultHp: 120 },
-  { col: 10, row: 0, length: 1, color: 'pink', defaultHp: 60 },
-
   // Row 1
-  { col: 0, row: 1, length: 2, color: 'green', defaultHp: 240 },
-  { col: 9, row: 1, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 10, row: 1, length: 1, color: 'yellow', defaultHp: 120 },
+  { col: 0, row: 1, length: 1, color: 'green', defaultHp: 120 },
+  { col: 10, row: 1, length: 1, color: 'pink', defaultHp: 60 },
 
   // Row 2
-  { col: 0, row: 2, length: 2, color: 'pink', defaultHp: 180 },
-  { col: 2, row: 2, length: 1, color: 'green', defaultHp: 60 },
-  { col: 7, row: 2, length: 1, color: 'blue', defaultHp: 60 },
-  { col: 8, row: 2, length: 2, color: 'blue', defaultHp: 180 },
+  { col: 0, row: 2, length: 2, color: 'green', defaultHp: 240 },
+  { col: 9, row: 2, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 10, row: 2, length: 1, color: 'yellow', defaultHp: 120 },
 
   // Row 3
-  { col: 0, row: 3, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 1, row: 3, length: 2, color: 'pink', defaultHp: 60 },
-  { col: 3, row: 3, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 4, row: 3, length: 1, color: 'red', defaultHp: 25 },
-  { col: 6, row: 3, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 7, row: 3, length: 3, color: 'pink', defaultHp: 180 },
+  { col: 0, row: 3, length: 2, color: 'pink', defaultHp: 180 },
+  { col: 2, row: 3, length: 1, color: 'green', defaultHp: 60 },
+  { col: 7, row: 3, length: 1, color: 'blue', defaultHp: 60 },
+  { col: 8, row: 3, length: 2, color: 'blue', defaultHp: 180 },
 
   // Row 4
-  { col: 0, row: 4, length: 1, color: 'blue', defaultHp: 60 },
-  { col: 1, row: 4, length: 1, color: 'yellow', defaultHp: 120 },
-  { col: 2, row: 4, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 3, row: 4, length: 1, color: 'green', defaultHp: 120 },
-  { col: 4, row: 4, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 6, row: 4, length: 2, color: 'yellow', defaultHp: 240 },
-  { col: 8, row: 4, length: 2, color: 'pink', defaultHp: 180 },
+  { col: 0, row: 4, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 1, row: 4, length: 2, color: 'pink', defaultHp: 60 },
+  { col: 3, row: 4, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 4, row: 4, length: 1, color: 'red', defaultHp: 25 },
+  { col: 6, row: 4, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 7, row: 4, length: 3, color: 'pink', defaultHp: 180 },
 
   // Row 5
-  { col: 0, row: 5, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 1, row: 5, length: 3, color: 'pink', defaultHp: 180 },
-  { col: 6, row: 5, length: 4, color: 'yellow', defaultHp: 333 },
+  { col: 0, row: 5, length: 1, color: 'blue', defaultHp: 60 },
+  { col: 1, row: 5, length: 1, color: 'yellow', defaultHp: 120 },
+  { col: 2, row: 5, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 3, row: 5, length: 1, color: 'green', defaultHp: 120 },
+  { col: 4, row: 5, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 6, row: 5, length: 2, color: 'yellow', defaultHp: 240 },
+  { col: 8, row: 5, length: 2, color: 'pink', defaultHp: 180 },
 
   // Row 6
-  { col: 0, row: 6, length: 2, color: 'blue', defaultHp: 120 },
-  { col: 6, row: 6, length: 1, color: 'green', defaultHp: 120 },
-  { col: 7, row: 6, length: 2, color: 'green', defaultHp: 240 },
-  { col: 9, row: 6, length: 1, color: 'red', defaultHp: 25 },
+  { col: 0, row: 6, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 1, row: 6, length: 3, color: 'pink', defaultHp: 180 },
+  { col: 6, row: 6, length: 4, color: 'yellow', defaultHp: 333 },
 
   // Row 7
-  { col: 0, row: 7, length: 1, color: 'red', defaultHp: 25 },
-  { col: 1, row: 7, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 3, row: 7, length: 2, color: 'red', defaultHp: 25 },
-  { col: 5, row: 7, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 6, row: 7, length: 1, color: 'blue', defaultHp: 60 },
-  { col: 7, row: 7, length: 2, color: 'pink', defaultHp: 180 },
-  { col: 9, row: 7, length: 1, color: 'yellow', defaultHp: 120 },
+  { col: 0, row: 7, length: 2, color: 'blue', defaultHp: 120 },
+  { col: 6, row: 7, length: 1, color: 'green', defaultHp: 120 },
+  { col: 7, row: 7, length: 2, color: 'green', defaultHp: 240 },
+  { col: 9, row: 7, length: 1, color: 'red', defaultHp: 25 },
 
   // Row 8
-  { col: 0, row: 8, length: 2, color: 'green', defaultHp: 240 },
-  { col: 3, row: 8, length: 4, color: 'blue', defaultHp: 180 },
-  { col: 7, row: 8, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 8, row: 8, length: 1, color: 'yellow', defaultHp: 240 },
-  { col: 9, row: 8, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 0, row: 8, length: 1, color: 'red', defaultHp: 25 },
+  { col: 1, row: 8, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 3, row: 8, length: 2, color: 'red', defaultHp: 25 },
+  { col: 5, row: 8, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 6, row: 8, length: 1, color: 'blue', defaultHp: 60 },
+  { col: 7, row: 8, length: 2, color: 'pink', defaultHp: 180 },
+  { col: 9, row: 8, length: 1, color: 'yellow', defaultHp: 120 },
 
   // Row 9
-  { col: 0, row: 9, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 1, row: 9, length: 1, color: 'yellow', defaultHp: 120 },
-  { col: 6, row: 9, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 7, row: 9, length: 2, color: 'yellow', defaultHp: 240 },
+  { col: 0, row: 9, length: 2, color: 'green', defaultHp: 240 },
+  { col: 3, row: 9, length: 4, color: 'blue', defaultHp: 180 },
+  { col: 7, row: 9, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 8, row: 9, length: 1, color: 'yellow', defaultHp: 240 },
   { col: 9, row: 9, length: 1, color: 'pink', defaultHp: 60 },
 
   // Row 10
-  { col: 0, row: 10, length: 2, color: 'blue', defaultHp: 120 },
-  { col: 2, row: 10, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 3, row: 10, length: 1, color: 'blue', defaultHp: 60 },
-  { col: 4, row: 10, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 6, row: 10, length: 1, color: 'green', defaultHp: 120 },
-  { col: 7, row: 10, length: 2, color: 'green', defaultHp: 240 },
+  { col: 0, row: 10, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 1, row: 10, length: 1, color: 'yellow', defaultHp: 120 },
+  { col: 6, row: 10, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 7, row: 10, length: 2, color: 'yellow', defaultHp: 240 },
+  { col: 9, row: 10, length: 1, color: 'pink', defaultHp: 60 },
 
   // Row 11
-  { col: 0, row: 11, length: 1, color: 'red', defaultHp: 25 },
-  { col: 1, row: 11, length: 3, color: 'green', defaultHp: 240 },
-  { col: 6, row: 11, length: 1, color: 'blue', defaultHp: 60 },
+  { col: 0, row: 11, length: 2, color: 'blue', defaultHp: 120 },
+  { col: 2, row: 11, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 3, row: 11, length: 1, color: 'blue', defaultHp: 60 },
+  { col: 4, row: 11, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 6, row: 11, length: 1, color: 'green', defaultHp: 120 },
   { col: 7, row: 11, length: 2, color: 'green', defaultHp: 240 },
-  { col: 9, row: 11, length: 1, color: 'yellow', defaultHp: 120 },
 
   // Row 12
-  { col: 0, row: 12, length: 2, color: 'pink', defaultHp: 180 },
-  { col: 6, row: 12, length: 1, color: 'red', defaultHp: 25 },
-  { col: 7, row: 12, length: 1, color: 'green', defaultHp: 120 },
-  { col: 8, row: 12, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 9, row: 12, length: 1, color: 'green', defaultHp: 120 },
+  { col: 0, row: 12, length: 1, color: 'red', defaultHp: 25 },
+  { col: 1, row: 12, length: 3, color: 'green', defaultHp: 240 },
+  { col: 6, row: 12, length: 1, color: 'blue', defaultHp: 60 },
+  { col: 7, row: 12, length: 2, color: 'green', defaultHp: 240 },
+  { col: 9, row: 12, length: 1, color: 'yellow', defaultHp: 120 },
 
   // Row 13
-  { col: 0, row: 13, length: 1, color: 'green', defaultHp: 120 },
-  { col: 1, row: 13, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 6, row: 13, length: 1, color: 'pink', defaultHp: 60 },
-  { col: 7, row: 13, length: 2, color: 'red', defaultHp: 25 },
-  { col: 9, row: 13, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 0, row: 13, length: 2, color: 'pink', defaultHp: 180 },
+  { col: 6, row: 13, length: 1, color: 'red', defaultHp: 25 },
+  { col: 7, row: 13, length: 1, color: 'green', defaultHp: 120 },
+  { col: 8, row: 13, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 9, row: 13, length: 1, color: 'green', defaultHp: 120 },
 
   // Row 14
-  { col: 6, row: 14, length: 1, color: 'yellow', defaultHp: 120 },
-  { col: 7, row: 14, length: 1, color: 'blue', defaultHp: 60 },
-  { col: 8, row: 14, length: 1, color: 'red', defaultHp: 25 },
-  { col: 9, row: 14, length: 1, color: 'blue', defaultHp: 60 },
-  { col: 10, row: 14, length: 1, color: 'yellow', defaultHp: 120 },
+  { col: 0, row: 14, length: 1, color: 'green', defaultHp: 120 },
+  { col: 1, row: 14, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 6, row: 14, length: 1, color: 'pink', defaultHp: 60 },
+  { col: 7, row: 14, length: 2, color: 'red', defaultHp: 25 },
+  { col: 9, row: 14, length: 1, color: 'pink', defaultHp: 60 },
+
+  // Row 15
+  { col: 6, row: 15, length: 1, color: 'yellow', defaultHp: 120 },
+  { col: 7, row: 15, length: 1, color: 'blue', defaultHp: 60 },
+  { col: 8, row: 15, length: 1, color: 'red', defaultHp: 25 },
+  { col: 9, row: 15, length: 1, color: 'blue', defaultHp: 60 },
+  { col: 10, row: 15, length: 1, color: 'yellow', defaultHp: 120 },
 ];
 
 export interface Ball {

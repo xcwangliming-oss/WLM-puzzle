@@ -4451,9 +4451,9 @@ function generateBallShooterBoard(): void {
   });
   blocks = [];
 
-  // Spawn fixed corridor layout shifted down by 1 row (rows 1..15, leaving row 16 clear, and row 17 for bottom cannon)
+  // Spawn fixed corridor layout (rows 1..15, leaving row 16..17 empty buffer, and rows 18..19 for bottom launcher)
   BALL_SHOOTER_FIXED_LAYOUT.forEach(def => {
-    const b = spawnBlock(def.col, def.row + 1, def.length, def.color);
+    const b = spawnBlock(def.col, def.row, def.length, def.color);
     if (b) {
       b.isBallShooterBlock = true;
       if (b.sprite) {
@@ -4493,11 +4493,13 @@ function setBallShooterMode(enabled: boolean): void {
     }
     isNoGravityMode = false;
 
-    // Set board dimensions to 11 cols x 18 rows
+    // Set board dimensions to 11 cols x 20 rows (to cover full board frame down to bottom border)
+    const adaptiveRows = getAdaptiveConcentricRows(11);
+    const totalRows = Math.max(20, adaptiveRows);
     PARAMS.gridCols = 11;
-    PARAMS.viewportRows = 18;
-    PARAMS.totalRows = 18;
-    previewRenderRows = 18;
+    PARAMS.viewportRows = totalRows;
+    PARAMS.totalRows = totalRows;
+    previewRenderRows = totalRows;
 
     const inputColsEl = document.getElementById('input-cols') as HTMLInputElement | null;
     const sliderColsEl = document.getElementById('slider-cols') as HTMLInputElement | null;
@@ -4509,16 +4511,16 @@ function setBallShooterMode(enabled: boolean): void {
     const inputVpRowsEl = document.getElementById('input-vprows') as HTMLInputElement | null;
     const sliderVpRowsEl = document.getElementById('slider-vprows') as HTMLInputElement | null;
     const valVpRowsEl = document.getElementById('val-vprows');
-    if (inputVpRowsEl) inputVpRowsEl.value = '18';
-    if (sliderVpRowsEl) sliderVpRowsEl.value = '18';
-    if (valVpRowsEl) valVpRowsEl.textContent = '18';
+    if (inputVpRowsEl) inputVpRowsEl.value = String(totalRows);
+    if (sliderVpRowsEl) sliderVpRowsEl.value = String(totalRows);
+    if (valVpRowsEl) valVpRowsEl.textContent = String(totalRows);
 
     const inputRowsEl = document.getElementById('input-rows') as HTMLInputElement | null;
     const sliderRowsEl = document.getElementById('slider-rows') as HTMLInputElement | null;
     const valRowsEl = document.getElementById('val-rows');
-    if (inputRowsEl) inputRowsEl.value = '18';
-    if (sliderRowsEl) sliderRowsEl.value = '18';
-    if (valRowsEl) valRowsEl.textContent = '18';
+    if (inputRowsEl) inputRowsEl.value = String(totalRows);
+    if (sliderRowsEl) sliderRowsEl.value = String(totalRows);
+    if (valRowsEl) valRowsEl.textContent = String(totalRows);
 
     if (typeof (window as any).applyGridConfig === 'function') {
       (window as any).applyGridConfig();
@@ -34461,7 +34463,7 @@ function generateFromHoles() {
 
 
   for (let r = PARAMS.totalRows - 1; r >= 0; r--) {
-    if (isBallShooterMode && r >= PARAMS.viewportRows - 2) continue;
+    if (isBallShooterMode && (r < 1 || r > PARAMS.viewportRows - 5)) continue;
 
     let c = 0;
 
@@ -35006,7 +35008,7 @@ function setupInteraction() {
 
 
     if (col >= 0 && col < PARAMS.gridCols && row >= 0 && row < PARAMS.totalRows) {
-      if (isBallShooterMode && row >= PARAMS.viewportRows - 2) return;
+      if (isBallShooterMode && (row < 1 || row > PARAMS.viewportRows - 5)) return;
 
       if (currentMode === 'board-edit') {
 
@@ -38787,7 +38789,7 @@ function setupDOMUI() {
 
       const boardClipBorderPx = 5;
       const availH = Math.max(1, boardFrameH - boardClipBorderPx * 2);
-      const rawScale = isConcentricObstacleMode
+      const rawScale = (isConcentricObstacleMode || isBallShooterMode)
         ? Math.min(1, maxW / targetW, availH / targetH)
         : Math.min(1, maxW / targetW);
 
@@ -38813,7 +38815,7 @@ function setupDOMUI() {
 
 
 
-    // 鐢ㄩ€傞厤鍚庣殑灏哄鐩存帴 resize canvas锛岀‘淇濆叾鍒氬ソ绛変簬鏍兼暟涔樹互鏁存暟鍗牸灏哄鍔犱笂 Padding
+    // 用适配后的尺寸直接 resize canvas，确保其刚好等于格数乘以整数单格尺寸加上 Padding
 
 
 
@@ -38822,7 +38824,7 @@ function setupDOMUI() {
     const boardClipBorderPx = 5;
     const boardFrameInnerW = Math.max(1, boardFrameW - boardClipBorderPx * 2);
     const boardFrameInnerH = Math.max(1, boardFrameH - boardClipBorderPx * 2);
-    if (isConcentricObstacleMode) {
+    if (isConcentricObstacleMode || isBallShooterMode) {
       previewRenderRows = PARAMS.viewportRows;
     } else if (boardFrameInnerH > 0) {
       const rowsToCoverFrame = Math.ceil(boardFrameInnerH / displayCellSize) + 1;
@@ -38830,7 +38832,7 @@ function setupDOMUI() {
     }
     const previewGameHeight = getPreviewRendererGameHeight();
     const contentDisplayH = Math.round(previewGameHeight * fitScale + PADDING * 2 * fitScale);
-    const frameDisplayH = boardFrameInnerW > 0 && boardFrameInnerW > 0 && !isConcentricObstacleMode
+    const frameDisplayH = boardFrameInnerW > 0 && boardFrameInnerW > 0 && !isConcentricObstacleMode && !isBallShooterMode
       ? Math.ceil(boardFrameInnerH * (displayW / boardFrameInnerW))
       : 0;
     const displayH = Math.max(contentDisplayH, frameDisplayH);
@@ -38899,8 +38901,9 @@ function setupDOMUI() {
       }
     });
 
-
-
+    if (isBallShooterMode && typeof ballShooterSystem !== 'undefined') {
+      ballShooterSystem.updateCannonPosition();
+    }
   }
 
 
@@ -40647,11 +40650,11 @@ function setupDOMUI() {
     console.log('After resetAndApplyActiveModeStyle, blocks count:', blocks.length);
 
     if (isBallShooterMode) {
-      const maxAllowedRow = PARAMS.viewportRows - 3;
-      blocks.filter(b => b.row > maxAllowedRow).forEach(b => {
+      const maxAllowedRow = PARAMS.viewportRows - 5;
+      blocks.filter(b => b.row > maxAllowedRow || b.row < 1).forEach(b => {
         if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
       });
-      blocks = blocks.filter(b => b.row <= maxAllowedRow);
+      blocks = blocks.filter(b => b.row <= maxAllowedRow && b.row >= 1);
       blocks.forEach(b => {
         if (b.sprite) {
           b.sprite.eventMode = 'dynamic';
@@ -40781,11 +40784,11 @@ function setupDOMUI() {
     generateFromHoles();
 
     if (isBallShooterMode) {
-      const maxAllowedRow = PARAMS.viewportRows - 3;
-      blocks.filter(b => b.row > maxAllowedRow).forEach(b => {
+      const maxAllowedRow = PARAMS.viewportRows - 5;
+      blocks.filter(b => b.row > maxAllowedRow || b.row < 1).forEach(b => {
         if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
       });
-      blocks = blocks.filter(b => b.row <= maxAllowedRow);
+      blocks = blocks.filter(b => b.row <= maxAllowedRow && b.row >= 1);
       blocks.forEach(b => {
         if (b.sprite) {
           b.sprite.eventMode = 'dynamic';
@@ -52690,7 +52693,7 @@ function getPlayableTutorialTarget() {
 
 
 function getImmediatePlayableFullRows(): number[] {
-  if (isConcentricObstacleMode) return [];
+  if (isConcentricObstacleMode || isBallShooterMode) return [];
   const occ = getGridOccupancy();
 
   if (activeSimulatingStepIndex !== null && !isRepairingScript) {
@@ -52765,7 +52768,7 @@ function syncBoardFrameToGrid() {
 
 
 function getActiveBoardMechanic(): BoardMechanic {
-  if (isConcentricObstacleMode) return 'fixed';
+  if (isConcentricObstacleMode || isBallShooterMode) return 'fixed';
   if (scriptPlaybackMechanic) return scriptPlaybackMechanic;
 
 
