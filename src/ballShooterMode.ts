@@ -276,43 +276,57 @@ export class BallShooterSystem {
   }
 
   private drawCannonGraphics() {
-    // Cannon Base (metallic sci-fi turret base)
+    // Cannon Base (heavy metallic sci-fi turret base resting on the bottom floor)
     this.cannonBase.clear();
-    this.cannonBase.circle(0, 0, 24);
-    this.cannonBase.fill({ color: 0x24283b });
-    this.cannonBase.stroke({ color: 0x475569, width: 3 });
 
-    this.cannonBase.circle(0, 0, 16);
+    // Heavy pedestal platform
+    this.cannonBase.roundRect(-36, -8, 72, 34, 8);
     this.cannonBase.fill({ color: 0x1e293b });
-    this.cannonBase.stroke({ color: 0x64748b, width: 2 });
+    this.cannonBase.stroke({ color: 0x475569, width: 2.5 });
 
-    // Cannon Barrel (tapered cylinder pointing upwards)
+    // Metallic turret dome
+    this.cannonBase.circle(0, 0, 26);
+    this.cannonBase.fill({ color: 0x24283b });
+    this.cannonBase.stroke({ color: 0x64748b, width: 3 });
+
+    // Inner glowing ring
+    this.cannonBase.circle(0, 0, 18);
+    this.cannonBase.fill({ color: 0x0f172a });
+    this.cannonBase.stroke({ color: 0x38bdf8, width: 2, alpha: 0.8 });
+
+    // Cannon Barrel (heavy mortar barrel pointing upwards)
     this.cannonBarrel.clear();
-    this.cannonBarrel.rect(-10, -32, 20, 32);
+    this.cannonBarrel.roundRect(-12, -38, 24, 38, 4);
     this.cannonBarrel.fill({ color: 0x334155 });
     this.cannonBarrel.stroke({ color: 0x94a3b8, width: 2 });
 
-    // Inner glowing muzzle ring
-    this.cannonBarrel.ellipse(0, -32, 9, 3);
+    // Gold trim ring
+    this.cannonBarrel.rect(-13, -30, 26, 6);
     this.cannonBarrel.fill({ color: 0xf59e0b });
+
+    // Muzzle glow ring
+    this.cannonBarrel.ellipse(0, -38, 11, 4);
+    this.cannonBarrel.fill({ color: 0xfde047 });
 
     // Glowing energy core orb
     this.cannonOrb.clear();
-    this.cannonOrb.circle(0, 0, 8);
-    this.cannonOrb.fill({ color: 0xfde047 });
-    this.cannonOrb.circle(0, 0, 5);
+    this.cannonOrb.circle(0, 0, 10);
+    this.cannonOrb.fill({ color: 0xfde047, alpha: 0.45 });
+    this.cannonOrb.circle(0, 0, 7);
+    this.cannonOrb.fill({ color: 0xffd700 });
+    this.cannonOrb.circle(-2, -2, 3);
     this.cannonOrb.fill({ color: 0xffffff });
 
     this.cannonCountText.anchor.set(0, 0.5);
-    this.cannonCountText.position.set(30, 0);
+    this.cannonCountText.position.set(40, -4);
   }
 
   public updateCannonPosition() {
     if (!this.getBoardDimensionsCallback) return;
     const dims = this.getBoardDimensionsCallback();
     this.cannonX = dims.width / 2;
-    // Bottom 3 rows reserved for cannon launcher space: place cannon at bottom center
-    this.cannonY = dims.height - (dims.cellSize * 1.5);
+    // Cannon sits right at the bottom edge of the board
+    this.cannonY = dims.height - 22;
     this.cannonContainer.position.set(this.cannonX, this.cannonY);
   }
 
@@ -336,8 +350,26 @@ export class BallShooterSystem {
     this.app.stage.eventMode = 'static';
     this.app.stage.hitArea = this.app.screen;
 
+    const isPointerOnBlock = (pointerX: number, pointerY: number): boolean => {
+      const local = this.container.toLocal({ x: pointerX, y: pointerY });
+      const blocks = this.getBlocksCallback ? this.getBlocksCallback() : [];
+      const dims = this.getBoardDimensionsCallback ? this.getBoardDimensionsCallback() : { cellSize: 50 };
+      return blocks.some(b => {
+        if (!b || !b.sprite || b.hitPoints <= 0 || !b.sprite.visible) return false;
+        const bLeft = b.sprite.x;
+        const bRight = bLeft + b.length * dims.cellSize;
+        const bTop = b.sprite.y;
+        const bBottom = bTop + dims.cellSize;
+        return local.x >= bLeft && local.x <= bRight && local.y >= bTop && local.y <= bBottom;
+      });
+    };
+
     this.app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       if (!this.enabled || this.isLaunching || this.hasActiveBalls) return;
+      // If pointer is touching a block, allow block sliding, do NOT aim cannon!
+      if (isPointerOnBlock(e.global.x, e.global.y)) {
+        return;
+      }
       this.isAiming = true;
       this.updateAim(e.global.x, e.global.y);
     });
@@ -387,7 +419,7 @@ export class BallShooterSystem {
 
     const maxBounces = 2;
     let currX = this.cannonX;
-    let currY = this.cannonY - 30;
+    let currY = this.cannonY - 36;
     let dirX = Math.cos(this.aimAngle);
     let dirY = Math.sin(this.aimAngle);
 
@@ -560,7 +592,7 @@ export class BallShooterSystem {
     }
 
     ball.x = this.cannonX;
-    ball.y = this.cannonY - 30;
+    ball.y = this.cannonY - 36;
     ball.vx = Math.cos(this.aimAngle) * this.config.ballSpeed;
     ball.vy = Math.sin(this.aimAngle) * this.config.ballSpeed;
     ball.active = true;
@@ -573,6 +605,23 @@ export class BallShooterSystem {
 
   public update(delta: number) {
     if (!this.enabled) return;
+
+    // Real-time sync block HP text and highlight overlay positions with block sprites (supports sliding blocks & falling)
+    const blocks = this.getBlocksCallback ? this.getBlocksCallback() : [];
+    const dims = this.getBoardDimensionsCallback ? this.getBoardDimensionsCallback() : { cellSize: 50 };
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (!b || !b.sprite || b.hitPoints <= 0) continue;
+      if (b.hpTextSprite) {
+        b.hpTextSprite.x = b.sprite.x + (b.length * dims.cellSize) / 2;
+        b.hpTextSprite.y = b.sprite.y + dims.cellSize / 2;
+        b.hpTextSprite.visible = b.sprite.visible && b.sprite.renderable !== false;
+      }
+      if (b.hitHighlightOverlay) {
+        b.hitHighlightOverlay.x = b.sprite.x;
+        b.hitHighlightOverlay.y = b.sprite.y;
+      }
+    }
 
     // Launch balls sequentially
     if (this.isLaunching) {
@@ -602,7 +651,7 @@ export class BallShooterSystem {
     const dims = this.getBoardDimensionsCallback();
     const blocks = this.getBlocksCallback ? this.getBlocksCallback() : [];
 
-    const bottomDeadZone = dims.height - (dims.cellSize * 0.8);
+    const bottomDeadZone = dims.height - 20;
     let activeCount = 0;
 
     for (let i = 0; i < this.balls.length; i++) {

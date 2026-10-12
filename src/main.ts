@@ -4450,13 +4450,14 @@ function generateBallShooterBoard(): void {
   });
   blocks = [];
 
-  // Spawn fixed corridor layout (rows 0..14, leaving bottom 3 rows empty for cannon)
+  // Spawn fixed corridor layout (rows 0..14, leaving bottom 2 rows empty for cannon)
   BALL_SHOOTER_FIXED_LAYOUT.forEach(def => {
     const b = spawnBlock(def.col, def.row, def.length, def.color);
     if (b) {
       b.isBallShooterBlock = true;
       if (b.sprite) {
-        b.sprite.eventMode = 'none'; // Disallow dragging in ball shooter mode
+        b.sprite.eventMode = 'dynamic';
+        b.sprite.cursor = 'grab';
       }
     }
   });
@@ -28674,7 +28675,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 
-    if (currentMode !== 'play' || isAnimating || isBallShooterMode) return;
+    if (currentMode !== 'play' || isAnimating) return;
     if (isConcentricObstacleMode) {
       const activeProps = blocks.filter(b => b.isProp && b.length > 0);
       // A multi-cell block is draggable when any part of it is visible. The
