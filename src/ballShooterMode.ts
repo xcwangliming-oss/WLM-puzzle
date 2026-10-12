@@ -260,13 +260,21 @@ export class BallShooterSystem {
     this.cannonContainer.addChild(this.cannonCountText);
   }
 
+  private isPlayModeCallback: (() => boolean) | null = null;
+
+  public cancelAim() {
+    this.isAiming = false;
+    this.aimLineGraphics.clear();
+  }
+
   public init(
     app: PIXI.Application,
     gameStage: PIXI.Container,
     boardWrapper: HTMLElement | null,
     getBlocks: () => any[],
     onBlockDestroyed: (block: any) => void,
-    getBoardDimensions: () => { width: number; height: number; cellSize: number; cols: number; rows: number }
+    getBoardDimensions: () => { width: number; height: number; cellSize: number; cols: number; rows: number },
+    isPlayMode?: () => boolean
   ) {
     this.app = app;
     this.gameStage = gameStage;
@@ -274,6 +282,7 @@ export class BallShooterSystem {
     this.getBlocksCallback = getBlocks;
     this.onBlockDestroyedCallback = onBlockDestroyed;
     this.getBoardDimensionsCallback = getBoardDimensions;
+    this.isPlayModeCallback = isPlayMode || null;
 
     if (!gameStage.children.includes(this.container)) {
       gameStage.addChild(this.container);
@@ -375,6 +384,7 @@ export class BallShooterSystem {
 
     this.app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       if (!this.enabled || this.isLaunching || this.hasActiveBalls) return;
+      if (this.isPlayModeCallback && !this.isPlayModeCallback()) return;
       // If pointer is touching a block, allow block sliding, do NOT aim cannon!
       if (isPointerOnBlock(e.global.x, e.global.y)) {
         return;
@@ -385,6 +395,10 @@ export class BallShooterSystem {
 
     this.app.stage.on('pointermove', (e: PIXI.FederatedPointerEvent) => {
       if (!this.enabled || !this.isAiming) return;
+      if (this.isPlayModeCallback && !this.isPlayModeCallback()) {
+        this.cancelAim();
+        return;
+      }
       this.updateAim(e.global.x, e.global.y);
     });
 
@@ -392,6 +406,7 @@ export class BallShooterSystem {
       if (!this.enabled || !this.isAiming) return;
       this.isAiming = false;
       this.aimLineGraphics.clear();
+      if (this.isPlayModeCallback && !this.isPlayModeCallback()) return;
       this.startLaunch();
     };
 
@@ -927,7 +942,7 @@ export class BallShooterSystem {
     }
   }
 
-  private resetAllBalls() {
+  public resetAllBalls() {
     this.isLaunching = false;
     this.hasActiveBalls = false;
     this.isAiming = false;

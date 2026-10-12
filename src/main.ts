@@ -23414,7 +23414,8 @@ async function init() {
       cellSize: PARAMS.cellSize,
       cols: PARAMS.gridCols,
       rows: PARAMS.viewportRows,
-    })
+    }),
+    () => currentMode === 'play'
   );
 
   app.ticker.add((ticker) => {
@@ -25136,7 +25137,7 @@ function drawHoles() {
 
 
     for (let r = 0; r < PARAMS.totalRows; r++) {
-      if (isBallShooterMode && r >= PARAMS.viewportRows - 2) continue;
+      if (isBallShooterMode && (r < 1 || r > PARAMS.viewportRows - 5)) continue;
 
       for (let c = 0; c < PARAMS.gridCols; c++) {
 
@@ -40674,248 +40675,128 @@ function setupDOMUI() {
 
 
   btnDraw.onclick = () => {
-
-
-
     if (!assetsLoaded) {
-
-
-
       alert('游戏资源正在后台加载，请稍候');
-
-
-
       return;
-
-
-
     }
-
-
-
     currentMode = 'draw';
-
-
-
+    if (isBallShooterMode && typeof ballShooterSystem !== 'undefined') {
+      ballShooterSystem.cancelAim();
+      ballShooterSystem.resetAllBalls();
+      ballShooterSystem.clearAllVisuals();
+    }
     clearAllBlocks();
-
-
-
+    resetLayoutDrawMask();
     layoutDrawMask = normalizeBooleanMask(layoutDrawMask);
-
-
-
     bottomMenu.classList.add('hidden');
-
-
-
     drawMenu.classList.remove('hidden');
-
-
-
     drawHoles();
-
-
-
     setWorldY(0);
-
-
-
     positionPreviewCanvasInMaster();
-
-
-
     document.getElementById('game-over-text')!.style.display = 'none';
-
-
-
   };
-
-
-
-
-
-
 
   btnGenerate.onclick = () => {
-
-
-
     currentMode = 'play';
-
-
-
     comboCount = 0;
-
-
-
     hasAnyEliminationThisStep = false;
-
-
-
     if (isFallingMode) {
-
-
-
       isFixedBoardMode = false;
-
-
-
     } else {
-
-
-
       applyBoardAdvanceMode(boardAdvanceMode);
-
-
-
     }
-
-
-
     syncModeButtonsUI();
 
-
-
-
-
-
-
-    generateFromHoles();
-
     if (isBallShooterMode) {
-      const maxAllowedRow = PARAMS.viewportRows - 5;
-      blocks.filter(b => b.row > maxAllowedRow || b.row < 1).forEach(b => {
-        if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
-      });
-      blocks = blocks.filter(b => b.row <= maxAllowedRow && b.row >= 1);
-      blocks.forEach(b => {
-        if (b.sprite) {
-          b.sprite.eventMode = 'dynamic';
-          b.sprite.cursor = 'grab';
+      // In Ball Shooter mode, layoutDrawMask represents the bricks the user painted!
+      clearAllBlocks();
+      const drawnMask = normalizeBooleanMask(layoutDrawMask);
+      const minRow = 1;
+      const maxRow = PARAMS.viewportRows - 5;
+      let hasAnyDrawnCell = false;
+
+      for (let r = minRow; r <= maxRow; r++) {
+        let c = 0;
+        while (c < PARAMS.gridCols) {
+          if (drawnMask[r] && drawnMask[r][c]) {
+            hasAnyDrawnCell = true;
+            let endCol = c;
+            while (endCol + 1 < PARAMS.gridCols && drawnMask[r][endCol + 1]) {
+              endCol++;
+            }
+            let totalLen = endCol - c + 1;
+            let curCol = c;
+            // Split contiguous segment into valid block lengths (1..4)
+            while (totalLen > 0) {
+              const blkLen = totalLen > 4 ? (totalLen % 2 === 0 ? 2 : 3) : totalLen;
+              const color = getRandomColor();
+              const b = spawnBlock(curCol, r, blkLen, color);
+              if (b) {
+                b.isBallShooterBlock = true;
+                if (b.sprite) {
+                  b.sprite.eventMode = 'dynamic';
+                  b.sprite.cursor = 'grab';
+                }
+              }
+              curCol += blkLen;
+              totalLen -= blkLen;
+            }
+            c = endCol + 1;
+          } else {
+            c++;
+          }
         }
-      });
-      ballShooterSystem.clearAllVisuals();
-      ballShooterSystem.randomizeHPForBlocks(blocks);
-      ballShooterSystem.updateCannonPosition();
+      }
+
+      if (!hasAnyDrawnCell) {
+        // If user painted nothing, fallback to default fixed corridor layout
+        generateBallShooterBoard();
+      } else {
+        ballShooterSystem.clearAllVisuals();
+        ballShooterSystem.randomizeHPForBlocks(blocks);
+        ballShooterSystem.updateCannonPosition();
+      }
+    } else {
+      generateFromHoles();
+      if (isNoGravityMode) {
+        preventFullRows();
+        detectFloatingBlocks();
+      } else {
+        settleLayoutWithoutEliminations();
+      }
+      resetAndApplyActiveModeStyle();
     }
 
     drawMenu.classList.add('hidden');
-
-
-
     bottomMenu.classList.remove('hidden');
-
-
-
     holeGraphics.clear();
-
-
-
     drawHoles(); // Switches back to play-mode rendering
-
-
-
     document.getElementById('game-over-text')!.style.display = 'none';
-
-
-
-    if (isNoGravityMode) {
-
-
-
-      preventFullRows();
-
-
-
-      detectFloatingBlocks();
-
-
-
-    } else {
-
-
-
-      settleLayoutWithoutEliminations();
-
-
-
-    }
-
-
-
-    resetAndApplyActiveModeStyle();
-
-
 
     captureBoardState();
-
-
-
     if (isFallingMode) {
-
-
-
       scrollToBoardBottom();
-
-
-
     }
-
-
-
     positionPreviewCanvasInMaster();
-
-
-
   };
 
-
-
-
-
-
-
   btnCancel.onclick = () => {
-
-
-
     currentMode = 'play';
-
-
-
     resetLayoutDrawMask(); // Clear temporary layout mask
-
-
-
     drawMenu.classList.add('hidden');
-
-
-
     bottomMenu.classList.remove('hidden');
-
-
-
     holeGraphics.clear();
-
-
-
     drawBoardShapeBg();
-
-
-
     drawHoles(); // Keep board shape visible
-
-
-
     document.getElementById('game-over-text')!.style.display = 'none';
-
-
-
     positionPreviewCanvasInMaster();
-
-
-
+    if (isBallShooterMode) {
+      if (blocks.length === 0) {
+        generateBallShooterBoard();
+      } else {
+        ballShooterSystem.updateCannonPosition();
+      }
+    }
   };
 
 
