@@ -206,23 +206,30 @@ export class BallShooterSystem {
     this.container = new PIXI.Container();
     this.container.zIndex = 5000;
     this.container.visible = false;
+    this.container.eventMode = 'none';
 
     this.blockHighlightsContainer = new PIXI.Container();
+    this.blockHighlightsContainer.eventMode = 'none';
     this.container.addChild(this.blockHighlightsContainer);
 
     this.blockTextsContainer = new PIXI.Container();
+    this.blockTextsContainer.eventMode = 'none';
     this.container.addChild(this.blockTextsContainer);
 
     this.aimLineGraphics = new PIXI.Graphics();
+    this.aimLineGraphics.eventMode = 'none';
     this.container.addChild(this.aimLineGraphics);
 
     this.ballsContainer = new PIXI.Container();
+    this.ballsContainer.eventMode = 'none';
     this.container.addChild(this.ballsContainer);
 
     this.sparksContainer = new PIXI.Container();
+    this.sparksContainer.eventMode = 'none';
     this.container.addChild(this.sparksContainer);
 
     this.cannonContainer = new PIXI.Container();
+    this.cannonContainer.eventMode = 'none';
     this.container.addChild(this.cannonContainer);
 
     // Build cannon parts
@@ -245,6 +252,7 @@ export class BallShooterSystem {
         },
       },
     });
+    this.cannonCountText.eventMode = 'none';
 
     this.cannonContainer.addChild(this.cannonBase);
     this.cannonContainer.addChild(this.cannonBarrel);
@@ -325,8 +333,8 @@ export class BallShooterSystem {
     if (!this.getBoardDimensionsCallback) return;
     const dims = this.getBoardDimensionsCallback();
     this.cannonX = dims.width / 2;
-    // Cannon sits right at the bottom edge of the board
-    this.cannonY = dims.height - 22;
+    // Cannon sits right at the very bottom edge of the board
+    this.cannonY = dims.height - 26;
     this.cannonContainer.position.set(this.cannonX, this.cannonY);
   }
 
@@ -355,7 +363,7 @@ export class BallShooterSystem {
       const blocks = this.getBlocksCallback ? this.getBlocksCallback() : [];
       const dims = this.getBoardDimensionsCallback ? this.getBoardDimensionsCallback() : { cellSize: 50 };
       return blocks.some(b => {
-        if (!b || !b.sprite || b.hitPoints <= 0 || !b.sprite.visible) return false;
+        if (!b || !b.sprite || !b.sprite.visible || (b.hitPoints !== undefined && b.hitPoints <= 0)) return false;
         const bLeft = b.sprite.x;
         const bRight = bLeft + b.length * dims.cellSize;
         const bTop = b.sprite.y;
@@ -718,10 +726,10 @@ export class BallShooterSystem {
           const b = blocks[j];
           if (!b || b.hitPoints <= 0) continue;
 
-          const bLeft = b.col * dims.cellSize;
-          const bRight = (b.col + b.length) * dims.cellSize;
-          const bTop = b.row * dims.cellSize;
-          const bBottom = (b.row + 1) * dims.cellSize;
+          const bLeft = b.sprite ? b.sprite.x : (b.col * dims.cellSize);
+          const bRight = bLeft + b.length * dims.cellSize;
+          const bTop = b.sprite ? b.sprite.y : (b.row * dims.cellSize);
+          const bBottom = bTop + dims.cellSize;
 
           // Closest point on rectangle to circle
           const closestX = Math.max(bLeft, Math.min(ball.x, bRight));
@@ -826,6 +834,7 @@ export class BallShooterSystem {
       overlay.roundRect(0, 0, block.length * dims.cellSize, dims.cellSize, 4);
       overlay.fill({ color: 0xffffff, alpha: 0.9 });
       overlay.blendMode = 'add';
+      overlay.eventMode = 'none';
       this.blockHighlightsContainer.addChild(overlay);
       block.hitHighlightOverlay = overlay;
     }
@@ -946,10 +955,15 @@ export class BallShooterSystem {
       b.hitPoints = hp;
       b.maxHitPoints = hp;
 
-      const centerX = b.col * dims.cellSize + (b.length * dims.cellSize) / 2;
-      const centerY = b.row * dims.cellSize + dims.cellSize / 2;
+      const posX = b.sprite ? b.sprite.x : (b.col * dims.cellSize);
+      const posY = b.sprite ? b.sprite.y : (b.row * dims.cellSize);
+      const centerX = posX + (b.length * dims.cellSize) / 2;
+      const centerY = posY + dims.cellSize / 2;
 
-      if (!b.hpTextSprite) {
+      if (!b.hpTextSprite || b.hpTextSprite.parent !== this.blockTextsContainer) {
+        if (b.hpTextSprite && b.hpTextSprite.parent) {
+          b.hpTextSprite.parent.removeChild(b.hpTextSprite);
+        }
         const text = new PIXI.Text({
           text: String(hp),
           style: {
@@ -971,6 +985,7 @@ export class BallShooterSystem {
             },
           },
         });
+        text.eventMode = 'none';
         text.anchor.set(0.5);
         text.position.set(centerX, centerY);
         this.blockTextsContainer.addChild(text);
@@ -984,6 +999,19 @@ export class BallShooterSystem {
   }
 
   public clearAllVisuals() {
+    const blocks = this.getBlocksCallback ? this.getBlocksCallback() : [];
+    blocks.forEach(b => {
+      if (b) {
+        if (b.hpTextSprite && b.hpTextSprite.parent) {
+          b.hpTextSprite.parent.removeChild(b.hpTextSprite);
+        }
+        b.hpTextSprite = null;
+        if (b.hitHighlightOverlay && b.hitHighlightOverlay.parent) {
+          b.hitHighlightOverlay.parent.removeChild(b.hitHighlightOverlay);
+        }
+        b.hitHighlightOverlay = null;
+      }
+    });
     this.blockTextsContainer.removeChildren();
     this.blockHighlightsContainer.removeChildren();
     this.resetAllBalls();

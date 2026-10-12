@@ -4444,7 +4444,8 @@ function clearBallShooterBlocks(): void {
 }
 
 function generateBallShooterBoard(): void {
-  // Clear any existing blocks
+  // Clear any existing visuals and blocks
+  ballShooterSystem.clearAllVisuals();
   blocks.forEach(b => {
     if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
   });
@@ -4518,12 +4519,14 @@ function setBallShooterMode(enabled: boolean): void {
 
     generateBallShooterBoard();
     ballShooterSystem.setEnabled(true);
+    drawGrid();
   } else {
     ballShooterSystem.setEnabled(false);
     clearBallShooterBlocks();
     if (typeof (window as any).applyGridConfig === 'function') {
       (window as any).applyGridConfig();
     }
+    drawGrid();
   }
 
   syncModeButtonsUI();
@@ -24346,33 +24349,14 @@ async function init() {
 
 
 function drawGrid() {
-
-
-
   gridGraphics.clear();
 
-
-
   const w = PARAMS.gridCols * PARAMS.cellSize;
+  const effectiveRows = isBallShooterMode ? (PARAMS.viewportRows - 2) : PARAMS.totalRows;
+  const h = effectiveRows * PARAMS.cellSize;
 
-
-
-  const h = PARAMS.totalRows * PARAMS.cellSize;
-
-
-
-
-
-
-
-  // 浣垮緱鏃犺缂╂斁姣斾緥鏄灏戯紝缁樺埗鍑烘潵鐨勭綉鏍肩嚎鍦ㄥ睆骞曚笂閮芥?1 鐗╃悊鍍忕礌?
-
-
-
+  // 使得无论缩放比例是多少，绘制出来的网格线在屏幕上都是 1 物理像素宽
   const fitScale = app.stage.scale.x || 1;
-
-
-
   const lineWidth = 1 / fitScale;
 
   const useGeneratedBackgroundUI = isRecordingBackgroundActive();
@@ -24380,45 +24364,17 @@ function drawGrid() {
 
   const gridStart = 0;
   const gridColEnd = PARAMS.gridCols;
-  const gridRowEnd = PARAMS.totalRows;
-
-
-
-
-
-
+  const gridRowEnd = effectiveRows;
 
   for (let i = gridStart; i <= gridColEnd; i++) {
-
-
-
     const x = i * PARAMS.cellSize;
-
-
-
     gridGraphics.moveTo(x, 0); gridGraphics.lineTo(x, h);
-
-
-
   }
-
-
 
   for (let i = gridStart; i <= gridRowEnd; i++) {
-
-
-
     const y = i * PARAMS.cellSize;
-
-
-
     gridGraphics.moveTo(0, y); gridGraphics.lineTo(w, y);
-
-
-
   }
-
-
 
   gridGraphics.stroke({
     width: lineWidth,
@@ -25169,8 +25125,7 @@ function drawHoles() {
 
 
     for (let r = 0; r < PARAMS.totalRows; r++) {
-
-
+      if (isBallShooterMode && r >= PARAMS.viewportRows - 2) continue;
 
       for (let c = 0; c < PARAMS.gridCols; c++) {
 
@@ -29112,10 +29067,18 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 function clearAllBlocks() {
-
-
-
+  if (isBallShooterMode && typeof ballShooterSystem !== 'undefined') {
+    ballShooterSystem.clearAllVisuals();
+  }
   blocks.forEach(b => {
+    if (b.hpTextSprite && b.hpTextSprite.parent) {
+      b.hpTextSprite.parent.removeChild(b.hpTextSprite);
+      b.hpTextSprite = undefined;
+    }
+    if (b.hitHighlightOverlay && b.hitHighlightOverlay.parent) {
+      b.hitHighlightOverlay.parent.removeChild(b.hitHighlightOverlay);
+      b.hitHighlightOverlay = undefined;
+    }
     if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
     if (b.tipPropSprite && b.tipPropSprite.parent) {
       blocksContainer.removeChild(b.tipPropSprite);
@@ -34489,8 +34452,7 @@ function generateFromHoles() {
 
 
   for (let r = PARAMS.totalRows - 1; r >= 0; r--) {
-
-
+    if (isBallShooterMode && r >= PARAMS.viewportRows - 2) continue;
 
     let c = 0;
 
@@ -35035,8 +34997,7 @@ function setupInteraction() {
 
 
     if (col >= 0 && col < PARAMS.gridCols && row >= 0 && row < PARAMS.totalRows) {
-
-
+      if (isBallShooterMode && row >= PARAMS.viewportRows - 2) return;
 
       if (currentMode === 'board-edit') {
 
@@ -40676,8 +40637,22 @@ function setupDOMUI() {
 
     console.log('After resetAndApplyActiveModeStyle, blocks count:', blocks.length);
 
-
-
+    if (isBallShooterMode) {
+      const maxAllowedRow = PARAMS.viewportRows - 3;
+      blocks.filter(b => b.row > maxAllowedRow).forEach(b => {
+        if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+      });
+      blocks = blocks.filter(b => b.row <= maxAllowedRow);
+      blocks.forEach(b => {
+        if (b.sprite) {
+          b.sprite.eventMode = 'dynamic';
+          b.sprite.cursor = 'grab';
+        }
+      });
+      ballShooterSystem.clearAllVisuals();
+      ballShooterSystem.randomizeHPForBlocks(blocks);
+      ballShooterSystem.updateCannonPosition();
+    }
   };
 
 
@@ -40796,7 +40771,22 @@ function setupDOMUI() {
 
     generateFromHoles();
 
-
+    if (isBallShooterMode) {
+      const maxAllowedRow = PARAMS.viewportRows - 3;
+      blocks.filter(b => b.row > maxAllowedRow).forEach(b => {
+        if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
+      });
+      blocks = blocks.filter(b => b.row <= maxAllowedRow);
+      blocks.forEach(b => {
+        if (b.sprite) {
+          b.sprite.eventMode = 'dynamic';
+          b.sprite.cursor = 'grab';
+        }
+      });
+      ballShooterSystem.clearAllVisuals();
+      ballShooterSystem.randomizeHPForBlocks(blocks);
+      ballShooterSystem.updateCannonPosition();
+    }
 
     drawMenu.classList.add('hidden');
 
