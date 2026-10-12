@@ -4493,11 +4493,11 @@ function setBallShooterMode(enabled: boolean): void {
     }
     isNoGravityMode = false;
 
-    // Set board dimensions to 11 cols x 18 rows
+    // Set board dimensions to 11 cols x 17 rows (raising bottom border by 1 row)
     PARAMS.gridCols = 11;
-    PARAMS.viewportRows = 18;
-    PARAMS.totalRows = 18;
-    previewRenderRows = 18;
+    PARAMS.viewportRows = 17;
+    PARAMS.totalRows = 17;
+    previewRenderRows = 17;
 
     const inputColsEl = document.getElementById('input-cols') as HTMLInputElement | null;
     const sliderColsEl = document.getElementById('slider-cols') as HTMLInputElement | null;
@@ -4509,9 +4509,9 @@ function setBallShooterMode(enabled: boolean): void {
     const inputVpRowsEl = document.getElementById('input-vprows') as HTMLInputElement | null;
     const sliderVpRowsEl = document.getElementById('slider-vprows') as HTMLInputElement | null;
     const valVpRowsEl = document.getElementById('val-vprows');
-    if (inputVpRowsEl) inputVpRowsEl.value = '18';
-    if (sliderVpRowsEl) sliderVpRowsEl.value = '18';
-    if (valVpRowsEl) valVpRowsEl.textContent = '18';
+    if (inputVpRowsEl) inputVpRowsEl.value = '17';
+    if (sliderVpRowsEl) sliderVpRowsEl.value = '17';
+    if (valVpRowsEl) valVpRowsEl.textContent = '17';
 
     if (typeof (window as any).applyGridConfig === 'function') {
       (window as any).applyGridConfig();
