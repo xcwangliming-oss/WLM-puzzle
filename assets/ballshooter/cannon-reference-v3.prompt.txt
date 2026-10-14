@@ -1,0 +1,9 @@
+Generated with the built-in image generation tool, using the supplied game screenshot as reference.
+
+Final prompt set:
+1. Extract/recreate only the compact bottom launcher as a transparent game sprite: upright gunmetal truncated-cone mortar, silver open muzzle, blue side panels, front gold ring with cream-yellow luminous orb, simple diagonal braces and low elliptical pedestal. Preserve the reference style and proportions; no board, balls, text, side pipes or gears.
+2. Derive a registered rotating-barrel layer: remove pedestal, braces and gold orb, reconstruct the hidden cone body, preserve muzzle, materials and placement; transparent background.
+3. Derive a registered stationary-base layer: remove the entire tube and blue cone, preserve front gold orb, supports and pedestal in their original placement; transparent background.
+
+All PNGs: 1254 x 1254 RGBA, original generated alpha preserved.
+Integration: barrel rotates behind stationary foreground at gold-ring pivot; visible cannon fits approximately 1.6 cells wide and 1.55 cells high; horizontal position 45% of board width; bottom aligned inside reserved launcher rows.

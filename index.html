@@ -833,8 +833,8 @@
               <input type="range" id="slider-concentric-layers" min="1" max="4" value="1">
             </div>
             <div class="concentric-menu-item">
-              <div class="concentric-menu-label"><span>总列数</span><span id="val-concentric-cols" class="concentric-menu-val">11</span></div>
-              <input type="range" id="slider-concentric-cols" min="4" max="20" value="11">
+              <div class="concentric-menu-label"><span>总列数</span><span id="val-concentric-cols" class="concentric-menu-val">10</span></div>
+              <input type="range" id="slider-concentric-cols" min="4" max="20" value="10">
             </div>
             <div class="concentric-menu-item">
               <div class="concentric-menu-label"><span>总行数</span><span id="val-concentric-rows" class="concentric-menu-val">20</span></div>
@@ -895,9 +895,17 @@
           </div>
           <div id="ballshooter-settings-section" class="concentric-menu-panel" style="display: none; grid-column: 1 / -1;">
             <div class="concentric-menu-title">🎯 弹珠打砖块配置</div>
+            <div class="concentric-menu-item" style="margin-bottom: 6px;">
+              <div class="concentric-menu-label"><span>炮台外观</span><span id="val-ballshooter-cannon" class="concentric-menu-val">默认</span></div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px;">
+                <button id="btn-ballshooter-upload-cannon" class="menu-btn purple" style="padding: 6px; font-size: 11px;">🖼️ 上传炮台</button>
+                <button id="btn-ballshooter-reset-cannon" class="menu-btn gray" style="display: none; padding: 6px; font-size: 11px;">↩ 恢复默认</button>
+              </div>
+              <input id="input-ballshooter-cannon" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            </div>
             <div class="concentric-menu-item">
               <div class="concentric-menu-label"><span>弹珠数量</span><span id="val-ballshooter-count" class="concentric-menu-val">45</span></div>
-              <input type="range" id="slider-ballshooter-count" min="10" max="100" value="45">
+              <input type="range" id="slider-ballshooter-count" min="10" max="500" value="45">
             </div>
             <div class="concentric-menu-item">
               <div class="concentric-menu-label"><span>发射速度</span><span id="val-ballshooter-speed" class="concentric-menu-val">16</span></div>
@@ -1006,7 +1014,7 @@
       <div class="settings-section">
         <h4>镜头与尺寸配置</h4>
         <div class="visual-config-grid">
-          <div class="vc-item"><label>列数</label><span class="vc-val" id="val-cols">11</span><input type="range" id="slider-cols" min="4" max="30" value="11"></div>
+          <div class="vc-item"><label>列数</label><span class="vc-val" id="val-cols">10</span><input type="range" id="slider-cols" min="4" max="30" value="10"></div>
           <div class="vc-item"><label>行数</label><span class="vc-val" id="val-vprows">18</span><input type="range" id="slider-vprows" min="6" max="60" value="18"></div>
           <div class="vc-item"><label>总行</label><span class="vc-val" id="val-rows">60</span><input type="range" id="slider-rows" min="10" max="200" value="60"></div>
           <div class="vc-item"><label>格高</label><span class="vc-val" id="val-cellsize">50</span><input type="range" id="slider-cellsize" min="20" max="100" value="50"></div>
@@ -1016,7 +1024,7 @@
           <div class="vc-item" id="item-collect-container" style="display: none;"><label>收集数</label><span class="vc-val" id="val-collect">0</span><input type="range" id="slider-collect" min="0" max="100" value="0"></div>
         </div>
         <!-- Hidden inputs for backward compatibility -->
-        <input type="hidden" id="input-cols" value="11">
+        <input type="hidden" id="input-cols" value="10">
         <input type="hidden" id="input-vprows" value="18">
         <input type="hidden" id="input-rows" value="60">
         <input type="hidden" id="input-cellsize" value="50">

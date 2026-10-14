@@ -1,0 +1,10 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const main = fs.readFileSync(path.join(__dirname, '../src/main.ts'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '../src/style.css'), 'utf8');
+assert.match(main, /function setBallShooterMode\(enabled: boolean\): void \{[\s\S]*?isBallShooterMode = enabled;\s*document\.getElementById\('board-wrapper'\)\?\.classList\.toggle\('ballshooter-live', enabled\);/);
+assert.match(css, /#board-wrapper\.ballshooter-live #game-header \.header-item\s*\{\s*text-shadow:\s*none;\s*\}/);
+assert.match(css, /\.header-item\s*\{[^}]*text-shadow:\s*var\(--header-text-shadow,/);
+assert.match(main, /recordingCtx!\.shadowBlur = 0;/);
+console.log('Ball Shooter HUD text is shadow-free without changing other modes');

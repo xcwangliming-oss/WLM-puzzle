@@ -1,5 +1,12 @@
 import * as PIXI from 'pixi.js';
 import gsap from 'gsap';
+import ballLaunchSoundUrl from '../assets/playable-audio/ball-launch.mp3';
+import ballImpactSoundUrl from '../assets/playable-audio/ball-impact-tight.wav';
+import defaultCannonBaseUrl from '../assets/ballshooter/cannon-reference-base-v3.png';
+import defaultCannonBarrelUrl from '../assets/ballshooter/cannon-reference-barrel-v3.png';
+import { getCannonMuzzle } from './cannonAim';
+import { REFERENCE_CANNON_ART, getReferenceCannonFit } from './cannonArtwork';
+import { sweepBallAgainstBlock } from './ballShooterCollision';
 
 export interface BallShooterConfig {
   ballCount: number;
@@ -27,7 +34,8 @@ export interface BallShooterBlockDef {
 
 /**
  * Fixed corridor level layout matching user reference screenshot media_1791767365908_20c477f5.jpg
- * Total 11 columns (0..10).
+ * Authored at 10 columns (0..9). The board generator also clips this layout
+ * safely when the user changes the column count.
  * Playable blocks span rows 1 to 15 (shifted down: row 0 clear, rows 16..17 empty corridor, rows 18..19 for bottom launcher).
  */
 export const BALL_SHOOTER_FIXED_LAYOUT: BallShooterBlockDef[] = [
@@ -178,6 +186,13 @@ export class BallShooterSystem {
   private cannonBarrel: PIXI.Graphics;
   private cannonOrb: PIXI.Graphics;
   private cannonCountText: PIXI.Text;
+  private customCannonSprite: PIXI.Sprite | null = null;
+  private customCannonBarrelSprite: PIXI.Sprite | null = null;
+  private cannonPivotOffsetY: number = 0;
+  private cannonMuzzleLength: number = 38;
+  private cannonImageRequestId: number = 0;
+  private usesDefaultCannonArtwork: boolean = false;
+  private cannonRecoilOffset: number = 0;
 
   // Cannon state
   public cannonX: number = 0;
@@ -190,9 +205,16 @@ export class BallShooterSystem {
   // Ball pool
   private balls: Ball[] = [];
   private activeBallCount: number = 0;
-  private returnedBallCount: number = 0;
+  private readyBallCount: number = DEFAULT_BALL_SHOOTER_CONFIG.ballCount;
   private nextLaunchTimer: number = 0;
   private ballsToLaunch: number = 0;
+  private launchSounds: HTMLAudioElement[] = [];
+  private launchSoundIndex: number = 0;
+  private launchEmissionCount: number = 0;
+  private soundPlayer: ((sound: HTMLAudioElement) => void) | null = null;
+  private impactSounds: HTMLAudioElement[] = [];
+  private impactSoundIndex: number = 0;
+  private impactEventCount: number = 0;
 
   // Spark particle pool
   private sparks: SparkParticle[] = [];
@@ -204,7 +226,7 @@ export class BallShooterSystem {
 
   constructor() {
     this.container = new PIXI.Container();
-    this.container.zIndex = 5000;
+    this.container.zIndex = 200;
     this.container.visible = false;
     this.container.eventMode = 'none';
 
@@ -289,6 +311,7 @@ export class BallShooterSystem {
     }
 
     this.drawCannonGraphics();
+    this.setCannonImage(null);
     this.updateCannonPosition();
     this.setupInteraction();
   }
@@ -339,13 +362,148 @@ export class BallShooterSystem {
     this.cannonCountText.position.set(40, -4);
   }
 
+  /**
+   * The default artwork uses a stationary base and a rotating barrel. Uploaded
+   * single images rotate around their lower body. Both share muzzle geometry
+   * with the aiming guide and ball physics.
+   */
+  public setCannonImage(dataUrl: string | null): void {
+    const requestId = ++this.cannonImageRequestId;
+
+    const clearCustomSprite = () => {
+      this.customCannonSprite?.destroy();
+      this.customCannonBarrelSprite?.destroy();
+      this.customCannonSprite = null;
+      this.customCannonBarrelSprite = null;
+      this.cannonPivotOffsetY = 0;
+      this.cannonMuzzleLength = 38;
+      this.usesDefaultCannonArtwork = false;
+      this.cannonCountText.position.set(40, -4);
+    };
+
+    const setDefaultVisible = (visible: boolean) => {
+      this.cannonBase.visible = visible;
+      this.cannonBarrel.visible = visible;
+      this.cannonOrb.visible = visible;
+    };
+
+    clearCustomSprite();
+    // Keep the vector fallback visible until the chosen image finishes loading.
+    // Resetting the upload restores the bundled upright cannon.
+    setDefaultVisible(true);
+
+    const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = src;
+    });
+    const sources = dataUrl ? [dataUrl] : [defaultCannonBaseUrl, defaultCannonBarrelUrl];
+    Promise.all(sources.map(loadImage)).then(images => {
+      // Ignore a delayed image load after the user chose another image or reset.
+      if (requestId !== this.cannonImageRequestId) return;
+
+      const image = images[0];
+      const texture = PIXI.Texture.from(image);
+      const sourceWidth = Math.max(1, image.naturalWidth || texture.width || 1);
+      const sourceHeight = Math.max(1, image.naturalHeight || texture.height || 1);
+      const scale = Math.min(96 / sourceWidth, 112 / sourceHeight);
+      if (!dataUrl) {
+        // Separate registered layers keep the pedestal/gold hinge stationary
+        // while the tapered tube rotates behind them without a visible seam.
+        const art = REFERENCE_CANNON_ART;
+        const barrelTexture = PIXI.Texture.from(images[1]);
+        const barrel = new PIXI.Sprite(new PIXI.Texture({
+          source: barrelTexture.source,
+          frame: new PIXI.Rectangle(0, 0, art.width, art.barrelFrameBottom),
+        }));
+        const base = new PIXI.Sprite(texture);
+        barrel.anchor.set(art.axisX / art.width, art.pivotY / art.barrelFrameBottom);
+        barrel.rotation = this.aimAngle + Math.PI / 2;
+        barrel.eventMode = 'none';
+        base.anchor.set(art.axisX / art.width, art.bottomY / art.height);
+        base.position.set(0, 26);
+        base.eventMode = 'none';
+        this.customCannonBarrelSprite = barrel;
+        this.customCannonSprite = base;
+        this.cannonContainer.addChildAt(barrel, 0);
+        this.cannonContainer.addChildAt(base, 1);
+        this.usesDefaultCannonArtwork = true;
+        this.fitDefaultCannonArtwork();
+      } else {
+        const sprite = new PIXI.Sprite(texture);
+        this.cannonPivotOffsetY = 26 - sourceHeight * 0.24 * scale;
+        this.cannonMuzzleLength = sourceHeight * (0.76 - 0.035) * scale;
+        sprite.anchor.set(0.5, 0.76);
+        sprite.scale.set(scale);
+        sprite.position.set(0, this.cannonPivotOffsetY);
+        sprite.rotation = this.aimAngle + Math.PI / 2;
+        sprite.eventMode = 'none';
+        this.customCannonSprite = sprite;
+        this.cannonContainer.addChildAt(sprite, 0);
+      }
+      this.updateCannonBarrelPose();
+      setDefaultVisible(false);
+    }).catch(() => {
+      if (requestId === this.cannonImageRequestId) setDefaultVisible(true);
+    });
+  }
+
+  private fitDefaultCannonArtwork() {
+    if (!this.usesDefaultCannonArtwork || !this.customCannonSprite || !this.customCannonBarrelSprite) return;
+    const cellSize = this.getBoardDimensionsCallback?.().cellSize || 50;
+    const fit = getReferenceCannonFit(cellSize);
+    this.cannonPivotOffsetY = fit.pivotOffsetY;
+    this.cannonMuzzleLength = fit.muzzleLength;
+    this.customCannonSprite.scale.set(fit.scale);
+    this.customCannonBarrelSprite.scale.set(fit.scale);
+    this.customCannonBarrelSprite.position.set(0, fit.pivotOffsetY);
+    this.cannonCountText.position.set(fit.countX, fit.countY);
+    this.updateCannonBarrelPose();
+  }
+
   public updateCannonPosition() {
     if (!this.getBoardDimensionsCallback) return;
     const dims = this.getBoardDimensionsCallback();
+    // A canvas resize can recreate/reorder display children. Reassert that the
+    // launcher overlay is attached to the game world before positioning it.
+    if (this.gameStage && !this.gameStage.children.includes(this.container)) {
+      this.gameStage.addChild(this.container);
+    }
+    // Above bricks/borders, below the shared shatter effects (zIndex 1000).
+    this.container.zIndex = 200;
+    // Keep the base and launch origin on the board's centre line at any width.
     this.cannonX = dims.width / 2;
     // Cannon sits right at the very bottom edge of the board
     this.cannonY = dims.height - 26;
     this.cannonContainer.position.set(this.cannonX, this.cannonY);
+    this.fitDefaultCannonArtwork();
+  }
+
+  /** Keeps the launcher usable after a grid-width or cell-size change. */
+  public handleBoardResize() {
+    if (!this.enabled) return;
+
+    // In-flight balls and an aim line use the old coordinate system, so reset
+    // them before putting the cannon at the new board centre.
+    this.cancelAim();
+    this.resetAllBalls();
+    this.container.visible = true;
+    this.cannonContainer.visible = true;
+    this.updateCannonPosition();
+    this.updateReadyBallCountText();
+
+    // applyGridConfig resizes Pixi during the same turn. Run once more on its
+    // next ticker frame, after Pixi has applied the new renderer dimensions.
+    // This prevents the launcher from retaining an off-board position after a
+    // column-count change.
+    this.app?.ticker.addOnce(() => {
+      if (!this.enabled) return;
+      this.container.visible = true;
+      this.cannonContainer.visible = true;
+      this.updateCannonPosition();
+      this.updateReadyBallCountText();
+    });
   }
 
   public setEnabled(enabled: boolean) {
@@ -355,7 +513,7 @@ export class BallShooterSystem {
     if (enabled) {
       this.updateCannonPosition();
       this.resetAllBalls();
-      this.cannonCountText.text = `x${this.config.ballCount}`;
+      this.updateReadyBallCountText();
     } else {
       this.clearAllVisuals();
       this.aimLineGraphics.clear();
@@ -383,7 +541,7 @@ export class BallShooterSystem {
     };
 
     this.app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-      if (!this.enabled || this.isLaunching || this.hasActiveBalls) return;
+      if (!this.enabled) return;
       if (this.isPlayModeCallback && !this.isPlayModeCallback()) return;
       // If pointer is touching a block, allow block sliding, do NOT aim cannon!
       if (isPointerOnBlock(e.global.x, e.global.y)) {
@@ -418,7 +576,7 @@ export class BallShooterSystem {
     // Transform global pointer coordinates to container coordinates
     const local = this.container.toLocal({ x: pointerX, y: pointerY });
     const dx = local.x - this.cannonX;
-    const dy = local.y - this.cannonY;
+    const dy = local.y - (this.cannonY + this.cannonPivotOffsetY);
 
     // Clamp aiming to upper hemisphere (must shoot upwards)
     let angle = Math.atan2(dy, dx);
@@ -431,9 +589,44 @@ export class BallShooterSystem {
     }
 
     this.aimAngle = angle;
-    this.cannonBarrel.rotation = this.aimAngle + Math.PI / 2;
+    this.updateCannonBarrelPose();
 
     this.renderAimLine();
+  }
+
+  private updateCannonBarrelPose() {
+    const recoilX = -Math.cos(this.aimAngle) * this.cannonRecoilOffset;
+    const recoilY = -Math.sin(this.aimAngle) * this.cannonRecoilOffset;
+    this.cannonBarrel.rotation = this.aimAngle + Math.PI / 2;
+    this.cannonBarrel.position.set(recoilX, recoilY);
+    const rotatingSprite = this.customCannonBarrelSprite || this.customCannonSprite;
+    if (rotatingSprite) {
+      rotatingSprite.rotation = this.aimAngle + Math.PI / 2;
+      rotatingSprite.position.set(recoilX, this.cannonPivotOffsetY + recoilY);
+    }
+  }
+
+  private triggerCannonRecoil() {
+    const cellSize = this.getBoardDimensionsCallback?.().cellSize || 50;
+    // Tiny backwards kick with a cap, so rapid fire cannot displace the cannon.
+    this.cannonRecoilOffset = Math.min(cellSize * 0.06, this.cannonRecoilOffset + cellSize * 0.045);
+    this.updateCannonBarrelPose();
+  }
+
+  private updateCannonRecoil(delta: number) {
+    if (this.cannonRecoilOffset <= 0) return;
+    // Frame-rate independent spring-like recovery (~0.15 seconds).
+    this.cannonRecoilOffset *= Math.exp(-Math.max(0, delta) * 16.6 / 55);
+    if (this.cannonRecoilOffset < 0.01) this.cannonRecoilOffset = 0;
+    this.updateCannonBarrelPose();
+    if (this.isAiming) this.renderAimLine();
+  }
+
+  private getMuzzlePosition() {
+    return getCannonMuzzle(
+      this.cannonX, this.cannonY + this.cannonPivotOffsetY,
+      this.aimAngle, this.cannonMuzzleLength - this.cannonRecoilOffset,
+    );
   }
 
   private renderAimLine() {
@@ -442,8 +635,9 @@ export class BallShooterSystem {
     const dims = this.getBoardDimensionsCallback();
 
     const maxBounces = 2;
-    let currX = this.cannonX;
-    let currY = this.cannonY - 36;
+    const muzzle = this.getMuzzlePosition();
+    let currX = muzzle.x;
+    let currY = muzzle.y;
     let dirX = Math.cos(this.aimAngle);
     let dirY = Math.sin(this.aimAngle);
 
@@ -567,12 +761,96 @@ export class BallShooterSystem {
   }
 
   public startLaunch() {
-    if (this.isLaunching || this.hasActiveBalls) return;
+    if (!this.enabled || (this.isPlayModeCallback && !this.isPlayModeCallback())) return;
+    if (this.readyBallCount <= 0) return;
+    // Only recovered ammunition can be fired again. In-flight balls and any
+    // not-yet-emitted balls from the earlier shot must remain intact.
+    if (!this.isLaunching) this.nextLaunchTimer = 0;
+    this.ballsToLaunch += this.readyBallCount;
+    this.readyBallCount = 0;
     this.isLaunching = true;
     this.hasActiveBalls = true;
-    this.ballsToLaunch = this.config.ballCount;
-    this.returnedBallCount = 0;
-    this.nextLaunchTimer = 0;
+    this.updateReadyBallCountText();
+  }
+
+  public setBallCount(count: number) {
+    this.config.ballCount = Math.max(1, Math.floor(count));
+    this.readyBallCount = Math.max(0, this.config.ballCount - this.activeBallCount - this.ballsToLaunch);
+    this.updateReadyBallCountText();
+  }
+
+  private updateReadyBallCountText() {
+    this.cannonCountText.text = `x${this.readyBallCount}`;
+  }
+
+  private collectBall(ball: Ball) {
+    if (!ball.active) return;
+    ball.active = false;
+    ball.returning = false;
+    ball.sprite.visible = false;
+    ball.trailGraphics.clear();
+    this.activeBallCount--;
+    // Lowering the count slider retires excess balls only after they return.
+    const capacity = Math.max(0, this.config.ballCount - this.activeBallCount - this.ballsToLaunch);
+    this.readyBallCount = Math.min(this.readyBallCount + 1, capacity);
+    this.updateReadyBallCountText();
+  }
+
+  public setSoundPlayer(player: (sound: HTMLAudioElement) => void) {
+    this.soundPlayer = player;
+    // Decode ahead of the first shot/hit, rather than load on the collision.
+    for (let i = 0; i < 8; i++) {
+      this.launchSounds[i] ??= this.createAudioVoice(ballLaunchSoundUrl, 0.225);
+    }
+    for (let i = 0; i < 16; i++) {
+      this.impactSounds[i] ??= this.createAudioVoice(ballImpactSoundUrl, 0.0875);
+    }
+  }
+
+  private createAudioVoice(url: string, volume: number) {
+    const sound = new Audio(url);
+    sound.volume = volume;
+    sound.preload = 'auto';
+    sound.load();
+    return sound;
+  }
+
+  private playAudio(sound: HTMLAudioElement) {
+    if (this.soundPlayer) {
+      // The editor routes playback to both speakers and the video recorder.
+      this.soundPlayer(sound);
+    } else {
+      sound.currentTime = 0;
+      sound.play().catch(() => {});
+    }
+  }
+
+  private playLaunchSound() {
+    try {
+      // Selected emissions sound immediately. A bounded voice pool preserves
+      // short overlapping attacks without allocating an unlimited audio player.
+      let sound = this.launchSounds[this.launchSoundIndex];
+      if (!sound) {
+        sound = this.createAudioVoice(ballLaunchSoundUrl, 0.225);
+        this.launchSounds[this.launchSoundIndex] = sound;
+      }
+      this.launchSoundIndex = (this.launchSoundIndex + 1) % 8;
+      this.playAudio(sound);
+    } catch {}
+  }
+
+  private playImpactSound() {
+    this.impactEventCount++;
+    if (this.impactEventCount % 2 === 0) return;
+    try {
+      let sound = this.impactSounds[this.impactSoundIndex];
+      if (!sound) {
+        sound = this.createAudioVoice(ballImpactSoundUrl, 0.0875);
+        this.impactSounds[this.impactSoundIndex] = sound;
+      }
+      this.impactSoundIndex = (this.impactSoundIndex + 1) % 16;
+      this.playAudio(sound);
+    } catch {}
   }
 
   private spawnBall(): Ball {
@@ -615,15 +893,21 @@ export class BallShooterSystem {
       this.balls.push(ball);
     }
 
-    ball.x = this.cannonX;
-    ball.y = this.cannonY - 36;
+    const muzzle = this.getMuzzlePosition();
+    ball.x = muzzle.x;
+    ball.y = muzzle.y;
     ball.vx = Math.cos(this.aimAngle) * this.config.ballSpeed;
     ball.vy = Math.sin(this.aimAngle) * this.config.ballSpeed;
     ball.active = true;
+    this.activeBallCount++;
     ball.returning = false;
     ball.sprite.visible = true;
     ball.trailGraphics.clear();
     ball.sprite.position.set(ball.x, ball.y);
+    // Sound on balls 1, 3, 5...: immediate feedback, then once per pair.
+    this.launchEmissionCount++;
+    if (this.launchEmissionCount % 2 === 1) this.playLaunchSound();
+    this.triggerCannonRecoil();
     return ball;
   }
 
@@ -648,13 +932,12 @@ export class BallShooterSystem {
     }
 
     // Launch balls sequentially
-    if (this.isLaunching) {
+    if (this.isLaunching && !this.isAiming) {
       this.nextLaunchTimer += delta * 16.6;
       while (this.nextLaunchTimer >= this.config.launchIntervalMs && this.ballsToLaunch > 0) {
         this.nextLaunchTimer -= this.config.launchIntervalMs;
-        this.spawnBall();
         this.ballsToLaunch--;
-        this.cannonCountText.text = `x${this.ballsToLaunch}`;
+        this.spawnBall();
       }
       if (this.ballsToLaunch <= 0) {
         this.isLaunching = false;
@@ -668,6 +951,7 @@ export class BallShooterSystem {
 
     // Update spark particles
     this.updateSparks(delta);
+    this.updateCannonRecoil(delta);
   }
 
   private updateBallsPhysics(delta: number) {
@@ -676,6 +960,13 @@ export class BallShooterSystem {
     const blocks = this.getBlocksCallback ? this.getBlocksCallback() : [];
 
     const bottomDeadZone = dims.height - 20;
+    // Full occupied grid cells, independent of each gem's decorative inset.
+    // Read moving sprite coordinates once per physics frame, not static cols.
+    const collisionRects = blocks.filter(b => b && b.hitPoints > 0).map(b => {
+      const left = b.sprite ? b.sprite.x : b.col * dims.cellSize;
+      const top = b.sprite ? b.sprite.y : b.row * dims.cellSize;
+      return { block: b, left, right: left + b.length * dims.cellSize, top, bottom: top + dims.cellSize };
+    });
     let activeCount = 0;
 
     for (let i = 0; i < this.balls.length; i++) {
@@ -689,10 +980,7 @@ export class BallShooterSystem {
         const dy = this.cannonY - ball.y;
         const dist = Math.hypot(dx, dy);
         if (dist < 15) {
-          ball.active = false;
-          ball.sprite.visible = false;
-          this.returnedBallCount++;
-          this.cannonCountText.text = `x${this.returnedBallCount}`;
+          this.collectBall(ball);
         } else {
           ball.x += (dx / dist) * 22;
           ball.y += (dy / dist) * 22;
@@ -704,85 +992,89 @@ export class BallShooterSystem {
 
       activeCount++;
 
-      // Multiple substeps for tunnel prevention at high speeds
+      // Sweep the full path, then continue the unused time after each bounce.
+      // This prevents both fast-ball tunneling and false bounces at row seams.
       const substeps = 2;
       for (let s = 0; s < substeps; s++) {
-        const stepDt = (delta / substeps);
-        ball.x += ball.vx * stepDt;
-        ball.y += ball.vy * stepDt;
-
-        // Boundary collision: Left / Right
-        if (ball.x - ball.radius <= 0) {
-          ball.x = ball.radius;
-          ball.vx = Math.abs(ball.vx);
-          this.createSparks(ball.x, ball.y, 0xffe066);
-        } else if (ball.x + ball.radius >= dims.width) {
-          ball.x = dims.width - ball.radius;
-          ball.vx = -Math.abs(ball.vx);
-          this.createSparks(ball.x, ball.y, 0xffe066);
-        }
-
-        // Boundary collision: Top
-        if (ball.y - ball.radius <= 0) {
-          ball.y = ball.radius;
-          ball.vy = Math.abs(ball.vy);
-          this.createSparks(ball.x, ball.y, 0xffe066);
-        }
-
-        // Bottom hit: enter returning state
-        if (ball.y >= bottomDeadZone) {
-          ball.returning = true;
-          ball.vy = 0;
-          ball.vx = 0;
-          break;
-        }
-
-        // Check collision against blocks
-        for (let j = 0; j < blocks.length; j++) {
-          const b = blocks[j];
-          if (!b || b.hitPoints <= 0) continue;
-
-          const bLeft = b.sprite ? b.sprite.x : (b.col * dims.cellSize);
-          const bRight = bLeft + b.length * dims.cellSize;
-          const bTop = b.sprite ? b.sprite.y : (b.row * dims.cellSize);
-          const bBottom = bTop + dims.cellSize;
-
-          // Closest point on rectangle to circle
-          const closestX = Math.max(bLeft, Math.min(ball.x, bRight));
-          const closestY = Math.max(bTop, Math.min(ball.y, bBottom));
-
-          const diffX = ball.x - closestX;
-          const diffY = ball.y - closestY;
-          const distSq = diffX * diffX + diffY * diffY;
-
-          if (distSq < ball.radius * ball.radius) {
-            // Collision detected! Resolve reflection normal
-            const overlapLeft = Math.abs(ball.x - bLeft);
-            const overlapRight = Math.abs(ball.x - bRight);
-            const overlapTop = Math.abs(ball.y - bTop);
-            const overlapBottom = Math.abs(ball.y - bBottom);
-
-            const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
-
-            if (minOverlap === overlapLeft) {
-              ball.vx = -Math.abs(ball.vx);
-              ball.x = bLeft - ball.radius;
-            } else if (minOverlap === overlapRight) {
-              ball.vx = Math.abs(ball.vx);
-              ball.x = bRight + ball.radius;
-            } else if (minOverlap === overlapTop) {
-              ball.vy = -Math.abs(ball.vy);
-              ball.y = bTop - ball.radius;
-            } else {
-              ball.vy = Math.abs(ball.vy);
-              ball.y = bBottom + ball.radius;
-            }
-
-            // Hit feedback on block
-            this.handleBlockHit(b, closestX, closestY);
+        let remaining = Math.max(0, delta / substeps);
+        ball.x = Math.max(ball.radius, Math.min(dims.width - ball.radius, ball.x));
+        ball.y = Math.max(ball.radius, ball.y);
+        for (let contact = 0; remaining > 1e-9 && contact < 8; contact++) {
+          if (ball.y >= bottomDeadZone) {
+            ball.returning = true;
+            ball.vx = ball.vy = 0;
             break;
           }
+          const dx = ball.vx * remaining;
+          const dy = ball.vy * remaining;
+          let firstTime = 2;
+          let normalX = 0;
+          let normalY = 0;
+          let hitBlock: any = null;
+          let hitX = 0;
+          let hitY = 0;
+          let hitDistanceSq = Infinity;
+          let returning = false;
+          const boundary = (time: number, nx: number, ny: number, bottom = false) => {
+            if (time < 0 || time > 1 || time > firstTime) return;
+            if (Math.abs(time - firstTime) < 1e-9) {
+              normalX ||= nx;
+              normalY ||= ny;
+            } else {
+              firstTime = time;
+              normalX = nx;
+              normalY = ny;
+            }
+            returning = bottom;
+          };
+          if (dx < 0) boundary((ball.radius - ball.x) / dx, 1, 0);
+          if (dx > 0) boundary((dims.width - ball.radius - ball.x) / dx, -1, 0);
+          if (dy < 0) boundary((ball.radius - ball.y) / dy, 0, 1);
+          if (dy > 0) boundary((bottomDeadZone - ball.y) / dy, 0, 0, true);
+
+          for (const rect of collisionRects) {
+            // A previous ball/contact may have just destroyed this block.
+            if (rect.block.hitPoints <= 0) continue;
+            const hit = sweepBallAgainstBlock(ball.x, ball.y, dx, dy, ball.radius, rect);
+            if (!hit || hit.time > firstTime + 1e-9) continue;
+            const distanceSq = (ball.x + dx * hit.time - hit.hitX) ** 2
+              + (ball.y + dy * hit.time - hit.hitY) ** 2;
+            // At a joint both expanded rectangles may be reached together.
+            // Prefer the actual flat face, not its neighbor's decorative corner.
+            if (Math.abs(hit.time - firstTime) < 1e-9
+              && (!hitBlock || distanceSq >= hitDistanceSq - 1e-9)) continue;
+            firstTime = hit.time;
+            normalX = hit.normalX;
+            normalY = hit.normalY;
+            hitBlock = rect.block;
+            hitX = hit.hitX;
+            hitY = hit.hitY;
+            hitDistanceSq = distanceSq;
+            returning = false;
+          }
+          if (firstTime > 1) {
+            ball.x += dx;
+            ball.y += dy;
+            break;
+          }
+          ball.x += dx * firstTime;
+          ball.y += dy * firstTime;
+          if (returning) {
+            ball.returning = true;
+            ball.vx = ball.vy = 0;
+            break;
+          }
+          if (normalX) ball.vx = -ball.vx;
+          if (normalY) ball.vy = -ball.vy;
+          // Keep the center just outside the wall so adjacent bricks cannot
+          // immediately produce a second, contradictory reflection.
+          ball.x += normalX * 0.001;
+          ball.y += normalY * 0.001;
+          if (hitBlock) this.handleBlockHit(hitBlock, hitX, hitY);
+          else this.createSparks(ball.x, ball.y, 0xffe066);
+          remaining *= 1 - firstTime;
         }
+        if (ball.returning) break;
       }
 
       // Draw light streak trail pointing against velocity
@@ -807,11 +1099,12 @@ export class BallShooterSystem {
 
     if (activeCount === 0 && !this.isLaunching) {
       this.hasActiveBalls = false;
-      this.cannonCountText.text = `x${this.config.ballCount}`;
+      this.updateReadyBallCountText();
     }
   }
 
   private handleBlockHit(block: any, hitX: number, hitY: number) {
+    this.playImpactSound();
     // 1. Damage HP
     block.hitPoints = Math.max(0, (block.hitPoints || 1) - 1);
 
@@ -943,18 +1236,27 @@ export class BallShooterSystem {
   }
 
   public resetAllBalls() {
+    this.launchEmissionCount = 0;
+    this.impactEventCount = 0;
     this.isLaunching = false;
     this.hasActiveBalls = false;
     this.isAiming = false;
+    this.cannonRecoilOffset = 0;
+    this.updateCannonBarrelPose();
+    this.activeBallCount = 0;
+    this.ballsToLaunch = 0;
+    this.nextLaunchTimer = 0;
+    this.readyBallCount = this.config.ballCount;
     this.balls.forEach(b => {
       b.active = false;
       b.sprite.visible = false;
       if (b.trailGraphics) b.trailGraphics.clear();
     });
     this.aimLineGraphics.clear();
+    this.updateReadyBallCountText();
   }
 
-  public randomizeHPForBlocks(blocks: any[]) {
+  public randomizeHPForBlocks(blocks: any[], preserveHitPoints: boolean = false) {
     const hpPresetsByLength: Record<number, number[]> = {
       1: [25, 45, 60, 120],
       2: [60, 100, 120, 180, 240],
@@ -967,9 +1269,10 @@ export class BallShooterSystem {
     blocks.forEach(b => {
       if (!b || b.isProp) return;
       const presetList = hpPresetsByLength[b.length] || [60, 120, 180, 240];
-      const hp = presetList[Math.floor(Math.random() * presetList.length)];
+      const hasSavedHP = preserveHitPoints && Number.isFinite(b.hitPoints) && b.hitPoints > 0;
+      const hp = hasSavedHP ? b.hitPoints : presetList[Math.floor(Math.random() * presetList.length)];
       b.hitPoints = hp;
-      b.maxHitPoints = hp;
+      b.maxHitPoints = hasSavedHP && Number.isFinite(b.maxHitPoints) && b.maxHitPoints >= hp ? b.maxHitPoints : hp;
 
       const posX = b.sprite ? b.sprite.x : (b.col * dims.cellSize);
       const posY = b.sprite ? b.sprite.y : (b.row * dims.cellSize);
@@ -993,12 +1296,7 @@ export class BallShooterSystem {
               width: 4,
               join: 'round',
             },
-            dropShadow: {
-              alpha: 0.7,
-              blur: 3,
-              color: 0x000000,
-              distance: 1.5,
-            },
+            dropShadow: false,
           },
         });
         text.eventMode = 'none';
@@ -1008,6 +1306,7 @@ export class BallShooterSystem {
         b.hpTextSprite = text;
       } else {
         b.hpTextSprite.text = String(hp);
+        b.hpTextSprite.style.dropShadow = false;
         b.hpTextSprite.position.set(centerX, centerY);
         b.hpTextSprite.visible = true;
       }

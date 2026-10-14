@@ -57,6 +57,8 @@ import {
   releaseNoGravityBlocksInRange,
 } from './noGravityRules.ts'
 import { getTriggeredVisibleFullRows } from './playbackRowRules.ts'
+import { fitCompleteBoard } from './boardCanvasFit.ts'
+import { planBallShooterLayout } from './ballShooterLayout'
 import {
   ballShooterSystem,
   BALL_SHOOTER_FIXED_LAYOUT,
@@ -687,7 +689,7 @@ function queueCustomPropStyle(style: unknown): void {
 
 
 
-const DEFAULT_BOARD_COLS = 11;
+const DEFAULT_BOARD_COLS = 10;
 const DEFAULT_BOARD_ROWS = 18;
 const DEFAULT_TOTAL_ROWS = 60;
 
@@ -2430,6 +2432,7 @@ function syncJewelryBoxUI(): void {
 // BALL SHOOTER MODE (弹珠打砖块模式)
 // ==========================================
 let isBallShooterMode = false;
+let boardBeforeBallShooter: { params: typeof PARAMS; blocks: BoardBlockState[]; worldY: number } | null = null;
 
 // ==========================================
 // CONCENTRIC OBSTACLE MODE (回型障碍模式)
@@ -4443,6 +4446,26 @@ function clearBallShooterBlocks(): void {
   });
 }
 
+function settleBallShooterLayout(): void {
+  const bottomRow = PARAMS.viewportRows - 3;
+  // Process the lowest bricks first. Each overlapping column supplies support;
+  // a long brick stays rigid and rests on the highest support under its span.
+  const settled: Block[] = [];
+  [...blocks].sort((a, b) => b.row - a.row || a.col - b.col).forEach(block => {
+    let row = bottomRow;
+    for (const support of settled) {
+      if (block.col < support.col + support.length && support.col < block.col + block.length) {
+        row = Math.min(row, support.row - 1);
+      }
+    }
+    // Generation only supplies valid non-overlapping rows, so settling cannot
+    // move a brick upward or remove it. It never clears full rows or changes HP.
+    block.row = Math.max(block.row, row);
+    if (block.sprite) block.sprite.y = block.row * PARAMS.cellSize;
+    settled.push(block);
+  });
+}
+
 function generateBallShooterBoard(): void {
   // Clear any existing visuals and blocks
   ballShooterSystem.clearAllVisuals();
@@ -4451,9 +4474,18 @@ function generateBallShooterBoard(): void {
   });
   blocks = [];
 
-  // Spawn fixed corridor layout (rows 1..15, leaving row 16..17 empty buffer, and rows 18..19 for bottom launcher)
+  // Spawn the corridor layout. Clamp the authored board to the current width so
+  // reducing the column count never leaves blocks outside the playable area.
+  // Remove optional top padding when fewer rows are available, leaving the
+  // final two rows clear for the launcher without distorting any cells.
+  const authoredLastRow = Math.max(...BALL_SHOOTER_FIXED_LAYOUT.map(def => def.row));
+  const topPaddingShift = Math.max(0, authoredLastRow - (PARAMS.viewportRows - 3));
   BALL_SHOOTER_FIXED_LAYOUT.forEach(def => {
-    const b = spawnBlock(def.col, def.row, def.length, def.color);
+    const remainingColumns = PARAMS.gridCols - def.col;
+    const length = Math.min(def.length, remainingColumns);
+    const row = def.row - topPaddingShift;
+    if (length <= 0 || row < 0 || row > PARAMS.viewportRows - 3) return;
+    const b = spawnBlock(def.col, row, length, def.color);
     if (b) {
       b.isBallShooterBlock = true;
       if (b.sprite) {
@@ -4463,13 +4495,25 @@ function generateBallShooterBoard(): void {
     }
   });
 
+  settleBallShooterLayout();
   // Assign randomized HP numbers
   ballShooterSystem.randomizeHPForBlocks(blocks);
   ballShooterSystem.updateCannonPosition();
+  captureBoardState();
 }
 
 function setBallShooterMode(enabled: boolean): void {
+  if (enabled === isBallShooterMode) return;
+  if (enabled) {
+    boardBeforeBallShooter = {
+      params: { ...PARAMS },
+      blocks: (isConcentricObstacleMode || isPastureLayerMode || isJewelryBoxMode) ? [] : captureCurrentBoardBlockStates(),
+      worldY: worldContainer?.y || 0,
+    };
+  }
   isBallShooterMode = enabled;
+  document.getElementById('board-wrapper')?.classList.toggle('ballshooter-live', enabled);
+  cancelBallShooterScoreAnimation();
   const panel = document.getElementById('ballshooter-settings-section');
   if (panel) {
     panel.style.display = enabled ? 'block' : 'none';
@@ -4493,10 +4537,10 @@ function setBallShooterMode(enabled: boolean): void {
     }
     isNoGravityMode = false;
 
-    // Set board dimensions to 11 cols x 20 rows (to cover full board frame down to bottom border)
-    const adaptiveRows = getAdaptiveConcentricRows(11);
-    const totalRows = Math.max(20, adaptiveRows);
-    PARAMS.gridCols = 11;
+    // The fixed 9:16 template fits approximately 17 square rows at 10 columns.
+    // Saved row counts are restored by loaders without discarding any bricks.
+    const totalRows = 17;
+    PARAMS.gridCols = DEFAULT_BOARD_COLS;
     PARAMS.viewportRows = totalRows;
     PARAMS.totalRows = totalRows;
     previewRenderRows = totalRows;
@@ -4504,9 +4548,9 @@ function setBallShooterMode(enabled: boolean): void {
     const inputColsEl = document.getElementById('input-cols') as HTMLInputElement | null;
     const sliderColsEl = document.getElementById('slider-cols') as HTMLInputElement | null;
     const valColsEl = document.getElementById('val-cols');
-    if (inputColsEl) inputColsEl.value = '11';
-    if (sliderColsEl) sliderColsEl.value = '11';
-    if (valColsEl) valColsEl.textContent = '11';
+    if (inputColsEl) inputColsEl.value = String(DEFAULT_BOARD_COLS);
+    if (sliderColsEl) sliderColsEl.value = String(DEFAULT_BOARD_COLS);
+    if (valColsEl) valColsEl.textContent = String(DEFAULT_BOARD_COLS);
 
     const inputVpRowsEl = document.getElementById('input-vprows') as HTMLInputElement | null;
     const sliderVpRowsEl = document.getElementById('slider-vprows') as HTMLInputElement | null;
@@ -4533,9 +4577,20 @@ function setBallShooterMode(enabled: boolean): void {
     drawGrid();
   } else {
     ballShooterSystem.setEnabled(false);
-    clearBallShooterBlocks();
+    clearAllBlocks();
+    const previous = boardBeforeBallShooter;
+    boardBeforeBallShooter = null;
+    if (previous) Object.assign(PARAMS, previous.params);
+    syncAllInputsFromParams();
     if (typeof (window as any).applyGridConfig === 'function') {
       (window as any).applyGridConfig();
+    }
+    if (previous?.blocks.length) {
+      previous.blocks.forEach(spawnRecordedBlockState);
+      setWorldY(previous.worldY);
+      captureBoardState();
+    } else if (assetsLoaded) {
+      generateRandomLayout();
     }
     drawGrid();
   }
@@ -4544,12 +4599,43 @@ function setBallShooterMode(enabled: boolean): void {
 }
 
 function initBallShooterUIListeners(): void {
+  const cannonFileInput = document.getElementById('input-ballshooter-cannon') as HTMLInputElement | null;
+  const btnUploadCannon = document.getElementById('btn-ballshooter-upload-cannon') as HTMLButtonElement | null;
+  const btnResetCannon = document.getElementById('btn-ballshooter-reset-cannon') as HTMLButtonElement | null;
+  const cannonValue = document.getElementById('val-ballshooter-cannon');
+
+  btnUploadCannon?.addEventListener('click', () => cannonFileInput?.click());
+  cannonFileInput?.addEventListener('change', () => {
+    const file = cannonFileInput.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('请上传 PNG、JPG 或 WebP 格式的炮台图片。');
+      cannonFileInput.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return;
+      ballShooterSystem.setCannonImage(reader.result);
+      if (cannonValue) cannonValue.textContent = '已上传';
+      if (btnResetCannon) btnResetCannon.style.display = '';
+    };
+    reader.readAsDataURL(file);
+  });
+  btnResetCannon?.addEventListener('click', () => {
+    ballShooterSystem.setCannonImage(null);
+    if (cannonFileInput) cannonFileInput.value = '';
+    if (cannonValue) cannonValue.textContent = '默认';
+    btnResetCannon.style.display = 'none';
+  });
+
   const sliderCount = document.getElementById('slider-ballshooter-count') as HTMLInputElement | null;
   const valCount = document.getElementById('val-ballshooter-count');
   if (sliderCount) {
     sliderCount.oninput = () => {
       const val = parseInt(sliderCount.value, 10) || 45;
-      ballShooterSystem.config.ballCount = val;
+      ballShooterSystem.setBallCount(val);
       if (valCount) valCount.textContent = String(val);
       ballShooterSystem.updateCannonPosition();
     };
@@ -5404,6 +5490,9 @@ interface BoardBlockState {
   pastureStage?: PastureLayerStage;
   isJewelryBox?: boolean;
   jewelryBoxState?: 'closed' | 'open';
+  isBallShooterBlock?: boolean;
+  hitPoints?: number;
+  maxHitPoints?: number;
 }
 
 function spawnRecordedBlockState(sb: BoardBlockState | any): Block | null {
@@ -5432,6 +5521,23 @@ function spawnRecordedBlockState(sb: BoardBlockState | any): Block | null {
     );
     if (blk) {
       createdBlock = blk;
+      if (isBallShooterMode && !blk.isProp) {
+        // Generic reset/load used to restore only gem sprites, leaving no HP
+        // labels or collision state. Restore both from the captured board.
+        blk.isBallShooterBlock = true;
+        blk.hitPoints = sb.hitPoints;
+        blk.maxHitPoints = sb.maxHitPoints;
+        if (blk.sprite) {
+          blk.sprite.eventMode = 'dynamic';
+          blk.sprite.cursor = 'grab';
+        }
+        // Old snapshots have no HP fields: initialize them once as a fallback.
+        ballShooterSystem.randomizeHPForBlocks([blk], true);
+        if (!Number.isFinite(sb.hitPoints) || sb.hitPoints <= 0) {
+          sb.hitPoints = blk.hitPoints;
+          sb.maxHitPoints = blk.maxHitPoints;
+        }
+      }
       if (sb.concentricLayer !== undefined && sb.concentricLayer !== null) {
         blk.concentricLayer = sb.concentricLayer;
         blk.propOrientation = sb.propOrientation;
@@ -5494,6 +5600,9 @@ function captureCurrentBoardBlockStates(): BoardBlockState[] {
     pastureStage: b.pastureStage,
     isJewelryBox: b.isJewelryBox,
     jewelryBoxState: b.jewelryBoxState,
+    isBallShooterBlock: b.isBallShooterBlock,
+    hitPoints: b.hitPoints,
+    maxHitPoints: b.maxHitPoints,
     concentricLayer: b.concentricLayer,
     concentricBuffer: b.concentricBuffer,
     propOrientation: b.propOrientation,
@@ -8566,7 +8675,10 @@ function captureBoardState() {
     concentricBuffer: b.concentricBuffer,
     propOrientation: b.propOrientation,
     isJewelryBox: b.isJewelryBox,
-    jewelryBoxState: b.jewelryBoxState
+    jewelryBoxState: b.jewelryBoxState,
+    isBallShooterBlock: b.isBallShooterBlock,
+    hitPoints: b.hitPoints,
+    maxHitPoints: b.maxHitPoints
   }));
 
   initialScrollY = worldContainer.y;
@@ -9065,6 +9177,7 @@ function restoreBoardState(options: { preserveWorldY?: boolean } = {}) {
   initialBoardBlocks.forEach(ib => {
     spawnRecordedBlockState(ib);
   });
+  if (isBallShooterMode) ballShooterSystem.updateCannonPosition();
 
   if (isConcentricObstacleMode) {
     currentConcentricLayerIndex = initialConcentricLayerIndex;
@@ -20509,6 +20622,16 @@ let recAudioDest: MediaStreamAudioDestinationNode | null = null;
 
 
 let audioSourcesInitialized = false;
+const recordingAudioSources = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+
+function connectAudioForRecording(audio: HTMLAudioElement) {
+  if (!audioCtx || !recAudioDest || recordingAudioSources.has(audio)) return;
+  audio.crossOrigin = 'anonymous';
+  const source = audioCtx.createMediaElementSource(audio);
+  source.connect(audioCtx.destination);
+  source.connect(recAudioDest);
+  recordingAudioSources.set(audio, source);
+}
 // Concentric rings can damage several bars in one wave.  Keep the shared
 // obstacle sound from being restarted repeatedly in the same instant.
 const concentricSoundLastPlayback = new WeakMap<HTMLAudioElement, number>();
@@ -20555,19 +20678,16 @@ function initAudioContext() {
 
 
 
-    audio.crossOrigin = "anonymous";
+    connectAudioForRecording(audio);
 
 
 
-    const source = audioCtx!.createMediaElementSource(audio);
 
 
 
-    source.connect(audioCtx!.destination);
 
 
 
-    source.connect(recAudioDest!);
 
 
 
@@ -20646,6 +20766,8 @@ function playSound(audio: HTMLAudioElement) {
 
 
   const startPlayback = () => {
+    // Include lazily created/replaced sounds, not just the initial sound pack.
+    connectAudioForRecording(audio);
 
 
 
@@ -22638,11 +22760,56 @@ function persistRecordingBackgroundState() {
   saveCustomSolidBackgroundColors();
 }
 
-function setScoreTextEverywhere(value: string) {
+let ballShooterScoreCounter: { value: number; target: number } | null = null;
+
+function cancelBallShooterScoreAnimation(): void {
+  if (!ballShooterScoreCounter) return;
+  gsap.killTweensOf(ballShooterScoreCounter);
+  ballShooterScoreCounter = null;
+}
+
+function setScoreTextEverywhere(value: string, fromBallShooterAnimation = false) {
+  // Manual score edits and other modes must not be overwritten by an old tween.
+  if (!fromBallShooterAnimation) cancelBallShooterScoreAnimation();
   const scoreEl = document.getElementById('score-val');
   const heartScoreEl = document.getElementById('heart-score-val');
   if (scoreEl) scoreEl.innerText = value;
   if (heartScoreEl) heartScoreEl.innerText = value;
+}
+
+function awardBallShooterBlockScore(block: Block): void {
+  // Only final destruction scores; non-fatal hits still just reduce HP.
+  const points = Number.isFinite(block.maxHitPoints) && (block.maxHitPoints || 0) > 0
+    ? Math.round(block.maxHitPoints!)
+    : Math.max(1, block.length) * 100;
+  const scoreText = document.getElementById('score-val')?.innerText
+    ?? (document.getElementById('input-score') as HTMLInputElement | null)?.value
+    ?? '0';
+  const parsed = Number.parseInt(scoreText.replace(/,/g, ''), 10);
+  const current = Number.isFinite(parsed) ? parsed : 0;
+  if (!ballShooterScoreCounter) {
+    ballShooterScoreCounter = { value: current, target: current };
+  }
+  const counter = ballShooterScoreCounter;
+  // Accumulate against the logical target, NOT the partially displayed score.
+  // Retarget from the current fractional value so dense kills never lose points
+  // or jump backwards. Each new destruction rolls to the total over 0.5s.
+  gsap.killTweensOf(counter);
+  counter.target += points;
+  gsap.to(counter, {
+    value: counter.target,
+    duration: 0.5,
+    ease: 'none',
+    onUpdate: () => {
+      if (ballShooterScoreCounter !== counter) return;
+      setScoreTextEverywhere(Math.round(counter.value).toLocaleString(), true);
+    },
+    onComplete: () => {
+      if (ballShooterScoreCounter !== counter) return;
+      setScoreTextEverywhere(counter.target.toLocaleString(), true);
+      ballShooterScoreCounter = null;
+    },
+  });
 }
 
 function syncTopUiModeButtons() {
@@ -23388,20 +23555,23 @@ async function init() {
   worldContainer.sortableChildren = true;
 
   // Initialize Ball Shooter System
+  const ballShooterShatterSound = new Audio(soundShatterUrl);
+  ballShooterShatterSound.volume = 0.5;
+  ballShooterSystem.setSoundPlayer(playSound);
   ballShooterSystem.init(
     app,
     worldContainer,
     document.getElementById('board-wrapper'),
     () => blocks,
     (block) => {
+      if (!isBallShooterMode || !blocks.includes(block)) return;
+      awardBallShooterBlockScore(block);
       // Play row shatter / block break effect
       const colsSet = new Set<number>();
       for (let c = 0; c < block.length; c++) colsSet.add(block.col + c);
       playRowShatterEffect(block.row, block.color, [block], new Set(), colsSet);
       try {
-        const audio = new Audio(soundShatterUrl);
-        audio.volume = 0.5;
-        audio.play().catch(() => {});
+        playSound(ballShooterShatterSound);
       } catch {}
       if (block.sprite && block.sprite.parent) {
         blocksContainer.removeChild(block.sprite);
@@ -24364,6 +24534,8 @@ function drawGrid() {
   gridGraphics.clear();
 
   const w = PARAMS.gridCols * PARAMS.cellSize;
+  // The launcher permanently owns the last two rows, including while editing.
+  // Row 0 remains part of the editable brick area.
   const effectiveRows = isBallShooterMode ? (PARAMS.viewportRows - 2) : PARAMS.totalRows;
   const h = effectiveRows * PARAMS.cellSize;
 
@@ -25137,7 +25309,7 @@ function drawHoles() {
 
 
     for (let r = 0; r < PARAMS.totalRows; r++) {
-      if (isBallShooterMode && (r < 1 || r > PARAMS.viewportRows - 5)) continue;
+      if (isBallShooterMode && r > PARAMS.viewportRows - 3) continue;
 
       for (let c = 0; c < PARAMS.gridCols; c++) {
 
@@ -29079,6 +29251,7 @@ function spawnBlock(col: number, row: number, length: number, color: string, id?
 
 
 function clearAllBlocks() {
+  cancelBallShooterScoreAnimation();
   if (isBallShooterMode && typeof ballShooterSystem !== 'undefined') {
     ballShooterSystem.clearAllVisuals();
   }
@@ -35009,7 +35182,7 @@ function setupInteraction() {
 
 
     if (col >= 0 && col < PARAMS.gridCols && row >= 0 && row < PARAMS.totalRows) {
-      if (isBallShooterMode && (row < 1 || row > PARAMS.viewportRows - 5)) return;
+      if (isBallShooterMode && row > PARAMS.viewportRows - 3) return;
 
       if (currentMode === 'board-edit') {
 
@@ -36897,6 +37070,7 @@ function getBoardCanvasContentSize() {
 function getMasterBoardCanvasRect(width: number, height: number) {
   const boardBox = getMasterBoardContentRect(width, height);
   const contentSize = getBoardCanvasContentSize();
+  if (isBallShooterMode) return fitCompleteBoard(boardBox, contentSize.w, contentSize.h);
   return fitRectToFixedWidthPreserveAspect(boardBox, contentSize.w, contentSize.h);
 }
 
@@ -37944,6 +38118,20 @@ function positionPreviewCanvasInMaster() {
 
   const canvas = app.canvas as HTMLCanvasElement;
 
+  // Width-only CSS fitting hid the bottom of 10-column Ball Shooter boards.
+  // Use one scale for both axes, exposing every column and the bottom launcher.
+  if (isBallShooterMode) {
+    const rect = fitCompleteBoard(
+      { x: 0, y: 0, w: boardClip.clientWidth, h: boardClip.clientHeight },
+      canvas.width, canvas.height,
+    );
+    canvas.style.left = `${rect.x}px`;
+    canvas.style.top = `${rect.y}px`;
+    canvas.style.width = `${rect.w}px`;
+    canvas.style.height = `${rect.h}px`;
+    return;
+  }
+
   const targetWidth = boardClip.clientWidth;
 
   const cssScale = targetWidth / Math.max(1, canvas.width);
@@ -38903,7 +39091,7 @@ function setupDOMUI() {
     });
 
     if (isBallShooterMode && typeof ballShooterSystem !== 'undefined') {
-      ballShooterSystem.updateCannonPosition();
+      ballShooterSystem.handleBoardResize();
     }
   }
 
@@ -40596,6 +40784,13 @@ function setupDOMUI() {
       return;
     }
 
+    if (isBallShooterMode) {
+      // Repartition the painted layout and settle within the brick area, rather
+      // than running ordinary gravity into the reserved launcher rows.
+      btnGenerate.click();
+      return;
+    }
+
 
 
     generateRandomLayout();
@@ -40651,20 +40846,23 @@ function setupDOMUI() {
     console.log('After resetAndApplyActiveModeStyle, blocks count:', blocks.length);
 
     if (isBallShooterMode) {
-      const maxAllowedRow = PARAMS.viewportRows - 5;
-      blocks.filter(b => b.row > maxAllowedRow || b.row < 1).forEach(b => {
+      const maxAllowedRow = PARAMS.viewportRows - 3;
+      blocks.filter(b => b.row > maxAllowedRow || b.row < 0).forEach(b => {
         if (b.sprite && b.sprite.parent) blocksContainer.removeChild(b.sprite);
       });
-      blocks = blocks.filter(b => b.row <= maxAllowedRow && b.row >= 1);
+      blocks = blocks.filter(b => b.row <= maxAllowedRow && b.row >= 0);
       blocks.forEach(b => {
+        b.isBallShooterBlock = true;
         if (b.sprite) {
           b.sprite.eventMode = 'dynamic';
           b.sprite.cursor = 'grab';
         }
       });
       ballShooterSystem.clearAllVisuals();
+      settleBallShooterLayout();
       ballShooterSystem.randomizeHPForBlocks(blocks);
       ballShooterSystem.updateCannonPosition();
+      captureBoardState();
     }
   };
 
@@ -40674,11 +40872,13 @@ function setupDOMUI() {
 
 
 
+  let layoutDrawBackupMask: boolean[][] = [];
   btnDraw.onclick = () => {
     if (!assetsLoaded) {
       alert('游戏资源正在后台加载，请稍候');
       return;
     }
+    layoutDrawBackupMask = normalizeBooleanMask(layoutDrawMask);
     currentMode = 'draw';
     if (isBallShooterMode && typeof ballShooterSystem !== 'undefined') {
       ballShooterSystem.cancelAim();
@@ -40686,10 +40886,11 @@ function setupDOMUI() {
       ballShooterSystem.clearAllVisuals();
     }
     clearAllBlocks();
-    resetLayoutDrawMask();
+    // Re-enter the editor with the last completed drawing, not a blank mask.
     layoutDrawMask = normalizeBooleanMask(layoutDrawMask);
     bottomMenu.classList.add('hidden');
     drawMenu.classList.remove('hidden');
+    drawGrid();
     drawHoles();
     setWorldY(0);
     positionPreviewCanvasInMaster();
@@ -40708,54 +40909,28 @@ function setupDOMUI() {
     syncModeButtonsUI();
 
     if (isBallShooterMode) {
-      // In Ball Shooter mode, layoutDrawMask represents the bricks the user painted!
+      // In Ball Shooter mode, match the regular layout editor: painted cells
+      // are empty spaces, and unpainted cells become bricks.
+      const emptyMask = normalizeBooleanMask(layoutDrawMask);
+      // Row 0 is editable. The bottom two rows are permanently reserved for
+      // the cannon and must never receive bricks.
+      const plan = planBallShooterLayout(emptyMask, PARAMS.gridCols, PARAMS.viewportRows, PROBS);
+      if (plan.invalidRow !== null) {
+        currentMode = 'draw';
+        alert(`第 ${plan.invalidRow + 1} 行无法按当前轮廓生成有支撑的 1～4 格块，请调整该行下方的空白区域。你的绘制已保留。`);
+        return;
+      }
       clearAllBlocks();
-      const drawnMask = normalizeBooleanMask(layoutDrawMask);
-      const minRow = 1;
-      const maxRow = PARAMS.viewportRows - 5;
-      let hasAnyDrawnCell = false;
-
-      for (let r = minRow; r <= maxRow; r++) {
-        let c = 0;
-        while (c < PARAMS.gridCols) {
-          if (drawnMask[r] && drawnMask[r][c]) {
-            hasAnyDrawnCell = true;
-            let endCol = c;
-            while (endCol + 1 < PARAMS.gridCols && drawnMask[r][endCol + 1]) {
-              endCol++;
-            }
-            let totalLen = endCol - c + 1;
-            let curCol = c;
-            // Split contiguous segment into valid block lengths (1..4)
-            while (totalLen > 0) {
-              const blkLen = totalLen > 4 ? (totalLen % 2 === 0 ? 2 : 3) : totalLen;
-              const color = getRandomColor();
-              const b = spawnBlock(curCol, r, blkLen, color);
-              if (b) {
-                b.isBallShooterBlock = true;
-                if (b.sprite) {
-                  b.sprite.eventMode = 'dynamic';
-                  b.sprite.cursor = 'grab';
-                }
-              }
-              curCol += blkLen;
-              totalLen -= blkLen;
-            }
-            c = endCol + 1;
-          } else {
-            c++;
-          }
-        }
+      for (const def of plan.blocks) {
+        const b = spawnBlock(def.col, def.row, def.length, getRandomColor());
+        if (!b) continue;
+        b.isBallShooterBlock = true;
+        b.sprite.eventMode = 'dynamic';
+        b.sprite.cursor = 'grab';
       }
-
-      if (!hasAnyDrawnCell) {
-        // If user painted nothing, fallback to default fixed corridor layout
-        generateBallShooterBoard();
-      } else {
-        ballShooterSystem.clearAllVisuals();
-        ballShooterSystem.randomizeHPForBlocks(blocks);
-        ballShooterSystem.updateCannonPosition();
-      }
+      ballShooterSystem.clearAllVisuals();
+      ballShooterSystem.randomizeHPForBlocks(blocks);
+      ballShooterSystem.updateCannonPosition();
     } else {
       generateFromHoles();
       if (isNoGravityMode) {
@@ -40770,6 +40945,7 @@ function setupDOMUI() {
     drawMenu.classList.add('hidden');
     bottomMenu.classList.remove('hidden');
     holeGraphics.clear();
+    drawGrid();
     drawHoles(); // Switches back to play-mode rendering
     document.getElementById('game-over-text')!.style.display = 'none';
 
@@ -40782,10 +40958,11 @@ function setupDOMUI() {
 
   btnCancel.onclick = () => {
     currentMode = 'play';
-    resetLayoutDrawMask(); // Clear temporary layout mask
+    layoutDrawMask = normalizeBooleanMask(layoutDrawBackupMask);
     drawMenu.classList.add('hidden');
     bottomMenu.classList.remove('hidden');
     holeGraphics.clear();
+    drawGrid();
     drawBoardShapeBg();
     drawHoles(); // Keep board shape visible
     document.getElementById('game-over-text')!.style.display = 'none';
@@ -45242,6 +45419,18 @@ function setupDOMUI() {
 
 
   btnFixedSave.onclick = () => {
+    if (!assetsLoaded) {
+      alert('游戏资源正在后台加载，请稍候再保存固定排面。');
+      return;
+    }
+    if (currentMode === 'draw') {
+      alert('正在画排面，请先点击「完成画面」生成砖块，再保存固定排面。');
+      return;
+    }
+    if (blocks.length === 0) {
+      alert('当前排面没有砖块，未保存，也不会覆盖已有存档。请先生成排面。');
+      return;
+    }
 
 
 
@@ -45296,7 +45485,12 @@ function setupDOMUI() {
       concentricLayer: b.concentricLayer,
       concentricBuffer: b.concentricBuffer,
       collectibleId: b.collectibleId,
-      pastureStage: b.pastureStage
+      pastureStage: b.pastureStage,
+      isJewelryBox: b.isJewelryBox,
+      jewelryBoxState: b.jewelryBoxState,
+      isBallShooterBlock: b.isBallShooterBlock,
+      hitPoints: b.hitPoints,
+      maxHitPoints: b.maxHitPoints
 
 
 
@@ -45318,6 +45512,7 @@ function setupDOMUI() {
 
       blocks: savedBlocks,
 
+      isBallShooterMode,
       isConcentricObstacleMode,
       concentricConfig: isConcentricObstacleMode ? { ...concentricConfig } : undefined,
       currentConcentricLayerIndex: isConcentricObstacleMode ? currentConcentricLayerIndex : undefined,
@@ -45432,7 +45627,21 @@ function setupDOMUI() {
 
 
 
-      const saveData = loadJsonFromStorage<any>(`blockPuzzleFixedSave_${name}`, `固定排面存档?{name}`);
+      const saveData = loadJsonFromStorage<any>(`blockPuzzleFixedSave_${name}`, `固定排面存档 ${name}`);
+
+      // Validate BEFORE clearing the live board. Older builds could save an
+      // empty drawing/loading board and then report a misleading load success.
+      if (!saveData) return;
+      const savedBlocks = Array.isArray(saveData.blocks) && saveData.blocks.length > 0
+        ? saveData.blocks
+        : (Array.isArray(saveData.initialBlocks) ? saveData.initialBlocks : []);
+      if (savedBlocks.length === 0) {
+        alert(`固定排面「${name}」没有砖块数据，无法恢复原排面。当前画面和存档未改动；如有导出的 JSON 或备份，请从本地文件导入。`);
+        return;
+      }
+      if (typeof saveData.isBallShooterMode === 'boolean' && saveData.isBallShooterMode !== isBallShooterMode) {
+        setBallShooterMode(saveData.isBallShooterMode);
+      }
 
 
 
@@ -45533,7 +45742,7 @@ function setupDOMUI() {
 
 
 
-      const savedBlocks = Array.isArray(saveData.blocks) ? saveData.blocks : [];
+      // savedBlocks has already been validated without touching the live board.
 
 
 
@@ -45610,10 +45819,11 @@ function setupDOMUI() {
       // A fixed concentric layout already contains its saved ring state.
       // Running instant physics here would apply an extra obstacle hit during
       // load and make the restored board differ from the saved board.
-      if (!isConcentricObstacleMode) {
+      if (!isConcentricObstacleMode && !isBallShooterMode) {
         preventFullRows();
         runPhysicsInstant();
       }
+      if (isBallShooterMode) ballShooterSystem.updateCannonPosition();
 
 
 
@@ -45637,7 +45847,7 @@ function setupDOMUI() {
 
 
 
-      alert(`成功读取固定排面存档?{name}`);
+      alert(`成功读取固定排面存档：${name}`);
 
 
 
@@ -48028,7 +48238,8 @@ function startRecording(): Promise<boolean> {
 
 
 
-        ? parseFloat(getComputedStyle(headerItems[0]).fontSize) * (width / MASTER_UI.width)
+        ? parseFloat(getComputedStyle(headerItems[0]).fontSize) *
+          (width / Math.max(1, boardWrapper?.offsetWidth || MASTER_UI.width))
 
 
 
@@ -52636,6 +52847,18 @@ function syncBoardFrameToGrid() {
   const boardWrapper = document.getElementById('board-wrapper');
 
   if (!boardWrapper) return;
+
+  // CSS max-width can shrink an auto-width frame without reducing its fixed
+  // height. Fit both dimensions together so the preview is truly 9:16 too.
+  const container = document.getElementById('canvas-container');
+  if (container) {
+    const width = Math.min(container.clientWidth * 0.98, container.clientHeight * 0.98 * 9 / 16);
+    boardWrapper.style.width = `${width}px`;
+    boardWrapper.style.height = `${width * 16 / 9}px`;
+  } else {
+    boardWrapper.style.removeProperty('width');
+    boardWrapper.style.removeProperty('height');
+  }
 
 
 

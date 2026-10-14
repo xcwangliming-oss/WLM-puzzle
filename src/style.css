@@ -105,7 +105,7 @@ body:not(.is-playable) #tab-level {
   background: rgba(31, 39, 83, 0.7);
   border: 4px solid rgba(32, 43, 97, 0.7);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: none;
 }
 
 #game-header {
@@ -139,6 +139,11 @@ body:not(.is-playable) #tab-level {
 
 .header-item:first-child {
   text-align: left;
+}
+
+/* Flat HUD text in Ball Shooter; preserve other modes' header styling. */
+#board-wrapper.ballshooter-live #game-header .header-item {
+  text-shadow: none;
 }
 
 .header-item:last-child {
